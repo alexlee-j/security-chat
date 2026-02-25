@@ -1,0 +1,33 @@
+import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
+import { AppController } from './app.controller';
+import { AppService } from './app.service';
+import { DatabaseModule } from './infra/database/database.module';
+import { RedisModule } from './infra/redis/redis.module';
+import { AuthModule } from './modules/auth/auth.module';
+import { BurnModule } from './modules/burn/burn.module';
+import { ConversationModule } from './modules/conversation/conversation.module';
+import { FriendModule } from './modules/friend/friend.module';
+import { MessageModule } from './modules/message/message.module';
+import { NotificationModule } from './modules/notification/notification.module';
+import { SecurityModule } from './modules/security/security.module';
+import { UserModule } from './modules/user/user.module';
+
+@Module({
+  imports: [
+    ConfigModule.forRoot({ isGlobal: true }),
+    DatabaseModule,
+    RedisModule,
+    AuthModule,
+    UserModule,
+    FriendModule,
+    ConversationModule,
+    MessageModule,
+    BurnModule,
+    NotificationModule,
+    SecurityModule,
+  ],
+  controllers: [AppController],
+  providers: [AppService],
+})
+export class AppModule {}

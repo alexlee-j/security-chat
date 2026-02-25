@@ -1,0 +1,15 @@
+{
+  "name": "security-chat",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Security chat monorepo",
+  "scripts": {
+    "build:backend": "pnpm --filter @security-chat/backend build",
+    "build:desktop": "pnpm --filter @security-chat/desktop build",
+    "build:mobile": "pnpm --filter @security-chat/mobile typecheck",
+    "start:backend": "pnpm --filter @security-chat/backend start",
+    "start:backend:dev": "pnpm --filter @security-chat/backend start:dev",
+    "start:desktop": "pnpm --filter @security-chat/desktop dev",
+    "start:mobile": "pnpm --filter @security-chat/mobile start"
+  }
+}

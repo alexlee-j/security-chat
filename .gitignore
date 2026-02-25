@@ -1,0 +1,8 @@
+node_modules
+.pnpm-store
+.env.local
+.DS_Store
+dist
+coverage
+apps/backend/.nestjs
+apps/backend/node_modules
