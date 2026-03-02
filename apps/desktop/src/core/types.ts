@@ -17,6 +17,8 @@ export type AuthResult = {
 export type ConversationListItem = {
   conversationId: string;
   type: number;
+  defaultBurnEnabled: boolean;
+  defaultBurnDuration: number | null;
   unreadCount: number;
   peerUser: { userId: string; username: string; avatarUrl: string | null } | null;
   lastMessage: {
@@ -24,6 +26,7 @@ export type ConversationListItem = {
     messageIndex: string;
     senderId: string;
     messageType: number;
+    encryptedPayload: string;
     isBurn: boolean;
     deliveredAt: string | null;
     readAt: string | null;
@@ -38,6 +41,7 @@ export type MessageItem = {
   messageType: number;
   encryptedPayload: string;
   nonce: string;
+  mediaAssetId: string | null;
   messageIndex: string;
   isBurn: boolean;
   burnDuration: number | null;

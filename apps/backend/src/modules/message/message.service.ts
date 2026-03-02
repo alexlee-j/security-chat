@@ -1,13 +1,24 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, EntityManager, Repository } from 'typeorm';
 import { ConversationService } from '../conversation/conversation.service';
+import { Conversation } from '../conversation/entities/conversation.entity';
+import { MediaAsset } from '../media/entities/media-asset.entity';
 import { Message } from './entities/message.entity';
+import { DraftMessage } from './entities/draft-message.entity';
 import { SendMessageDto } from './dto/send-message.dto';
 import { QueryMessagesDto } from './dto/query-messages.dto';
 import { AckDeliveredDto } from './dto/ack-delivered.dto';
 import { AckReadDto } from './dto/ack-read.dto';
+import { AckReadOneDto } from './dto/ack-read-one.dto';
+import { AckRevokeDto } from './dto/ack-revoke.dto';
+import { ForwardMessageDto } from './dto/forward-message.dto';
+import { SaveDraftDto, GetDraftDto, DeleteDraftDto } from './dto/draft-message.dto';
+import { SearchMessagesDto } from './dto/search-messages.dto';
 import { MessageGateway } from './gateways/message.gateway';
+import { NotificationService } from '../notification/notification.service';
+import Redis from 'ioredis';
+import { REDIS_CLIENT } from '../../infra/redis/redis.module';
 
 type ExpiredBurnRow = {
   id: string;
@@ -21,8 +32,26 @@ type ExpiredBurnRowRaw = {
   conversationid?: string;
 };
 
+type MessageSearchRow = {
+  messageId: string;
+  conversationId: string;
+  senderId: string;
+  messageType: number;
+  messageIndex: string;
+  isBurn: boolean;
+  burnDuration: number | null;
+  isRevoked: boolean;
+  deliveredAt?: Date | string | null;
+  deliveredat?: Date | string | null;
+  readAt?: Date | string | null;
+  readat?: Date | string | null;
+  createdAt?: Date | string | null;
+  createdat?: Date | string | null;
+};
+
 @Injectable()
 export class MessageService implements OnModuleInit, OnModuleDestroy {
+  private static readonly ALLOWED_BURN_DURATIONS = new Set([5, 10, 30, 60, 300]);
   private readonly logger = new Logger(MessageService.name);
   private burnSweepTimer: NodeJS.Timeout | null = null;
   private burnSweepRunning = false;
@@ -30,17 +59,22 @@ export class MessageService implements OnModuleInit, OnModuleDestroy {
   constructor(
     @InjectRepository(Message)
     private readonly messageRepository: Repository<Message>,
+    @InjectRepository(DraftMessage)
+    private readonly draftRepository: Repository<DraftMessage>,
     private readonly dataSource: DataSource,
     private readonly conversationService: ConversationService,
     private readonly messageGateway: MessageGateway,
+    private readonly notificationService: NotificationService,
+    @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {}
 
   onModuleInit(): void {
     // Proactively clean expired burn messages so clients receive burn.triggered
     // without requiring a conversation refresh.
+    // Optimized: Reduced interval from 1s to 10s to reduce database load
     this.burnSweepTimer = setInterval(() => {
       void this.sweepExpiredBurnMessages();
-    }, 1000);
+    }, 10000);
   }
 
   onModuleDestroy(): void {
@@ -56,7 +90,23 @@ export class MessageService implements OnModuleInit, OnModuleDestroy {
   ): Promise<{ messageId: string; messageIndex: string }> {
     await this.conversationService.assertMember(dto.conversationId, senderId);
 
+    if (dto.messageType === 1 && dto.mediaAssetId) {
+      throw new BadRequestException('Text message must not include mediaAssetId');
+    }
+
     const sent = await this.dataSource.transaction(async (manager) => {
+      const burnSettings = await this.resolveBurnSettings(
+        manager,
+        dto.conversationId,
+        dto.messageType,
+        dto.isBurn,
+        dto.burnDuration,
+      );
+
+      const mediaAssetId = dto.mediaAssetId
+        ? await this.assertAndBindMediaAsset(manager, senderId, dto.conversationId, dto.messageType, dto.mediaAssetId)
+        : null;
+
       await manager.query(
         'SELECT pg_advisory_xact_lock(hashtext($1));',
         [dto.conversationId],
@@ -75,6 +125,15 @@ export class MessageService implements OnModuleInit, OnModuleDestroy {
         },
       });
       if (existed) {
+        const samePayload =
+          existed.messageType === dto.messageType &&
+          existed.encryptedPayload === dto.encryptedPayload &&
+          (existed.mediaAssetId ?? null) === (mediaAssetId ?? null) &&
+          existed.isBurn === burnSettings.isBurn &&
+          (existed.burnDuration ?? null) === (burnSettings.burnDuration ?? null);
+        if (!samePayload) {
+          throw new BadRequestException('Replay nonce conflict detected');
+        }
         return {
           conversationId: dto.conversationId,
           messageId: existed.id,
@@ -93,9 +152,10 @@ export class MessageService implements OnModuleInit, OnModuleDestroy {
         messageType: dto.messageType,
         encryptedPayload: dto.encryptedPayload,
         nonce: dto.nonce,
+        mediaAssetId,
         messageIndex: nextIndex,
-        isBurn: dto.isBurn,
-        burnDuration: dto.burnDuration ?? null,
+        isBurn: burnSettings.isBurn,
+        burnDuration: burnSettings.burnDuration,
       });
 
       const saved = await manager.save(Message, message);
@@ -110,6 +170,15 @@ export class MessageService implements OnModuleInit, OnModuleDestroy {
     });
 
     if (!sent.deduped) {
+      // 异步处理WebSocket事件和通知，避免阻塞主流程
+      void this.handleMessageSentEvent(sent, senderId);
+    }
+
+    return { messageId: sent.messageId, messageIndex: sent.messageIndex };
+  }
+
+  private async handleMessageSentEvent(sent: any, senderId: string): Promise<void> {
+    try {
       this.messageGateway.emitMessageSent(sent.conversationId, {
         messageId: sent.messageId,
         messageIndex: sent.messageIndex,
@@ -121,16 +190,52 @@ export class MessageService implements OnModuleInit, OnModuleDestroy {
         conversationId: sent.conversationId,
         reason: 'message.sent',
       });
-    }
 
-    return { messageId: sent.messageId, messageIndex: sent.messageIndex };
+      // Create notifications for all other members
+      const notificationDtos = memberUserIds
+        .filter(memberUserId => memberUserId !== senderId)
+        .map(memberUserId => ({
+          userId: memberUserId,
+          type: 'message' as const,
+          title: 'New Message',
+          body: 'You have a new message',
+          data: {
+            conversationId: sent.conversationId,
+            messageId: sent.messageId,
+            senderId: sent.senderId,
+          },
+        }));
+
+      if (notificationDtos.length > 0) {
+        await this.notificationService.createBatchNotifications(notificationDtos);
+      }
+    } catch (error) {
+      this.logger.warn('Failed to handle message sent event:', error);
+    }
   }
 
   async queryMessages(userId: string, query: QueryMessagesDto): Promise<Message[]> {
     await this.conversationService.assertMember(query.conversationId, userId);
-    await this.cleanupExpiredBurnMessages(query.conversationId);
+    // Optimized: Moved cleanup to background to improve query performance
+    void this.cleanupExpiredBurnMessages(query.conversationId);
     const afterIndex = query.afterIndex ?? 0;
-    const limit = query.limit ?? 50;
+    const beforeIndex = query.beforeIndex ?? 0;
+    const limit = Math.min(query.limit ?? 50, 100); // Optimized: Added upper limit to prevent excessive data fetching
+
+    if (afterIndex > 0 && beforeIndex > 0) {
+      throw new BadRequestException('afterIndex and beforeIndex cannot be used together');
+    }
+
+    if (beforeIndex > 0) {
+      const olderRows = await this.messageRepository
+        .createQueryBuilder('m')
+        .where('m.conversationId = :conversationId', { conversationId: query.conversationId })
+        .andWhere('m.messageIndex < :beforeIndex', { beforeIndex: String(beforeIndex) })
+        .orderBy('m.messageIndex', 'DESC')
+        .limit(limit)
+        .getMany();
+      return olderRows.reverse();
+    }
 
     if (afterIndex <= 0) {
       const latestRows = await this.messageRepository
@@ -149,6 +254,65 @@ export class MessageService implements OnModuleInit, OnModuleDestroy {
       .orderBy('m.messageIndex', 'ASC')
       .limit(limit)
       .getMany();
+  }
+
+  private async resolveBurnSettings(
+    manager: EntityManager,
+    conversationId: string,
+    messageType: number,
+    requestedIsBurn: boolean | undefined,
+    requestedBurnDuration: number | null | undefined,
+  ): Promise<{ isBurn: boolean; burnDuration: number | null }> {
+    const normalizedBurnDuration = requestedBurnDuration ?? undefined;
+    const ensureSupportedType = (): void => {
+      if (![1, 2, 3].includes(messageType)) {
+        throw new BadRequestException('Burn message supports only text/image/audio');
+      }
+    };
+
+    const ensureDurationAllowed = (duration: number | null | undefined): number => {
+      if (!duration) {
+        throw new BadRequestException('burnDuration is required for burn message');
+      }
+      if (!MessageService.ALLOWED_BURN_DURATIONS.has(duration)) {
+        throw new BadRequestException('burnDuration must be one of 5,10,30,60,300');
+      }
+      return duration;
+    };
+
+    if (requestedIsBurn === true) {
+      ensureSupportedType();
+      return {
+        isBurn: true,
+        burnDuration: ensureDurationAllowed(normalizedBurnDuration),
+      };
+    }
+
+    if (requestedIsBurn === false) {
+      if (normalizedBurnDuration !== undefined) {
+        throw new BadRequestException('burnDuration is only allowed when isBurn=true');
+      }
+      return { isBurn: false, burnDuration: null };
+    }
+
+    if (normalizedBurnDuration !== undefined) {
+      throw new BadRequestException('burnDuration is only allowed when isBurn=true');
+    }
+
+    const conversation = await manager.findOne(Conversation, {
+      where: { id: conversationId },
+      select: ['id', 'defaultBurnEnabled', 'defaultBurnDuration'],
+    });
+
+    if (!conversation || !conversation.defaultBurnEnabled) {
+      return { isBurn: false, burnDuration: null };
+    }
+
+    ensureSupportedType();
+    return {
+      isBurn: true,
+      burnDuration: ensureDurationAllowed(conversation.defaultBurnDuration),
+    };
   }
 
   private async cleanupExpiredBurnMessages(conversationId: string): Promise<void> {
@@ -191,11 +355,41 @@ export class MessageService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async listConversationMemberUserIds(conversationId: string): Promise<string[]> {
+    // 尝试从缓存获取
+    const cacheKey = `conversation:${conversationId}:members`;
+    try {
+      const cached = await this.redis.get(cacheKey);
+      if (cached) {
+        return JSON.parse(cached);
+      }
+    } catch (error) {
+      this.logger.warn('Failed to get conversation members from cache:', error);
+    }
+
+    // 缓存未命中，从数据库查询
     const rows = await this.dataSource.query(
       `SELECT user_id::text AS user_id FROM conversation_members WHERE conversation_id = $1;`,
       [conversationId],
     );
-    return (rows as Array<{ user_id?: string }>).map((row) => row.user_id ?? '').filter(Boolean);
+    const members = (rows as Array<{ user_id?: string }>).map((row) => row.user_id ?? '').filter(Boolean);
+
+    // 存入缓存，过期时间5分钟
+    try {
+      await this.redis.set(cacheKey, JSON.stringify(members), 'EX', 300);
+    } catch (error) {
+      this.logger.warn('Failed to set conversation members to cache:', error);
+    }
+
+    return members;
+  }
+
+  private async clearConversationMembersCache(conversationId: string): Promise<void> {
+    const cacheKey = `conversation:${conversationId}:members`;
+    try {
+      await this.redis.del(cacheKey);
+    } catch (error) {
+      this.logger.warn('Failed to clear conversation members cache:', error);
+    }
   }
 
   private async listConversationMemberUserIdsMap(conversationIds: string[]): Promise<Map<string, string[]>> {
@@ -204,24 +398,52 @@ export class MessageService implements OnModuleInit, OnModuleDestroy {
       return membersMap;
     }
 
-    const rows = await this.dataSource.query(
-      `
-      SELECT conversation_id::text AS conversation_id, user_id::text AS user_id
-      FROM conversation_members
-      WHERE conversation_id = ANY($1::uuid[]);
-      `,
-      [conversationIds],
-    );
-
-    for (const row of rows as Array<{ conversation_id?: string; user_id?: string }>) {
-      const conversationId = row.conversation_id ?? '';
-      const userId = row.user_id ?? '';
-      if (!conversationId || !userId) {
-        continue;
+    // 尝试从缓存获取
+    const cachePromises = conversationIds.map(async (conversationId) => {
+      const cacheKey = `conversation:${conversationId}:members`;
+      try {
+        const cached = await this.redis.get(cacheKey);
+        if (cached) {
+          membersMap.set(conversationId, JSON.parse(cached));
+          return true;
+        }
+      } catch (error) {
+        this.logger.warn(`Failed to get conversation ${conversationId} members from cache:`, error);
       }
-      const current = membersMap.get(conversationId) ?? [];
-      current.push(userId);
-      membersMap.set(conversationId, current);
+      return false;
+    });
+
+    const cacheResults = await Promise.all(cachePromises);
+    const uncachedIds = conversationIds.filter((_, index) => !cacheResults[index]);
+
+    if (uncachedIds.length > 0) {
+      const rows = await this.dataSource.query(
+        `
+        SELECT conversation_id::text AS conversation_id, user_id::text AS user_id
+        FROM conversation_members
+        WHERE conversation_id = ANY($1::uuid[]);
+        `,
+        [uncachedIds],
+      );
+
+      for (const row of rows as Array<{ conversation_id?: string; user_id?: string }>) {
+        const conversationId = row.conversation_id ?? '';
+        const userId = row.user_id ?? '';
+        if (!conversationId || !userId) {
+          continue;
+        }
+        const current = membersMap.get(conversationId) ?? [];
+        current.push(userId);
+        membersMap.set(conversationId, current);
+
+        // 存入缓存
+        try {
+          const cacheKey = `conversation:${conversationId}:members`;
+          await this.redis.set(cacheKey, JSON.stringify(current), 'EX', 300);
+        } catch (error) {
+          this.logger.warn(`Failed to set conversation ${conversationId} members to cache:`, error);
+        }
+      }
     }
 
     return membersMap;
@@ -240,9 +462,17 @@ export class MessageService implements OnModuleInit, OnModuleDestroy {
         SELECT m.id, m.conversation_id
         FROM messages m
         WHERE m.is_burn = true
-          AND m.read_at IS NOT NULL
-          AND m.burn_duration IS NOT NULL
-          AND m.read_at + (m.burn_duration || ' seconds')::interval <= CURRENT_TIMESTAMP
+          AND (
+            (
+              m.read_at IS NOT NULL
+              AND m.burn_duration IS NOT NULL
+              AND m.read_at + (m.burn_duration || ' seconds')::interval <= CURRENT_TIMESTAMP
+            )
+            OR (
+              m.read_at IS NULL
+              AND m.created_at <= CURRENT_TIMESTAMP - interval '24 hours'
+            )
+          )
           ${conversationFilter}
         FOR UPDATE SKIP LOCKED
       )
@@ -262,6 +492,40 @@ export class MessageService implements OnModuleInit, OnModuleDestroy {
       .filter((row) => row.id && row.conversationId);
   }
 
+  private async assertAndBindMediaAsset(
+    manager: EntityManager,
+    senderId: string,
+    conversationId: string,
+    messageType: number,
+    mediaAssetId: string,
+  ): Promise<string> {
+    const asset = await manager.findOne(MediaAsset, {
+      where: { id: mediaAssetId },
+    });
+    if (!asset) {
+      throw new BadRequestException('mediaAsset not found');
+    }
+
+    if (asset.uploaderId !== senderId) {
+      throw new BadRequestException('mediaAsset uploader mismatch');
+    }
+
+    if (asset.mediaKind !== messageType) {
+      throw new BadRequestException('mediaAsset type mismatch');
+    }
+
+    if (asset.conversationId && asset.conversationId !== conversationId) {
+      throw new BadRequestException('mediaAsset already bound to another conversation');
+    }
+
+    if (!asset.conversationId) {
+      asset.conversationId = conversationId;
+      await manager.save(MediaAsset, asset);
+    }
+
+    return asset.id;
+  }
+
   async ackDelivered(userId: string, dto: AckDeliveredDto): Promise<{ deliveredCount: number }> {
     await this.conversationService.assertMember(dto.conversationId, userId);
     const maxIndex = String(dto.maxMessageIndex);
@@ -278,17 +542,8 @@ export class MessageService implements OnModuleInit, OnModuleDestroy {
 
     const deliveredCount = result.affected ?? 0;
     if (deliveredCount > 0) {
-      this.messageGateway.emitMessageDelivered(dto.conversationId, {
-        maxMessageIndex: maxIndex,
-        ackByUserId: userId,
-        deliveredCount,
-        ackAt: new Date().toISOString(),
-      });
-      const memberUserIds = await this.listConversationMemberUserIds(dto.conversationId);
-      this.messageGateway.emitConversationUpdated(memberUserIds, {
-        conversationId: dto.conversationId,
-        reason: 'message.delivered',
-      });
+      // 异步处理WebSocket事件，避免阻塞主流程
+      void this.handleDeliveredEvent(dto.conversationId, maxIndex, userId, deliveredCount);
     }
     return { deliveredCount };
   }
@@ -307,23 +562,424 @@ export class MessageService implements OnModuleInit, OnModuleDestroy {
       .where('conversation_id = :conversationId', { conversationId: dto.conversationId })
       .andWhere('sender_id != :userId', { userId })
       .andWhere('message_index <= :maxIndex', { maxIndex })
+      .andWhere('NOT (is_burn = true AND message_type IN (2, 3))')
       .andWhere('read_at IS NULL')
       .execute();
 
     const readCount = result.affected ?? 0;
     if (readCount > 0) {
-      this.messageGateway.emitMessageRead(dto.conversationId, {
+      // 异步处理WebSocket事件，避免阻塞主流程
+      void this.handleReadEvent(dto.conversationId, maxIndex, userId, readCount);
+    }
+    return { readCount };
+  }
+
+  private async handleDeliveredEvent(conversationId: string, maxIndex: string, userId: string, deliveredCount: number): Promise<void> {
+    try {
+      this.messageGateway.emitMessageDelivered(conversationId, {
+        maxMessageIndex: maxIndex,
+        ackByUserId: userId,
+        deliveredCount,
+        ackAt: new Date().toISOString(),
+      });
+      const memberUserIds = await this.listConversationMemberUserIds(conversationId);
+      this.messageGateway.emitConversationUpdated(memberUserIds, {
+        conversationId: conversationId,
+        reason: 'message.delivered',
+      });
+    } catch (error) {
+      this.logger.warn('Failed to handle delivered event:', error);
+    }
+  }
+
+  private async handleReadEvent(conversationId: string, maxIndex: string, userId: string, readCount: number): Promise<void> {
+    try {
+      this.messageGateway.emitMessageRead(conversationId, {
         maxMessageIndex: maxIndex,
         ackByUserId: userId,
         readCount,
         ackAt: new Date().toISOString(),
       });
-      const memberUserIds = await this.listConversationMemberUserIds(dto.conversationId);
+      const memberUserIds = await this.listConversationMemberUserIds(conversationId);
       this.messageGateway.emitConversationUpdated(memberUserIds, {
-        conversationId: dto.conversationId,
+        conversationId: conversationId,
         reason: 'message.read',
       });
+    } catch (error) {
+      this.logger.warn('Failed to handle read event:', error);
     }
+  }
+
+  async ackReadOne(userId: string, dto: AckReadOneDto): Promise<{ readCount: number }> {
+    const message = await this.messageRepository.findOne({
+      where: { id: dto.messageId },
+      select: ['id', 'conversationId', 'senderId', 'messageIndex', 'readAt'],
+    });
+    if (!message) {
+      throw new NotFoundException('Message not found');
+    }
+
+    await this.conversationService.assertMember(message.conversationId, userId);
+
+    if (message.senderId === userId || message.readAt) {
+      return { readCount: 0 };
+    }
+
+    const result = await this.messageRepository
+      .createQueryBuilder()
+      .update(Message)
+      .set({
+        readAt: () => 'CURRENT_TIMESTAMP',
+        deliveredAt: () => 'COALESCE(delivered_at, CURRENT_TIMESTAMP)',
+      })
+      .where('id = :messageId', { messageId: dto.messageId })
+      .andWhere('read_at IS NULL')
+      .execute();
+
+    const readCount = result.affected ?? 0;
+    if (readCount > 0) {
+      // 异步处理WebSocket事件，避免阻塞主流程
+      void this.handleReadOneEvent(message, userId);
+    }
+
     return { readCount };
+  }
+
+  async revokeMessage(userId: string, dto: AckRevokeDto): Promise<{ revokedCount: number }> {
+    const message = await this.messageRepository.findOne({
+      where: { id: dto.messageId },
+      select: ['id', 'conversationId', 'senderId', 'messageIndex', 'isRevoked'],
+    });
+    if (!message) {
+      throw new NotFoundException('Message not found');
+    }
+
+    await this.conversationService.assertMember(message.conversationId, userId);
+
+    if (message.senderId !== userId) {
+      throw new BadRequestException('Only message sender can revoke message');
+    }
+
+    if (message.isRevoked) {
+      return { revokedCount: 0 };
+    }
+
+    const result = await this.messageRepository
+      .createQueryBuilder()
+      .update(Message)
+      .set({
+        isRevoked: true,
+        revokedAt: () => 'CURRENT_TIMESTAMP',
+      })
+      .where('id = :messageId', { messageId: dto.messageId })
+      .andWhere('is_revoked = false')
+      .execute();
+
+    const revokedCount = result.affected ?? 0;
+    if (revokedCount > 0) {
+      // 异步处理WebSocket事件，避免阻塞主流程
+      void this.handleRevokeEvent(message, userId);
+    }
+
+    return { revokedCount };
+  }
+
+  private async handleReadOneEvent(message: Message, userId: string): Promise<void> {
+    try {
+      this.messageGateway.emitMessageRead(message.conversationId, {
+        maxMessageIndex: String(message.messageIndex),
+        ackByUserId: userId,
+        readCount: 1,
+        ackAt: new Date().toISOString(),
+      });
+      const memberUserIds = await this.listConversationMemberUserIds(message.conversationId);
+      this.messageGateway.emitConversationUpdated(memberUserIds, {
+        conversationId: message.conversationId,
+        reason: 'message.read',
+      });
+    } catch (error) {
+      this.logger.warn('Failed to handle read one event:', error);
+    }
+  }
+
+  private async handleRevokeEvent(message: Message, userId: string): Promise<void> {
+    try {
+      this.messageGateway.emitMessageRevoked(message.conversationId, {
+        messageId: message.id,
+        messageIndex: String(message.messageIndex),
+        revokedByUserId: userId,
+        revokedAt: new Date().toISOString(),
+      });
+      const memberUserIds = await this.listConversationMemberUserIds(message.conversationId);
+      this.messageGateway.emitConversationUpdated(memberUserIds, {
+        conversationId: message.conversationId,
+        reason: 'message.revoked',
+      });
+    } catch (error) {
+      this.logger.warn('Failed to handle revoke event:', error);
+    }
+  }
+
+  async forwardMessage(userId: string, dto: ForwardMessageDto): Promise<{ messageId: string; messageIndex: string }> {
+    await this.conversationService.assertMember(dto.conversationId, userId);
+
+    const originalMessage = await this.messageRepository.findOne({
+      where: { id: dto.originalMessageId },
+      select: ['id', 'messageType', 'encryptedPayload', 'mediaAssetId', 'isBurn', 'burnDuration'],
+    });
+    if (!originalMessage) {
+      throw new NotFoundException('Original message not found');
+    }
+
+    const sent = await this.dataSource.transaction(async (manager) => {
+      const burnSettings = await this.resolveBurnSettings(
+        manager,
+        dto.conversationId,
+        originalMessage.messageType,
+        dto.isBurn,
+        dto.burnDuration,
+      );
+
+      const mediaAssetId = originalMessage.mediaAssetId
+        ? await this.cloneMediaAssetForForward(
+            manager,
+            userId,
+            dto.conversationId,
+            originalMessage.messageType,
+            originalMessage.mediaAssetId,
+          )
+        : null;
+
+      await manager.query(
+        'SELECT pg_advisory_xact_lock(hashtext($1));',
+        [dto.conversationId],
+      );
+
+      const result = await manager.query(
+        'SELECT COALESCE(MAX(message_index), 0) + 1 AS next_index FROM messages WHERE conversation_id = $1;',
+        [dto.conversationId],
+      );
+
+      const nextIndex = String(result[0].next_index);
+
+      const message = manager.create(Message, {
+        conversationId: dto.conversationId,
+        senderId: userId,
+        messageType: originalMessage.messageType,
+        encryptedPayload: originalMessage.encryptedPayload,
+        nonce: `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        mediaAssetId,
+        messageIndex: nextIndex,
+        isBurn: burnSettings.isBurn,
+        burnDuration: burnSettings.burnDuration,
+        isForwarded: true,
+        originalMessageId: originalMessage.id,
+      });
+
+      const saved = await manager.save(Message, message);
+      return {
+        conversationId: dto.conversationId,
+        messageId: saved.id,
+        messageIndex: nextIndex,
+        senderId: userId,
+        createdAt: saved.createdAt.toISOString(),
+      };
+    });
+
+    // 异步处理WebSocket事件，避免阻塞主流程
+    void this.handleMessageSentEvent(sent, userId);
+
+    return { messageId: sent.messageId, messageIndex: sent.messageIndex };
+  }
+
+  async saveDraft(userId: string, dto: SaveDraftDto): Promise<{ draftId: string }> {
+    await this.conversationService.assertMember(dto.conversationId, userId);
+
+    if (dto.messageType === 1 && dto.mediaAssetId) {
+      throw new BadRequestException('Text message must not include mediaAssetId');
+    }
+
+    const existingDraft = await this.draftRepository.findOne({
+      where: { userId, conversationId: dto.conversationId },
+    });
+
+    if (existingDraft) {
+      await this.draftRepository.update(existingDraft.id, {
+        messageType: dto.messageType,
+        encryptedPayload: dto.encryptedPayload,
+        nonce: dto.nonce,
+        mediaAssetId: dto.mediaAssetId || null,
+        isBurn: dto.isBurn || false,
+        burnDuration: dto.burnDuration || null,
+      });
+      return { draftId: existingDraft.id };
+    } else {
+      const draft = this.draftRepository.create({
+        userId,
+        conversationId: dto.conversationId,
+        messageType: dto.messageType,
+        encryptedPayload: dto.encryptedPayload,
+        nonce: dto.nonce,
+        mediaAssetId: dto.mediaAssetId || null,
+        isBurn: dto.isBurn || false,
+        burnDuration: dto.burnDuration || null,
+      });
+      const saved = await this.draftRepository.save(draft);
+      return { draftId: saved.id };
+    }
+  }
+
+  async getDraft(userId: string, dto: GetDraftDto): Promise<DraftMessage | null> {
+    await this.conversationService.assertMember(dto.conversationId, userId);
+
+    return this.draftRepository.findOne({
+      where: { userId, conversationId: dto.conversationId },
+    });
+  }
+
+  async deleteDraft(userId: string, dto: DeleteDraftDto): Promise<{ deleted: boolean }> {
+    await this.conversationService.assertMember(dto.conversationId, userId);
+
+    const result = await this.draftRepository.delete({
+      userId,
+      conversationId: dto.conversationId,
+    });
+
+    return { deleted: (result.affected || 0) > 0 };
+  }
+
+  async listDrafts(userId: string): Promise<DraftMessage[]> {
+    return this.draftRepository.find({
+      where: { userId },
+      order: { updatedAt: 'DESC' },
+    });
+  }
+
+  async searchMessages(userId: string, dto: SearchMessagesDto): Promise<Array<{
+    messageId: string;
+    conversationId: string;
+    senderId: string;
+    messageType: number;
+    messageIndex: string;
+    isBurn: boolean;
+    burnDuration: number | null;
+    isRevoked: boolean;
+    deliveredAt: string | null;
+    readAt: string | null;
+    createdAt: string;
+  }>> {
+    const limit = Math.min(dto.limit ?? 50, 100);
+    const offset = dto.offset ?? 0;
+
+    let query = this.messageRepository
+      .createQueryBuilder('m')
+      .leftJoin('conversation_members', 'cm', 'cm.conversation_id = m.conversation_id')
+      .where('cm.user_id = :userId', { userId });
+
+    if (dto.conversationId) {
+      await this.conversationService.assertMember(dto.conversationId, userId);
+      query = query.andWhere('m.conversation_id = :conversationId', { conversationId: dto.conversationId });
+    }
+
+    if (dto.startDate) {
+      query = query.andWhere('m.created_at >= :startDate', { startDate: dto.startDate });
+    }
+
+    if (dto.endDate) {
+      query = query.andWhere('m.created_at <= :endDate', { endDate: dto.endDate });
+    }
+
+    // 内容是端到端加密，服务端仅支持元数据检索。
+    const keyword = dto.keyword.trim();
+    if (keyword) {
+      const likeKeyword = `%${keyword}%`;
+      query = query.andWhere(
+        `
+          CAST(m.message_index AS TEXT) ILIKE :likeKeyword
+          OR CAST(m.message_type AS TEXT) ILIKE :likeKeyword
+          OR CAST(m.sender_id AS TEXT) ILIKE :likeKeyword
+        `,
+        { likeKeyword },
+      );
+    }
+
+    const messages = await query
+      .select([
+        'm.id as messageId',
+        'm.conversation_id as conversationId',
+        'm.sender_id as senderId',
+        'm.message_type as messageType',
+        'm.message_index as messageIndex',
+        'm.is_burn as isBurn',
+        'm.burn_duration as burnDuration',
+        'm.is_revoked as isRevoked',
+        'm.delivered_at as deliveredAt',
+        'm.read_at as readAt',
+        'm.created_at as createdAt',
+      ])
+      .orderBy('m.created_at', 'DESC')
+      .limit(limit)
+      .offset(offset)
+      .getRawMany<MessageSearchRow>();
+
+    const toIso = (value: Date | string | null | undefined): string | null => {
+      if (!value) {
+        return null;
+      }
+      const parsed = value instanceof Date ? value : new Date(value);
+      if (Number.isNaN(parsed.getTime())) {
+        return null;
+      }
+      return parsed.toISOString();
+    };
+
+    return messages.map(message => ({
+      messageId: message.messageId,
+      conversationId: message.conversationId,
+      senderId: message.senderId,
+      messageType: message.messageType,
+      messageIndex: message.messageIndex,
+      isBurn: message.isBurn,
+      burnDuration: message.burnDuration,
+      isRevoked: message.isRevoked,
+      deliveredAt: toIso(message.deliveredAt ?? message.deliveredat),
+      readAt: toIso(message.readAt ?? message.readat),
+      createdAt: toIso(message.createdAt ?? message.createdat) ?? new Date(0).toISOString(),
+    }));
+  }
+
+  private async cloneMediaAssetForForward(
+    manager: EntityManager,
+    userId: string,
+    conversationId: string,
+    messageType: number,
+    originalMediaAssetId: string,
+  ): Promise<string> {
+    const sourceAsset = await manager.findOne(MediaAsset, { where: { id: originalMediaAssetId } });
+    if (!sourceAsset) {
+      throw new BadRequestException('mediaAsset not found');
+    }
+    if (sourceAsset.mediaKind !== messageType) {
+      throw new BadRequestException('mediaAsset type mismatch');
+    }
+
+    if (sourceAsset.conversationId) {
+      await this.conversationService.assertMember(sourceAsset.conversationId, userId);
+    } else if (sourceAsset.uploaderId !== userId) {
+      throw new BadRequestException('mediaAsset uploader mismatch');
+    }
+
+    const cloned = manager.create(MediaAsset, {
+      uploaderId: userId,
+      conversationId,
+      mediaKind: sourceAsset.mediaKind,
+      originalName: sourceAsset.originalName,
+      mimeType: sourceAsset.mimeType,
+      fileSize: sourceAsset.fileSize,
+      storagePath: sourceAsset.storagePath,
+      sha256: sourceAsset.sha256,
+    });
+    const saved = await manager.save(MediaAsset, cloned);
+    return saved.id;
   }
 }

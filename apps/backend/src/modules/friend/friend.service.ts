@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import Redis from 'ioredis';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { REDIS_CLIENT } from '../../infra/redis/redis.module';
 import { User } from '../user/entities/user.entity';
 import { Friendship } from './entities/friendship.entity';
@@ -157,30 +157,79 @@ export class FriendService {
   async listFriends(
     userId: string,
   ): Promise<Array<{ userId: string; username: string; avatarUrl: string | null; online: boolean; remark: string | null }>> {
-    const rows = await this.friendshipRepository
-      .createQueryBuilder('f')
-      .innerJoin(User, 'u', 'u.id = f.friend_id')
-      .where('f.user_id = :userId', { userId })
-      .andWhere('f.status = 1')
-      .select([
-        'f.friend_id AS friend_id',
-        'f.remark AS remark',
-        'u.username AS username',
-        'u.avatar_url AS avatar_url',
-      ])
-      .orderBy('u.username', 'ASC')
-      .getRawMany<{ friend_id: string; username: string; avatar_url: string | null; remark: string | null }>();
+    const relations = await this.friendshipRepository.find({
+      where: [
+        { userId },
+        { friendId: userId },
+      ],
+      select: ['userId', 'friendId', 'status', 'remark'],
+    });
 
-    const onlineKeys = rows.map((row) => `online:${row.friend_id}`);
-    const onlineStatuses = onlineKeys.length ? await this.redis.mget(onlineKeys).catch(() => []) : [];
+    if (!relations.length) {
+      return [];
+    }
 
-    return rows.map((row, index) => ({
-      userId: row.friend_id,
-      username: row.username,
-      avatarUrl: row.avatar_url,
-      remark: row.remark,
-      online: onlineStatuses[index] === '1',
-    }));
+    const relationStateMap = new Map<
+      string,
+      {
+        outgoingStatus: number | null;
+        incomingStatus: number | null;
+        outgoingRemark: string | null;
+      }
+    >();
+    for (const row of relations) {
+      const otherId = row.userId === userId ? row.friendId : row.userId;
+      if (otherId === userId) {
+        continue;
+      }
+      const current = relationStateMap.get(otherId) ?? {
+        outgoingStatus: null,
+        incomingStatus: null,
+        outgoingRemark: null,
+      };
+      if (row.userId === userId) {
+        current.outgoingStatus = row.status;
+        current.outgoingRemark = row.remark ?? null;
+      } else {
+        current.incomingStatus = row.status;
+      }
+      relationStateMap.set(otherId, current);
+    }
+
+    const friendIds = Array.from(relationStateMap.entries())
+      .filter(([, state]) => {
+        const hasFriendRelation = state.outgoingStatus === 1 || state.incomingStatus === 1;
+        const hasBlockedRelation = state.outgoingStatus === 2 || state.incomingStatus === 2;
+        return hasFriendRelation && !hasBlockedRelation;
+      })
+      .map(([otherId]) => otherId);
+
+    if (!friendIds.length) {
+      return [];
+    }
+
+    const [users, onlineStatuses] = await Promise.all([
+      this.userRepository.find({
+        where: { id: In(friendIds) },
+        select: ['id', 'username', 'avatarUrl'],
+      }),
+      this.redis.mget(friendIds.map((id) => `online:${id}`)).catch(() => []),
+    ]);
+
+    const onlineMap = new Map<string, boolean>();
+    for (const [index, friendId] of friendIds.entries()) {
+      onlineMap.set(friendId, onlineStatuses[index] === '1');
+    }
+
+    return users
+      .map((user) => ({
+        userId: user.id,
+        username: user.username,
+        avatarUrl: user.avatarUrl,
+        remark: relationStateMap.get(user.id)?.outgoingRemark ?? null,
+        online: onlineMap.get(user.id) ?? false,
+      }))
+      .sort((a, b) => a.username.localeCompare(b.username));
   }
 
   async listIncomingPending(
@@ -315,14 +364,27 @@ export class FriendService {
       .getRawMany<{ user_id: string; friend_id: string; status: number }>();
 
     const relationMap = new Map<string, string>();
+    const relationPriority: Record<string, number> = {
+      none: 0,
+      pending_outgoing: 1,
+      pending_incoming: 2,
+      friends: 3,
+      blocked: 4,
+    };
     for (const row of relations) {
       const otherId = row.user_id === userId ? row.friend_id : row.user_id;
-      if (row.status === 1) {
-        relationMap.set(otherId, 'friends');
-      } else if (row.status === 2) {
-        relationMap.set(otherId, 'blocked');
-      } else if (!relationMap.has(otherId)) {
-        relationMap.set(otherId, row.user_id === userId ? 'pending_outgoing' : 'pending_incoming');
+      const current = relationMap.get(otherId) ?? 'none';
+      const next =
+        row.status === 2
+          ? 'blocked'
+          : row.status === 1
+            ? 'friends'
+            : row.user_id === userId
+              ? 'pending_outgoing'
+              : 'pending_incoming';
+
+      if (relationPriority[next] >= relationPriority[current]) {
+        relationMap.set(otherId, next);
       }
     }
 

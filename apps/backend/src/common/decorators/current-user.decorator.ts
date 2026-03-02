@@ -4,6 +4,7 @@ export interface RequestUser {
   userId: string;
   jti: string;
   tokenType: 'access' | 'refresh';
+  iat: number;
   exp: number;
 }
 

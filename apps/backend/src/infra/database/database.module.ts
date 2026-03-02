@@ -5,10 +5,12 @@ import { ConversationMember } from '../../modules/conversation/entities/conversa
 import { Conversation } from '../../modules/conversation/entities/conversation.entity';
 import { BurnEvent } from '../../modules/burn/entities/burn-event.entity';
 import { Message } from '../../modules/message/entities/message.entity';
+import { MediaAsset } from '../../modules/media/entities/media-asset.entity';
 import { Friendship } from '../../modules/friend/entities/friendship.entity';
 import { User } from '../../modules/user/entities/user.entity';
 import { Device } from '../../modules/user/entities/device.entity';
 import { OneTimePrekey } from '../../modules/user/entities/one-time-prekey.entity';
+import { Notification } from '../../modules/notification/entities/notification.entity';
 
 @Module({
   imports: [
@@ -29,10 +31,16 @@ import { OneTimePrekey } from '../../modules/user/entities/one-time-prekey.entit
           Conversation,
           ConversationMember,
           Message,
+          MediaAsset,
           BurnEvent,
           Friendship,
+          Notification,
         ],
         synchronize: configService.get<string>('DB_SYNC', 'true') === 'true',
+        // 数据库连接池配置
+        poolSize: 10,
+        maxQueryExecutionTime: 2000,
+        connectTimeoutMS: 10000,
       }),
     }),
   ],

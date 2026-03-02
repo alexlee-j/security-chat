@@ -49,6 +49,13 @@ export class MessageGateway implements OnGatewayInit, OnGatewayConnection, OnGat
         if (blacklisted) {
           return next(new UnauthorizedException('Token is revoked'));
         }
+        const logoutAfterRaw = await this.redis
+          .get(`token:logout-after:${payload.sub}`)
+          .catch(() => null);
+        const logoutAfter = Number(logoutAfterRaw ?? '0');
+        if (Number.isFinite(logoutAfter) && logoutAfter > 0 && payload.iat <= logoutAfter) {
+          return next(new UnauthorizedException('Token is revoked'));
+        }
 
         socket.data.userId = payload.sub;
         return next();
@@ -61,10 +68,94 @@ export class MessageGateway implements OnGatewayInit, OnGatewayConnection, OnGat
   handleConnection(client: Socket): void {
     void client.join(this.userRoom(String(client.data.userId)));
     client.emit('system.connected', { status: 'ok', userId: client.data.userId });
+    void this.setUserOnline(String(client.data.userId));
   }
 
-  handleDisconnect(_client: Socket): void {
-    // Reserved for online state cleanup in Redis.
+  handleDisconnect(client: Socket): void {
+    void this.setUserOffline(String(client.data.userId));
+  }
+
+  private async setUserOnline(userId: string): Promise<void> {
+    try {
+      const connectionCount = await this.redis.incr(`online:connections:${userId}`);
+      if (connectionCount === 1) {
+        await this.redis.set(`online:${userId}`, '1');
+        await this.broadcastUserStatus(userId, true);
+      } else {
+        await this.redis.set(`online:${userId}`, '1');
+      }
+    } catch (error) {
+      console.error('Failed to set user online:', error);
+    }
+  }
+
+  private async setUserOffline(userId: string): Promise<void> {
+    try {
+      const connectionCount = await this.redis.decr(`online:connections:${userId}`);
+      if (connectionCount <= 0) {
+        await this.redis.del(`online:connections:${userId}`);
+        await this.redis.del(`online:${userId}`);
+        await this.broadcastUserStatus(userId, false);
+      } else {
+        await this.redis.set(`online:${userId}`, '1');
+      }
+    } catch (error) {
+      console.error('Failed to set user offline:', error);
+    }
+  }
+
+  private async broadcastUserStatus(userId: string, isOnline: boolean): Promise<void> {
+    const eventPayload = {
+      userId,
+      isOnline,
+      at: new Date().toISOString(),
+    };
+    // 只向相关用户广播状态更新（好友和会话成员）
+    try {
+      // 获取用户的好友和会话成员
+      const relatedUserIds = await this.getRelatedUserIds(userId);
+      if (relatedUserIds.length > 0) {
+        const userRooms = relatedUserIds.map(id => this.userRoom(id));
+        this.server.to(userRooms).emit('user.status.updated', eventPayload);
+      }
+    } catch (error) {
+      console.error('Failed to broadcast user status:', error);
+    }
+  }
+
+  private async getRelatedUserIds(userId: string): Promise<string[]> {
+    // 从数据库获取用户的好友和会话成员
+    // 这里简化实现，实际应该调用相应的服务获取
+    // 例如：从好友服务获取好友列表，从会话服务获取会话成员
+    const relatedUserIds = new Set<string>();
+    
+    try {
+      // 获取用户参与的所有会话
+      const conversations = await this.conversationService.findUserConversations(userId);
+      for (const conversation of conversations) {
+        // 获取会话成员
+        const members = await this.conversationService.listMembers(conversation.id);
+        for (const member of members) {
+          if (member.userId !== userId) {
+            relatedUserIds.add(member.userId);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Failed to get related user ids:', error);
+    }
+    
+    return Array.from(relatedUserIds);
+  }
+
+  async isUserOnline(userId: string): Promise<boolean> {
+    try {
+      const isOnline = await this.redis.get(`online:${userId}`);
+      return isOnline === '1';
+    } catch (error) {
+      console.error('Failed to check user online status:', error);
+      return false;
+    }
   }
 
   @SubscribeMessage('message.ping')
@@ -152,17 +243,31 @@ export class MessageGateway implements OnGatewayInit, OnGatewayConnection, OnGat
     });
   }
 
+  emitMessageRevoked(
+    conversationId: string,
+    payload: { messageId: string; messageIndex: string; revokedByUserId: string; revokedAt: string },
+  ): void {
+    const room = this.conversationRoom(conversationId);
+    this.server.to(room).emit('message.revoked', {
+      conversationId,
+      ...payload,
+    });
+  }
+
   emitConversationUpdated(
     userIds: string[],
-    payload: { conversationId: string; reason: 'message.sent' | 'message.delivered' | 'message.read' | 'burn.triggered' },
+    payload: { conversationId: string; reason: 'message.sent' | 'message.delivered' | 'message.read' | 'burn.triggered' | 'message.revoked' },
   ): void {
     const eventPayload = {
       conversationId: payload.conversationId,
       reason: payload.reason,
       at: new Date().toISOString(),
     };
-    for (const userId of userIds) {
-      this.server.to(this.userRoom(userId)).emit('conversation.updated', eventPayload);
+    // Optimized: Batch emit to reduce network overhead
+    if (userIds.length > 0) {
+      const userRooms = userIds.map(userId => this.userRoom(userId));
+      // Use server.to() with array of rooms for more efficient broadcasting
+      this.server.to(userRooms).emit('conversation.updated', eventPayload);
     }
   }
 

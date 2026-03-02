@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
 import { Repository } from 'typeorm';
 import { ConversationService } from '../conversation/conversation.service';
 import { MessageGateway } from '../message/gateways/message.gateway';
@@ -13,6 +14,7 @@ export class BurnService {
     private readonly burnEventRepository: Repository<BurnEvent>,
     @InjectRepository(Message)
     private readonly messageRepository: Repository<Message>,
+    private readonly dataSource: DataSource,
     private readonly conversationService: ConversationService,
     private readonly messageGateway: MessageGateway,
   ) {}
@@ -41,12 +43,25 @@ export class BurnService {
       throw new BadRequestException('Message is not burn-enabled');
     }
 
-    const burnEvent = await this.burnEventRepository.save(
-      this.burnEventRepository.create({
-        messageId,
-        triggeredBy: userId,
-      }),
-    );
+    let burnEvent: BurnEvent;
+    try {
+      burnEvent = await this.burnEventRepository.save(
+        this.burnEventRepository.create({
+          messageId,
+          triggeredBy: userId,
+        }),
+      );
+    } catch {
+      const concurrentEvent = await this.burnEventRepository.findOne({ where: { messageId } });
+      if (concurrentEvent) {
+        return {
+          burned: true,
+          messageId,
+          triggeredAt: concurrentEvent.triggeredAt.toISOString(),
+        };
+      }
+      throw new BadRequestException('Failed to trigger burn');
+    }
 
     await this.messageRepository.delete({ id: messageId });
 
@@ -55,11 +70,24 @@ export class BurnService {
       messageId,
       burnEvent.triggeredAt.toISOString(),
     );
+    const memberUserIds = await this.listConversationMemberUserIds(message.conversationId);
+    this.messageGateway.emitConversationUpdated(memberUserIds, {
+      conversationId: message.conversationId,
+      reason: 'burn.triggered',
+    });
 
     return {
       burned: true,
       messageId,
       triggeredAt: burnEvent.triggeredAt.toISOString(),
     };
+  }
+
+  private async listConversationMemberUserIds(conversationId: string): Promise<string[]> {
+    const rows = await this.dataSource.query(
+      `SELECT user_id::text AS user_id FROM conversation_members WHERE conversation_id = $1;`,
+      [conversationId],
+    );
+    return (rows as Array<{ user_id?: string }>).map((row) => row.user_id ?? '').filter(Boolean);
   }
 }

@@ -23,6 +23,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     userId: string;
     jti: string;
     tokenType: 'access' | 'refresh';
+    iat: number;
     exp: number;
   }> {
     if (payload.type !== 'access') {
@@ -34,11 +35,19 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     if (isBlacklisted) {
       throw new UnauthorizedException('Token is revoked');
     }
+    const logoutAfterRaw = await this.redis
+      .get(`token:logout-after:${payload.sub}`)
+      .catch(() => null);
+    const logoutAfter = Number(logoutAfterRaw ?? '0');
+    if (Number.isFinite(logoutAfter) && logoutAfter > 0 && payload.iat <= logoutAfter) {
+      throw new UnauthorizedException('Token is revoked');
+    }
 
     return {
       userId: payload.sub,
       jti: payload.jti,
       tokenType: payload.type,
+      iat: payload.iat,
       exp: payload.exp,
     };
   }

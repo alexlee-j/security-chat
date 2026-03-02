@@ -16,6 +16,15 @@ export class Conversation {
   @Column({ type: 'smallint' })
   type!: number;
 
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  name!: string | null;
+
+  @Column({ name: 'default_burn_enabled', type: 'boolean', default: false })
+  defaultBurnEnabled!: boolean;
+
+  @Column({ name: 'default_burn_duration', type: 'integer', nullable: true })
+  defaultBurnDuration!: number | null;
+
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt!: Date;
 

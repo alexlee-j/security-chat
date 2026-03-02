@@ -1,4 +1,7 @@
 import { StatusBar } from 'expo-status-bar';
+import { Audio } from 'expo-av';
+import * as DocumentPicker from 'expo-document-picker';
+import * as Sharing from 'expo-sharing';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
 import {
@@ -6,6 +9,8 @@ import {
   Alert,
   FlatList,
   KeyboardAvoidingView,
+  Modal,
+  Image,
   Platform,
   Pressable,
   SafeAreaView,
@@ -17,12 +22,14 @@ import {
 } from 'react-native';
 import {
   ackDelivered,
+  ackReadOne,
   ackRead,
   blockUser,
   BlockedFriendItem,
   ConversationListItem,
   createDirectConversation,
   decodePayload,
+  downloadMediaToCache,
   FriendListItem,
   FriendSearchItem,
   getConversations,
@@ -30,6 +37,7 @@ import {
   getFriends,
   getIncomingRequests,
   getMessages,
+  getConversationBurnDefault,
   login,
   MessageItem,
   PendingFriendItem,
@@ -38,7 +46,10 @@ import {
   searchUsers,
   sendMessage,
   setAuthToken,
+  triggerBurn,
   unblockUser,
+  uploadMedia,
+  updateConversationBurnDefault,
   wsBaseUrl,
 } from './src/api';
 
@@ -63,6 +74,31 @@ function getInitials(value: string): string {
   return value.trim().slice(0, 2).toUpperCase();
 }
 
+type PayloadData = {
+  text?: string;
+  mediaUrl?: string;
+  fileName?: string;
+};
+
+function parsePayload(raw: string): PayloadData {
+  try {
+    const parsed = JSON.parse(raw) as PayloadData;
+    if (typeof parsed === 'object' && parsed) {
+      return parsed;
+    }
+    return { text: raw };
+  } catch {
+    return { text: raw };
+  }
+}
+
+function messageTypeLabel(messageType: number): string {
+  if (messageType === 2) return '图片';
+  if (messageType === 3) return '语音';
+  if (messageType === 4) return '文件';
+  return '文本';
+}
+
 function isBurnExpired(row: MessageItem, nowMs = Date.now()): boolean {
   if (!row.isBurn || !row.readAt || !row.burnDuration) {
     return false;
@@ -83,6 +119,14 @@ export default function App(): JSX.Element {
   const [activeConversationId, setActiveConversationId] = useState('');
   const [messages, setMessages] = useState<MessageItem[]>([]);
   const [messageText, setMessageText] = useState('');
+  const [messageType, setMessageType] = useState<1 | 2 | 3 | 4>(1);
+  const [mediaUrl, setMediaUrl] = useState('');
+  const [mediaAssetId, setMediaAssetId] = useState<string | null>(null);
+  const [mediaUploading, setMediaUploading] = useState(false);
+  const [previewImageUri, setPreviewImageUri] = useState<string | null>(null);
+  const [playingMessageId, setPlayingMessageId] = useState<string | null>(null);
+  const [burnEnabled, setBurnEnabled] = useState(false);
+  const [burnDuration, setBurnDuration] = useState(30);
   const [peerUserId, setPeerUserId] = useState('');
   const [loading, setLoading] = useState(false);
   const [typingText, setTypingText] = useState('');
@@ -94,13 +138,17 @@ export default function App(): JSX.Element {
   const [friends, setFriends] = useState<FriendListItem[]>([]);
   const [blockedUsers, setBlockedUsers] = useState<BlockedFriendItem[]>([]);
   const activeConversationIdRef = useRef('');
+  const messagesRef = useRef<MessageItem[]>([]);
+  const messageCursorRef = useRef<Record<string, number>>({});
+  const fallbackPollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const audioSoundRef = useRef<Audio.Sound | null>(null);
 
   const activeConversation = useMemo(
     () => conversations.find((item) => item.conversationId === activeConversationId) ?? null,
     [conversations, activeConversationId],
   );
 
-  async function loadConversations(): Promise<void> {
+  async function loadConversations(): Promise<ConversationListItem[]> {
     const rows = await getConversations();
     const dedupedRows = rows.filter(
       (row, index, array) => array.findIndex((item) => item.conversationId === row.conversationId) === index,
@@ -109,6 +157,21 @@ export default function App(): JSX.Element {
     if (!activeConversationIdRef.current && dedupedRows.length > 0) {
       setActiveConversationId(dedupedRows[0].conversationId);
     }
+    return dedupedRows;
+  }
+
+  function updateConversationCursor(conversationId: string, indexValue: number): void {
+    if (!conversationId || !Number.isFinite(indexValue) || indexValue < 0) {
+      return;
+    }
+    const current = messageCursorRef.current[conversationId] ?? 0;
+    if (indexValue <= current) {
+      return;
+    }
+    messageCursorRef.current = {
+      ...messageCursorRef.current,
+      [conversationId]: indexValue,
+    };
   }
 
   async function loadMessages(conversationId: string): Promise<void> {
@@ -116,9 +179,97 @@ export default function App(): JSX.Element {
     const nowMs = Date.now();
     setMessages(rows.filter((row) => !isBurnExpired(row, nowMs)));
     const maxIndex = rows.reduce((max, row) => Math.max(max, Number(row.messageIndex)), 0);
+    updateConversationCursor(conversationId, maxIndex);
     if (maxIndex > 0) {
       await Promise.all([ackDelivered(conversationId, maxIndex), ackRead(conversationId, maxIndex)]).catch(() => {});
     }
+  }
+
+  function applyConversationBurnDefault(
+    conversation: ConversationListItem | null | undefined,
+    fallbackConversationId?: string,
+  ): void {
+    if (conversation) {
+      setBurnEnabled(Boolean(conversation.defaultBurnEnabled));
+      setBurnDuration(conversation.defaultBurnDuration ?? 30);
+      return;
+    }
+    if (!fallbackConversationId) {
+      return;
+    }
+    void getConversationBurnDefault(fallbackConversationId)
+      .then((row) => {
+        setBurnEnabled(Boolean(row.enabled));
+        setBurnDuration(row.burnDuration ?? 30);
+      })
+      .catch(() => {});
+  }
+
+  function mergeMessages(prev: MessageItem[], incoming: MessageItem[]): MessageItem[] {
+    if (incoming.length === 0) {
+      return prev;
+    }
+    const merged = new Map<string, MessageItem>();
+    for (const row of prev) {
+      merged.set(row.id, row);
+    }
+    for (const row of incoming) {
+      merged.set(row.id, row);
+    }
+    return Array.from(merged.values()).sort((a, b) => Number(a.messageIndex) - Number(b.messageIndex));
+  }
+
+  async function syncMessagesDelta(conversationId: string): Promise<void> {
+    const currentRows = activeConversationIdRef.current === conversationId ? messagesRef.current : [];
+    const localCursor = messageCursorRef.current[conversationId] ?? 0;
+    const activeMax = currentRows.reduce((max, row) => Math.max(max, Number(row.messageIndex)), 0);
+    const afterIndex = Math.max(localCursor, activeMax);
+    const rows = await getMessages(conversationId, afterIndex, 100);
+    if (rows.length > 0) {
+      const nowMs = Date.now();
+      setMessages((prev) => mergeMessages(prev, rows).filter((row) => !isBurnExpired(row, nowMs)));
+    }
+    const latestMax = [...currentRows, ...rows].reduce((max, row) => Math.max(max, Number(row.messageIndex)), 0);
+    updateConversationCursor(conversationId, latestMax);
+    if (latestMax > 0) {
+      await Promise.all([ackDelivered(conversationId, latestMax), ackRead(conversationId, latestMax)]).catch(() => {});
+    }
+  }
+
+  async function syncConversationCursor(conversationId: string, applyToActive: boolean): Promise<void> {
+    const afterIndex = messageCursorRef.current[conversationId] ?? 0;
+    const rows = await getMessages(conversationId, afterIndex, 100);
+    if (rows.length === 0) {
+      return;
+    }
+
+    const maxIndex = rows.reduce((max, row) => Math.max(max, Number(row.messageIndex)), 0);
+    updateConversationCursor(conversationId, maxIndex);
+
+    if (applyToActive && activeConversationIdRef.current === conversationId) {
+      const nowMs = Date.now();
+      setMessages((prev) => mergeMessages(prev, rows).filter((row) => !isBurnExpired(row, nowMs)));
+      await Promise.all([ackDelivered(conversationId, maxIndex), ackRead(conversationId, maxIndex)]).catch(() => {});
+    }
+  }
+
+  function stopFallbackPolling(): void {
+    if (fallbackPollTimerRef.current) {
+      clearInterval(fallbackPollTimerRef.current);
+      fallbackPollTimerRef.current = null;
+    }
+  }
+
+  function startFallbackPolling(): void {
+    if (fallbackPollTimerRef.current) {
+      return;
+    }
+    fallbackPollTimerRef.current = setInterval(() => {
+      void loadConversations();
+      if (activeConversationIdRef.current) {
+        void syncMessagesDelta(activeConversationIdRef.current);
+      }
+    }, 5000);
   }
 
   async function handleLogin(): Promise<void> {
@@ -141,10 +292,22 @@ export default function App(): JSX.Element {
   }, [activeConversationId]);
 
   useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+
+  useEffect(() => {
     if (token && activeConversationId) {
       void loadMessages(activeConversationId);
     }
   }, [token, activeConversationId]);
+
+  useEffect(() => {
+    if (!token || !activeConversationId) {
+      return;
+    }
+    const selected = conversations.find((item) => item.conversationId === activeConversationId);
+    applyConversationBurnDefault(selected, activeConversationId);
+  }, [token, activeConversationId, conversations]);
 
   useEffect(() => {
     if (!token) {
@@ -172,15 +335,31 @@ export default function App(): JSX.Element {
 
     const onUpdate = (payload: { conversationId?: string }): void => {
       if (payload?.conversationId === activeConversationIdRef.current && activeConversationIdRef.current) {
-        void loadMessages(activeConversationIdRef.current);
+        void syncMessagesDelta(activeConversationIdRef.current);
+      } else if (payload?.conversationId) {
+        void syncConversationCursor(payload.conversationId, false);
       }
       void loadConversations();
     };
 
     client.on('connect', () => {
+      stopFallbackPolling();
       if (activeConversationIdRef.current) {
         client.emit('conversation.join', { conversationId: activeConversationIdRef.current });
+        void syncMessagesDelta(activeConversationIdRef.current);
       }
+      void loadConversations().then((rows) => {
+        for (const row of rows) {
+          const isActive = row.conversationId === activeConversationIdRef.current;
+          if (!isActive) {
+            void syncConversationCursor(row.conversationId, false);
+          }
+        }
+      });
+    });
+
+    client.on('disconnect', () => {
+      startFallbackPolling();
     });
 
     client.on('message.sent', onUpdate);
@@ -199,6 +378,7 @@ export default function App(): JSX.Element {
     });
 
     return () => {
+      stopFallbackPolling();
       client.disconnect();
       setSocket(null);
     };
@@ -210,13 +390,246 @@ export default function App(): JSX.Element {
     }
   }, [socket, activeConversationId]);
 
+  useEffect(() => {
+    return () => {
+      if (audioSoundRef.current) {
+        void audioSoundRef.current.unloadAsync();
+        audioSoundRef.current = null;
+      }
+    };
+  }, []);
+
   async function handleSend(): Promise<void> {
-    if (!activeConversationId || !messageText.trim()) {
+    if (!activeConversationId) {
       return;
     }
-    await sendMessage(activeConversationId, messageText.trim());
+    const text = messageText.trim();
+    const media = mediaUrl.trim();
+    if (messageType === 1 && !text) {
+      return;
+    }
+    if (messageType !== 1 && !media) {
+      return;
+    }
+    if (messageType !== 1 && !mediaAssetId) {
+      Alert.alert('发送失败', '请先选择并上传附件。');
+      return;
+    }
+    if (messageType === 4 && burnEnabled) {
+      Alert.alert('发送失败', '文件消息不支持阅后即焚。');
+      return;
+    }
+    if (mediaUploading) {
+      Alert.alert('请稍候', '附件上传中，请稍后发送。');
+      return;
+    }
+
+    await sendMessage({
+      conversationId: activeConversationId,
+      messageType,
+      text,
+      mediaUrl: messageType === 1 ? undefined : media,
+      fileName: messageType === 4 ? media.split('/').pop() ?? 'file' : undefined,
+      mediaAssetId: messageType === 1 ? undefined : mediaAssetId ?? undefined,
+      isBurn: burnEnabled,
+      burnDuration: burnEnabled ? burnDuration : undefined,
+    });
     setMessageText('');
+    setMediaUrl('');
+    setMediaAssetId(null);
+    setMessageType(1);
     await Promise.all([loadMessages(activeConversationId), loadConversations()]);
+  }
+
+  async function handleOpenMedia(message: MessageItem, payload: PayloadData): Promise<void> {
+    if (!message.mediaAssetId) {
+      Alert.alert('打开失败', '该消息缺少媒体资源标识。');
+      return;
+    }
+    if ((message.messageType === 2 || message.messageType === 3) && message.senderId !== userId && !message.readAt) {
+      try {
+        await ackReadOne(message.id);
+        const nowIso = new Date().toISOString();
+        setMessages((prev) =>
+          prev.map((row) =>
+            row.id === message.id
+              ? {
+                  ...row,
+                  deliveredAt: row.deliveredAt ?? nowIso,
+                  readAt: row.readAt ?? nowIso,
+                }
+              : row,
+          ),
+        );
+      } catch {
+        // Do not block media opening on transient ack failure.
+      }
+    }
+    try {
+      const localUri = await downloadMediaToCache(
+        message.mediaAssetId,
+        payload.fileName ?? payload.mediaUrl ?? `media-${message.mediaAssetId}`,
+      );
+      if (message.messageType === 2) {
+        setPreviewImageUri(localUri);
+        return;
+      }
+      if (message.messageType === 3) {
+        if (audioSoundRef.current) {
+          await audioSoundRef.current.unloadAsync();
+          audioSoundRef.current = null;
+          setPlayingMessageId(null);
+          if (playingMessageId === message.id) {
+            return;
+          }
+        }
+        const { sound } = await Audio.Sound.createAsync(
+          { uri: localUri },
+          { shouldPlay: true },
+        );
+        audioSoundRef.current = sound;
+        setPlayingMessageId(message.id);
+        sound.setOnPlaybackStatusUpdate((status) => {
+          if (status.isLoaded && status.didJustFinish) {
+            setPlayingMessageId(null);
+            void sound.unloadAsync();
+            if (audioSoundRef.current === sound) {
+              audioSoundRef.current = null;
+            }
+          }
+        });
+        return;
+      }
+      if (!(await Sharing.isAvailableAsync())) {
+        Alert.alert('下载完成', localUri);
+        return;
+      }
+      await Sharing.shareAsync(localUri, { dialogTitle: '打开媒体文件' });
+    } catch {
+      Alert.alert('打开失败', '媒体下载或打开失败，请重试。');
+    }
+  }
+
+  function handleMessageTypeChange(nextType: 1 | 2 | 3 | 4): void {
+    setMessageType(nextType);
+    if (nextType === 1) {
+      setMediaUrl('');
+      setMediaAssetId(null);
+    }
+    if (nextType === 4 && burnEnabled) {
+      setBurnEnabled(false);
+    }
+  }
+
+  async function handlePickMedia(): Promise<void> {
+    if (!activeConversationId) {
+      Alert.alert('请先选择会话');
+      return;
+    }
+
+    const result = await DocumentPicker.getDocumentAsync({
+      multiple: false,
+      copyToCacheDirectory: true,
+      type: '*/*',
+    });
+    if (result.canceled) {
+      return;
+    }
+
+    const asset = result.assets?.[0];
+    if (!asset) {
+      return;
+    }
+
+    const mimeType = asset.mimeType ?? '';
+    const inferredType: 2 | 3 | 4 = mimeType.startsWith('image/')
+      ? 2
+      : mimeType.startsWith('audio/')
+        ? 3
+        : 4;
+
+    if (inferredType === 4 && burnEnabled) {
+      setBurnEnabled(false);
+    }
+
+    setMessageType(inferredType);
+    setMediaUrl(asset.name ?? 'attachment');
+    setMediaAssetId(null);
+    setMediaUploading(true);
+    try {
+      const uploaded = await uploadMedia({
+        uri: asset.uri,
+        name: asset.name ?? 'attachment',
+        type: asset.mimeType ?? 'application/octet-stream',
+        mediaKind: inferredType,
+      });
+      setMediaAssetId(uploaded.mediaAssetId);
+    } catch {
+      setMediaUrl('');
+      setMediaAssetId(null);
+      Alert.alert('上传失败', '附件上传失败，请重试。');
+    } finally {
+      setMediaUploading(false);
+    }
+  }
+
+  async function handleToggleBurn(): Promise<void> {
+    if (!activeConversationId) {
+      return;
+    }
+    if (messageType === 4) {
+      Alert.alert('不支持', '文件消息不支持阅后即焚。');
+      return;
+    }
+    const nextEnabled = !burnEnabled;
+    setBurnEnabled(nextEnabled);
+    try {
+      const updated = await updateConversationBurnDefault(activeConversationId, nextEnabled, burnDuration);
+      setConversations((prev) =>
+        prev.map((row) =>
+          row.conversationId === activeConversationId
+            ? { ...row, defaultBurnEnabled: updated.enabled, defaultBurnDuration: updated.burnDuration }
+            : row,
+        ),
+      );
+    } catch {
+      setBurnEnabled(!nextEnabled);
+      Alert.alert('设置失败', '更新会话默认焚毁配置失败。');
+    }
+  }
+
+  async function handleCycleBurnDuration(): Promise<void> {
+    const options = [5, 10, 30, 60, 300];
+    const currentIndex = options.indexOf(burnDuration);
+    const nextDuration = options[(currentIndex + 1 + options.length) % options.length];
+    setBurnDuration(nextDuration);
+    if (!activeConversationId || !burnEnabled) {
+      return;
+    }
+    try {
+      const updated = await updateConversationBurnDefault(activeConversationId, true, nextDuration);
+      setConversations((prev) =>
+        prev.map((row) =>
+          row.conversationId === activeConversationId
+            ? { ...row, defaultBurnEnabled: updated.enabled, defaultBurnDuration: updated.burnDuration }
+            : row,
+        ),
+      );
+    } catch {
+      Alert.alert('设置失败', '更新会话焚毁时长失败。');
+    }
+  }
+
+  async function handleTriggerBurn(messageId: string): Promise<void> {
+    if (!activeConversationId) {
+      return;
+    }
+    try {
+      await triggerBurn(messageId);
+      await Promise.all([loadMessages(activeConversationId), loadConversations()]);
+    } catch {
+      Alert.alert('焚毁失败', '请稍后重试。');
+    }
   }
 
   async function handleCreateDirect(): Promise<void> {
@@ -489,32 +902,120 @@ export default function App(): JSX.Element {
                 keyExtractor={(item) => item.id}
                 style={styles.messageList}
                 contentContainerStyle={styles.messageContainer}
-                renderItem={({ item }) => (
-                  <View style={item.senderId === userId ? styles.messageSelf : styles.messageOther}>
-                    <Text style={styles.messageText}>{decodePayload(item.encryptedPayload)}</Text>
-                    <Text style={styles.messageMeta}>{formatTime(item.createdAt)}</Text>
-                  </View>
-                )}
+                renderItem={({ item }) => {
+                  const payload = parsePayload(decodePayload(item.encryptedPayload));
+                  return (
+                    <View style={item.senderId === userId ? styles.messageSelf : styles.messageOther}>
+                      <View style={styles.messageHead}>
+                        <Text style={styles.messageTypeTag}>{messageTypeLabel(item.messageType)}</Text>
+                        {item.isBurn ? <Text style={styles.messageBurnTag}>阅后即焚</Text> : null}
+                      </View>
+
+                      {item.messageType === 1 ? (
+                        <Text style={styles.messageText}>{payload.text ?? ''}</Text>
+                      ) : (
+                        <View style={styles.messageMediaWrap}>
+                          <Pressable onPress={() => void handleOpenMedia(item, payload)}>
+                            <Text style={[styles.messageMediaText, styles.messageMediaLink]}>
+                              {item.messageType === 2
+                                ? '点击查看图片'
+                                : item.messageType === 3
+                                  ? playingMessageId === item.id
+                                    ? '点击停止语音'
+                                    : '点击播放语音'
+                                  : '点击下载文件'}
+                            </Text>
+                          </Pressable>
+                          <Text style={styles.messageMediaText}>
+                            {item.messageType === 2
+                              ? `图片: ${payload.mediaUrl ?? ''}`
+                              : item.messageType === 3
+                                ? `语音: ${payload.mediaUrl ?? ''}`
+                                : `文件: ${payload.fileName ?? payload.mediaUrl ?? ''}`}
+                          </Text>
+                          {payload.text ? <Text style={styles.messageText}>{payload.text}</Text> : null}
+                        </View>
+                      )}
+
+                      <View style={styles.messageMetaRow}>
+                        <Text style={styles.messageMeta}>
+                          {formatTime(item.createdAt)} · {item.readAt ? '已读' : item.deliveredAt ? '已送达' : '已发送'}
+                        </Text>
+                        {item.isBurn ? (
+                          <Pressable style={styles.burnBtn} onPress={() => void handleTriggerBurn(item.id)}>
+                            <Text style={styles.burnBtnText}>焚毁</Text>
+                          </Pressable>
+                        ) : null}
+                      </View>
+                    </View>
+                  );
+                }}
               />
 
               <View style={styles.composerBar}>
-                <Pressable style={styles.plusButton}><Text style={styles.plusText}>+</Text></Pressable>
-                <TextInput
-                  style={styles.composerInput}
-                  value={messageText}
-                  onChangeText={setMessageText}
-                  placeholder="输入消息"
-                  onFocus={() => socket?.emit('conversation.typing.start', { conversationId: activeConversationId })}
-                  onBlur={() => socket?.emit('conversation.typing.stop', { conversationId: activeConversationId })}
-                />
-                <Pressable style={styles.sendButton} onPress={handleSend}>
-                  <Text style={styles.primaryButtonText}>发送</Text>
-                </Pressable>
+                <View style={styles.composerControls}>
+                  <Pressable style={messageType === 1 ? styles.controlPillActive : styles.controlPill} onPress={() => handleMessageTypeChange(1)}>
+                    <Text style={styles.controlPillText}>文本</Text>
+                  </Pressable>
+                  <Pressable style={messageType === 2 ? styles.controlPillActive : styles.controlPill} onPress={() => handleMessageTypeChange(2)}>
+                    <Text style={styles.controlPillText}>图片</Text>
+                  </Pressable>
+                  <Pressable style={messageType === 3 ? styles.controlPillActive : styles.controlPill} onPress={() => handleMessageTypeChange(3)}>
+                    <Text style={styles.controlPillText}>语音</Text>
+                  </Pressable>
+                  <Pressable style={messageType === 4 ? styles.controlPillActive : styles.controlPill} onPress={() => handleMessageTypeChange(4)}>
+                    <Text style={styles.controlPillText}>文件</Text>
+                  </Pressable>
+                  <Pressable
+                    style={burnEnabled ? styles.controlPillActive : styles.controlPill}
+                    disabled={messageType === 4 || !activeConversationId}
+                    onPress={() => void handleToggleBurn()}
+                  >
+                    <Text style={styles.controlPillText}>焚毁</Text>
+                  </Pressable>
+                  {burnEnabled ? (
+                    <Pressable style={styles.controlPill} onPress={() => void handleCycleBurnDuration()}>
+                      <Text style={styles.controlPillText}>{burnDuration}s</Text>
+                    </Pressable>
+                  ) : null}
+                </View>
+                {messageType !== 1 ? (
+                  <TextInput
+                    style={styles.mediaInput}
+                    value={mediaUrl}
+                    editable={false}
+                    placeholder={mediaUploading ? '附件上传中...' : '点击 + 选择附件'}
+                  />
+                ) : null}
+                <View style={styles.composerInputRow}>
+                  <Pressable style={styles.plusButton} onPress={() => void handlePickMedia()}>
+                    <Text style={styles.plusText}>{mediaUploading ? '…' : '+'}</Text>
+                  </Pressable>
+                  <TextInput
+                    style={styles.composerInput}
+                    value={messageText}
+                    onChangeText={setMessageText}
+                    placeholder="输入消息"
+                    onFocus={() => socket?.emit('conversation.typing.start', { conversationId: activeConversationId })}
+                    onBlur={() => socket?.emit('conversation.typing.stop', { conversationId: activeConversationId })}
+                  />
+                  <Pressable style={styles.sendButton} onPress={handleSend} disabled={mediaUploading}>
+                    <Text style={styles.primaryButtonText}>发送</Text>
+                  </Pressable>
+                </View>
               </View>
             </View>
           </>
         )}
       </KeyboardAvoidingView>
+      <Modal visible={Boolean(previewImageUri)} transparent animationType="fade">
+        <View style={styles.previewMask}>
+          <Pressable style={styles.previewCloseBtn} onPress={() => setPreviewImageUri(null)}>
+            <Text style={styles.previewCloseText}>关闭</Text>
+          </Pressable>
+          {previewImageUri ? <Image source={{ uri: previewImageUri }} style={styles.previewImage} resizeMode="contain" /> : null}
+        </View>
+      </Modal>
       <StatusBar style="light" />
     </SafeAreaView>
   );
@@ -841,6 +1342,62 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingBottom: 2,
   },
+  messageHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 4,
+  },
+  messageTypeTag: {
+    fontSize: 11,
+    color: '#2e587b',
+    backgroundColor: '#e8f2fb',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+  },
+  messageBurnTag: {
+    fontSize: 11,
+    color: '#7a4b0c',
+    backgroundColor: '#ffedcf',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+  },
+  messageMediaWrap: {
+    gap: 4,
+  },
+  messageMediaText: {
+    color: '#2a4761',
+    fontSize: 12,
+  },
+  messageMediaLink: {
+    color: '#2b84d6',
+    textDecorationLine: 'underline',
+  },
+  previewMask: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+  },
+  previewImage: {
+    width: '100%',
+    height: '80%',
+  },
+  previewCloseBtn: {
+    alignSelf: 'flex-end',
+    marginBottom: 12,
+    backgroundColor: '#1f3850',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  previewCloseText: {
+    color: '#fff',
+    fontWeight: '700',
+  },
   messageOther: {
     alignSelf: 'flex-start',
     borderWidth: 1,
@@ -867,20 +1424,76 @@ const styles = StyleSheet.create({
     color: '#18344f',
   },
   messageMeta: {
-    marginTop: 6,
     fontSize: 11,
     color: '#6d859b',
-    textAlign: 'right',
   },
-  composerBar: {
+  messageMetaRow: {
+    marginTop: 6,
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  burnBtn: {
+    borderWidth: 1,
+    borderColor: '#d7a85f',
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    backgroundColor: '#fff3dd',
+  },
+  burnBtnText: {
+    color: '#8b5c17',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  composerBar: {
     gap: 8,
     borderWidth: 1,
     borderColor: '#d7e2ee',
-    borderRadius: 999,
+    borderRadius: 14,
     backgroundColor: '#fff',
-    padding: 6,
+    padding: 8,
+  },
+  composerControls: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  controlPill: {
+    borderWidth: 1,
+    borderColor: '#c2d6e8',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    backgroundColor: '#f4f8fc',
+  },
+  controlPillActive: {
+    borderWidth: 1,
+    borderColor: '#3390ec',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    backgroundColor: '#d8ebff',
+  },
+  controlPillText: {
+    color: '#2a4c6b',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  mediaInput: {
+    borderWidth: 1,
+    borderColor: '#d0deeb',
+    borderRadius: 10,
+    backgroundColor: '#fff',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    color: '#1f3f5b',
+  },
+  composerInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   plusButton: {
     width: 34,

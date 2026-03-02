@@ -19,8 +19,15 @@ export const REDIS_CLIENT = 'REDIS_CLIENT';
           host,
           port,
           password: password || undefined,
-          maxRetriesPerRequest: 1,
+          maxRetriesPerRequest: 3,
           enableOfflineQueue: false,
+          connectTimeout: 10000,
+          retryStrategy: (times) => {
+            // 指数退避策略，最大重试间隔为5秒
+            return Math.min(times * 100, 5000);
+          },
+          keepAlive: 60000,
+          family: 4,
         });
       },
     },

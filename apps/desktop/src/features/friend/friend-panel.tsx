@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { BlockedFriendItem, FriendListItem, FriendSearchItem, PendingFriendItem } from '../../core/types';
 
 type Props = {
+  currentUserId: string;
   friendKeyword: string;
   friendSearchResults: FriendSearchItem[];
   incomingRequests: PendingFriendItem[];
@@ -13,6 +14,7 @@ type Props = {
   onRespondFriend: (requesterUserId: string, accept: boolean) => Promise<void>;
   onBlockUser: (targetUserId: string) => Promise<void>;
   onUnblockUser: (targetUserId: string) => Promise<void>;
+  onStartDirectConversation: (targetUserId: string) => void;
 };
 
 type FriendEntry =
@@ -70,6 +72,52 @@ export function FriendPanel(props: Props): JSX.Element {
     [props.friends, props.incomingRequests, props.blockedUsers],
   );
   const [selectedUserId, setSelectedUserId] = useState('');
+  const [qrInput, setQrInput] = useState('');
+  const [qrHint, setQrHint] = useState('');
+  const [pendingOps, setPendingOps] = useState<Record<string, boolean>>({});
+  const ownAddCode = `sc:add:${props.currentUserId}`;
+
+  function isPending(key: string): boolean {
+    return Boolean(pendingOps[key]);
+  }
+
+  async function withPending(key: string, action: () => Promise<void> | void): Promise<void> {
+    if (isPending(key)) {
+      return;
+    }
+    setPendingOps((prev) => ({ ...prev, [key]: true }));
+    try {
+      await Promise.resolve(action());
+    } finally {
+      setPendingOps((prev) => {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+    }
+  }
+
+  async function runBulk(
+    key: string,
+    ids: string[],
+    action: (id: string) => Promise<void>,
+  ): Promise<void> {
+    if (isPending(key) || ids.length === 0) {
+      return;
+    }
+    setPendingOps((prev) => ({ ...prev, [key]: true }));
+    try {
+      for (const id of ids) {
+        await action(id);
+      }
+    } finally {
+      setPendingOps((prev) => {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+    }
+  }
 
   useEffect(() => {
     if (!entries.find((row) => row.userId === selectedUserId)) {
@@ -79,6 +127,46 @@ export function FriendPanel(props: Props): JSX.Element {
 
   const selectedEntry = entries.find((row) => row.userId === selectedUserId) ?? null;
 
+  function parseTargetFromCode(raw: string): string {
+    const value = raw.trim();
+    if (!value) {
+      return '';
+    }
+    if (value.startsWith('sc:add:')) {
+      return value.slice('sc:add:'.length).trim();
+    }
+    return value;
+  }
+
+  async function onCopyOwnCode(): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(ownAddCode);
+      setQrHint('已复制加好友码');
+    } catch {
+      setQrHint('复制失败，请手动复制');
+    }
+  }
+
+  async function onAddByCode(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    const targetUserId = parseTargetFromCode(qrInput);
+    if (!targetUserId) {
+      setQrHint('请输入扫码结果或用户ID');
+      return;
+    }
+    if (targetUserId === props.currentUserId) {
+      setQrHint('不能添加自己');
+      return;
+    }
+    try {
+      await withPending(`request:${targetUserId}`, () => props.onRequestFriend(targetUserId));
+      setQrHint('好友申请已发送');
+      setQrInput('');
+    } catch {
+      setQrHint('添加失败，请检查扫码结果');
+    }
+  }
+
   return (
     <section className="friend-panel card telegram-friends">
       <header className="friend-head">
@@ -86,7 +174,7 @@ export function FriendPanel(props: Props): JSX.Element {
           <p className="kicker">People</p>
           <h3>好友中心</h3>
         </div>
-        <span className="subtle">{entries.length} 位联系人</span>
+        <span className="subtle">{props.friends.length} 位好友</span>
       </header>
 
       <div className="friend-layout">
@@ -139,26 +227,49 @@ export function FriendPanel(props: Props): JSX.Element {
                 <div className="friend-actions">
                   {selectedEntry.kind === 'incoming' ? (
                     <>
-                      <button type="button" onClick={() => props.onRespondFriend(selectedEntry.userId, true)}>
-                        同意
+                      <button
+                        type="button"
+                        disabled={isPending(`respond:${selectedEntry.userId}`)}
+                        onClick={() => void withPending(`respond:${selectedEntry.userId}`, () => props.onRespondFriend(selectedEntry.userId, true))}
+                      >
+                        {isPending(`respond:${selectedEntry.userId}`) ? '处理中...' : '同意'}
                       </button>
                       <button
                         type="button"
                         className="ghost-btn"
-                        onClick={() => props.onRespondFriend(selectedEntry.userId, false)}
+                        disabled={isPending(`respond:${selectedEntry.userId}`)}
+                        onClick={() => void withPending(`respond:${selectedEntry.userId}`, () => props.onRespondFriend(selectedEntry.userId, false))}
                       >
                         拒绝
                       </button>
                     </>
                   ) : null}
                   {selectedEntry.kind === 'friend' ? (
-                    <button type="button" className="ghost-btn" onClick={() => props.onBlockUser(selectedEntry.userId)}>
-                      拉黑
-                    </button>
+                    <>
+                      <button
+                        type="button"
+                        disabled={isPending(`direct:${selectedEntry.userId}`)}
+                        onClick={() => void withPending(`direct:${selectedEntry.userId}`, () => props.onStartDirectConversation(selectedEntry.userId))}
+                      >
+                        {isPending(`direct:${selectedEntry.userId}`) ? '跳转中...' : '发消息'}
+                      </button>
+                      <button
+                        type="button"
+                        className="ghost-btn"
+                        disabled={isPending(`block:${selectedEntry.userId}`)}
+                        onClick={() => void withPending(`block:${selectedEntry.userId}`, () => props.onBlockUser(selectedEntry.userId))}
+                      >
+                        {isPending(`block:${selectedEntry.userId}`) ? '处理中...' : '拉黑'}
+                      </button>
+                    </>
                   ) : null}
                   {selectedEntry.kind === 'blocked' ? (
-                    <button type="button" onClick={() => props.onUnblockUser(selectedEntry.userId)}>
-                      解除黑名单
+                    <button
+                      type="button"
+                      disabled={isPending(`unblock:${selectedEntry.userId}`)}
+                      onClick={() => void withPending(`unblock:${selectedEntry.userId}`, () => props.onUnblockUser(selectedEntry.userId))}
+                    >
+                      {isPending(`unblock:${selectedEntry.userId}`) ? '处理中...' : '解除黑名单'}
                     </button>
                   ) : null}
                 </div>
@@ -166,92 +277,118 @@ export function FriendPanel(props: Props): JSX.Element {
             )}
           </article>
 
-          <article className="friend-block">
-            <h4>待处理申请</h4>
-            <div className="friend-list">
-            {props.incomingRequests.map((item) => (
-              <div key={item.requesterUserId} className="friend-row">
-                <div>
-                  <div>{item.username}</div>
-                  <small className="subtle mono">{item.requesterUserId}</small>
-                </div>
-                <div className="friend-actions">
-                  <button type="button" onClick={() => props.onRespondFriend(item.requesterUserId, true)}>
-                    同意
-                  </button>
-                  <button
-                    type="button"
-                    className="ghost-btn"
-                    onClick={() => props.onRespondFriend(item.requesterUserId, false)}
-                  >
-                    拒绝
-                  </button>
-                </div>
+          <article className="friend-block friend-qr">
+            <h4>二维码加好友</h4>
+            <div className="friend-qr-body">
+              <small className="subtle">我的加好友码（供二维码承载）</small>
+              <div className="friend-qr-code mono">{ownAddCode}</div>
+              <div className="friend-actions">
+                <button type="button" onClick={() => void onCopyOwnCode()}>
+                  复制我的码
+                </button>
               </div>
-            ))}
-            {props.incomingRequests.length === 0 ? <p className="subtle">暂无待处理申请</p> : null}
+              <form className="friend-qr-form" onSubmit={onAddByCode}>
+                <input
+                  value={qrInput}
+                  onChange={(e) => setQrInput(e.target.value)}
+                  placeholder="粘贴扫码结果（sc:add:...）或用户ID"
+                />
+                <button type="submit" disabled={isPending(`request:${parseTargetFromCode(qrInput)}`)}>
+                  {isPending(`request:${parseTargetFromCode(qrInput)}`) ? '添加中...' : '添加好友'}
+                </button>
+              </form>
+              <small className="subtle">{qrHint || '可将我的加好友码生成二维码供对方扫码。'}</small>
             </div>
           </article>
 
-          <article className="friend-block">
-            <h4>搜索结果</h4>
-            <div className="friend-list">
-              {props.friendSearchResults.map((item) => (
-                <div key={item.userId} className="friend-row">
-                  <div>
-                    <div>{item.username}</div>
-                    <small className="subtle mono">{item.userId}</small>
+          {props.incomingRequests.length > 0 ? (
+            <article className="friend-block">
+              <div className="friend-actions">
+                <h4>待处理申请</h4>
+                <button
+                  type="button"
+                  className="ghost-btn"
+                  disabled={isPending('bulk:reject')}
+                  onClick={() =>
+                    void runBulk(
+                      'bulk:reject',
+                      props.incomingRequests.map((row) => row.requesterUserId),
+                      async (id) => props.onRespondFriend(id, false),
+                    )
+                  }
+                >
+                  {isPending('bulk:reject') ? '批量处理中...' : '全部拒绝'}
+                </button>
+              </div>
+              <div className="friend-list">
+                {props.incomingRequests.map((item) => (
+                  <div key={item.requesterUserId} className="friend-row">
+                    <div>
+                      <div>{item.username}</div>
+                      <small className="subtle mono">{item.requesterUserId}</small>
+                    </div>
+                    <div className="friend-actions">
+                      <button
+                        type="button"
+                        disabled={isPending(`respond:${item.requesterUserId}`)}
+                        onClick={() =>
+                          void withPending(`respond:${item.requesterUserId}`, () => props.onRespondFriend(item.requesterUserId, true))
+                        }
+                      >
+                        {isPending(`respond:${item.requesterUserId}`) ? '处理中...' : '同意'}
+                      </button>
+                      <button
+                        type="button"
+                        className="ghost-btn"
+                        disabled={isPending(`respond:${item.requesterUserId}`)}
+                        onClick={() =>
+                          void withPending(`respond:${item.requesterUserId}`, () => props.onRespondFriend(item.requesterUserId, false))
+                        }
+                      >
+                        拒绝
+                      </button>
+                    </div>
                   </div>
-                  <div className="friend-actions">
-                    <button
-                      type="button"
-                      disabled={item.relation !== 'none'}
-                      onClick={() => props.onRequestFriend(item.userId)}
-                    >
-                      {relationActionLabel(item.relation)}
-                    </button>
-                    <button type="button" className="ghost-btn" onClick={() => props.onBlockUser(item.userId)}>
-                      拉黑
-                    </button>
-                  </div>
-                </div>
-              ))}
-              {props.friendSearchResults.length === 0 ? <p className="subtle">暂无搜索结果</p> : null}
-            </div>
-          </article>
+                ))}
+              </div>
+            </article>
+          ) : null}
 
-          <article className="friend-block">
-            <h4>好友与黑名单</h4>
-            <div className="friend-list">
-              {props.friends.map((item) => (
-                <div key={item.userId} className="friend-row">
-                  <div>
-                    <div>{item.username}</div>
-                    <small className="subtle">{item.online ? '在线' : '离线'}</small>
+          {props.friendKeyword.trim() || props.friendSearchResults.length > 0 ? (
+            <article className="friend-block">
+              <h4>搜索结果</h4>
+              <div className="friend-list">
+                {props.friendSearchResults.map((item) => (
+                  <div key={item.userId} className="friend-row">
+                    <div>
+                      <div>{item.username}</div>
+                      <small className="subtle mono">{item.userId}</small>
+                    </div>
+                    <div className="friend-actions">
+                      <button
+                        type="button"
+                        disabled={item.relation !== 'none' || isPending(`request:${item.userId}`)}
+                        onClick={() =>
+                          void withPending(`request:${item.userId}`, () => props.onRequestFriend(item.userId)).catch(() => {})
+                        }
+                      >
+                        {isPending(`request:${item.userId}`) ? '处理中...' : relationActionLabel(item.relation)}
+                      </button>
+                      <button
+                        type="button"
+                        className="ghost-btn"
+                        disabled={isPending(`block:${item.userId}`)}
+                        onClick={() => void withPending(`block:${item.userId}`, () => props.onBlockUser(item.userId))}
+                      >
+                        {isPending(`block:${item.userId}`) ? '处理中...' : '拉黑'}
+                      </button>
+                    </div>
                   </div>
-                  <div className="friend-actions">
-                    <button type="button" className="ghost-btn" onClick={() => props.onBlockUser(item.userId)}>
-                      拉黑
-                    </button>
-                  </div>
-                </div>
-              ))}
-              {props.blockedUsers.map((item) => (
-                <div key={item.userId} className="friend-row">
-                  <div>
-                    <div>{item.username}</div>
-                    <small className="subtle mono">{item.userId}</small>
-                  </div>
-                  <div className="friend-actions">
-                    <button type="button" onClick={() => props.onUnblockUser(item.userId)}>
-                      解除
-                    </button>
-                  </div>
-                </div>
-              ))}
-              {props.friends.length === 0 && props.blockedUsers.length === 0 ? <p className="subtle">暂无联系人</p> : null}
-            </div>
-          </article>
+                ))}
+                {props.friendSearchResults.length === 0 ? <p className="subtle">暂无搜索结果</p> : null}
+              </div>
+            </article>
+          ) : null}
         </section>
       </div>
     </section>

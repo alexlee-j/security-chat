@@ -104,6 +104,78 @@ export class UserService {
     };
   }
 
+  async registerDevice(userId: string, deviceData: {
+    deviceName: string;
+    deviceType: 'ios' | 'android' | 'mac' | 'windows';
+    identityPublicKey: string;
+    signedPreKey: string;
+    signedPreKeySignature: string;
+  }): Promise<{ deviceId: string }> {
+    const device = this.deviceRepository.create({
+      userId,
+      deviceName: deviceData.deviceName,
+      deviceType: deviceData.deviceType,
+      identityPublicKey: deviceData.identityPublicKey,
+      signedPreKey: deviceData.signedPreKey,
+      signedPreKeySignature: deviceData.signedPreKeySignature,
+      lastActiveAt: new Date(),
+    });
+
+    const savedDevice = await this.deviceRepository.save(device);
+    return { deviceId: savedDevice.id };
+  }
+
+  async listDevices(userId: string): Promise<Array<{
+    deviceId: string;
+    deviceName: string;
+    deviceType: 'ios' | 'android' | 'mac' | 'windows';
+    identityPublicKey: string;
+    signedPreKey: string;
+    signedPreKeySignature: string;
+    createdAt: string;
+    lastActiveAt: string | null;
+  }>> {
+    const devices = await this.deviceRepository.find({
+      where: { userId },
+      order: { createdAt: 'DESC' },
+    });
+
+    return devices.map(device => ({
+      deviceId: device.id,
+      deviceName: device.deviceName,
+      deviceType: device.deviceType,
+      identityPublicKey: device.identityPublicKey,
+      signedPreKey: device.signedPreKey,
+      signedPreKeySignature: device.signedPreKeySignature,
+      createdAt: device.createdAt.toISOString(),
+      lastActiveAt: device.lastActiveAt?.toISOString() || null,
+    }));
+  }
+
+  async updateDevice(userId: string, deviceId: string, deviceData: {
+    deviceName: string;
+  }): Promise<{ updated: boolean }> {
+    await this.assertOwnDevice(userId, deviceId);
+
+    const result = await this.deviceRepository.update(
+      { id: deviceId, userId },
+      { deviceName: deviceData.deviceName },
+    );
+
+    return { updated: (result.affected || 0) > 0 };
+  }
+
+  async deleteDevice(userId: string, deviceId: string): Promise<{ deleted: boolean }> {
+    await this.assertOwnDevice(userId, deviceId);
+
+    const result = await this.deviceRepository.delete({
+      id: deviceId,
+      userId,
+    });
+
+    return { deleted: (result.affected || 0) > 0 };
+  }
+
   async getNextAvailablePrekey(deviceId: string): Promise<{
     preKeyId: string;
     deviceId: string;
@@ -146,10 +218,17 @@ export class UserService {
       };
     }
 
-    await this.oneTimePrekeyRepository.update(
+    const updated = await this.oneTimePrekeyRepository.update(
       { id: preKeyId, isUsed: false },
       { isUsed: true },
     );
+    if ((updated.affected ?? 0) === 0) {
+      return {
+        consumed: true,
+        alreadyUsed: true,
+        preKeyId,
+      };
+    }
 
     return {
       consumed: true,

@@ -10,6 +10,7 @@ import {
 import { Conversation } from './conversation.entity';
 
 @Entity({ name: 'conversation_members' })
+@Index(['conversationId', 'userId'])
 export class ConversationMember {
   @PrimaryGeneratedColumn('uuid')
   id!: string;

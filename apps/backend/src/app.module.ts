@@ -9,6 +9,7 @@ import { BurnModule } from './modules/burn/burn.module';
 import { ConversationModule } from './modules/conversation/conversation.module';
 import { FriendModule } from './modules/friend/friend.module';
 import { MessageModule } from './modules/message/message.module';
+import { MediaModule } from './modules/media/media.module';
 import { NotificationModule } from './modules/notification/notification.module';
 import { SecurityModule } from './modules/security/security.module';
 import { UserModule } from './modules/user/user.module';
@@ -23,6 +24,7 @@ import { UserModule } from './modules/user/user.module';
     FriendModule,
     ConversationModule,
     MessageModule,
+    MediaModule,
     BurnModule,
     NotificationModule,
     SecurityModule,

@@ -13,12 +13,17 @@ export class SendMessageDto {
   @IsString()
   nonce!: string;
 
+  @IsOptional()
+  @IsUUID()
+  mediaAssetId?: string;
+
+  @IsOptional()
   @IsBoolean()
-  isBurn!: boolean;
+  isBurn?: boolean;
 
   @IsOptional()
   @IsInt()
   @Min(5)
-  @Max(86400)
+  @Max(300)
   burnDuration?: number;
 }

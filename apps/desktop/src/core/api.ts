@@ -21,6 +21,7 @@ type SendMessageInput = {
   text: string;
   mediaUrl?: string;
   fileName?: string;
+  mediaAssetId?: string;
   isBurn: boolean;
   burnDuration?: number;
 };
@@ -41,8 +42,40 @@ export function setAuthToken(token: string | null): void {
   }
 }
 
+export async function logout(): Promise<void> {
+  await http.post('/auth/logout');
+}
+
 export async function login(account: string, password: string): Promise<AuthResult> {
   const res = await http.post<ApiEnvelope<AuthResult>>('/auth/login', { account, password });
+  return res.data.data;
+}
+
+export async function sendLoginCode(input: { account?: string; phone?: string }): Promise<{ sent: true; expiresInSec: number; debugCode?: string }> {
+  const res = await http.post<ApiEnvelope<{ sent: true; expiresInSec: number; debugCode?: string }>>(
+    '/auth/login-code/send',
+    input,
+  );
+  return res.data.data;
+}
+
+export async function loginWithCode(input: { account?: string; phone?: string; code: string }): Promise<AuthResult> {
+  const res = await http.post<ApiEnvelope<AuthResult>>('/auth/login-code', input);
+  return res.data.data;
+}
+
+export async function register(input: {
+  username: string;
+  email: string;
+  phone: string;
+  password: string;
+  deviceName: string;
+  deviceType: 'mac' | 'windows';
+  identityPublicKey: string;
+  signedPreKey: string;
+  signedPreKeySignature: string;
+}): Promise<AuthResult> {
+  const res = await http.post<ApiEnvelope<AuthResult>>('/auth/register', input);
   return res.data.data;
 }
 
@@ -56,9 +89,43 @@ export async function createDirectConversation(peerUserId: string): Promise<{ co
   return res.data.data;
 }
 
-export async function getMessages(conversationId: string, afterIndex = 0, limit = 50): Promise<MessageItem[]> {
+export async function getConversationBurnDefault(
+  conversationId: string,
+): Promise<{ conversationId: string; enabled: boolean; burnDuration: number | null }> {
+  const res = await http.get<ApiEnvelope<{ conversationId: string; enabled: boolean; burnDuration: number | null }>>(
+    `/conversation/${conversationId}/burn-default`,
+  );
+  return res.data.data;
+}
+
+export async function updateConversationBurnDefault(
+  conversationId: string,
+  enabled: boolean,
+  burnDuration: number,
+): Promise<{ conversationId: string; enabled: boolean; burnDuration: number | null }> {
+  const res = await http.post<ApiEnvelope<{ conversationId: string; enabled: boolean; burnDuration: number | null }>>(
+    `/conversation/${conversationId}/burn-default`,
+    {
+      enabled,
+      burnDuration: enabled ? burnDuration : undefined,
+    },
+  );
+  return res.data.data;
+}
+
+export async function getMessages(
+  conversationId: string,
+  afterIndex = 0,
+  limit = 50,
+  beforeIndex?: number,
+): Promise<MessageItem[]> {
   const res = await http.get<ApiEnvelope<MessageItem[]>>('/message/list', {
-    params: { conversationId, afterIndex, limit },
+    params: {
+      conversationId,
+      afterIndex,
+      limit,
+      beforeIndex: beforeIndex && beforeIndex > 0 ? beforeIndex : undefined,
+    },
   });
   return res.data.data;
 }
@@ -86,8 +153,26 @@ export async function sendMessage(input: SendMessageInput): Promise<{ messageId:
     messageType: input.messageType,
     encryptedPayload,
     nonce,
+    mediaAssetId: input.mediaAssetId,
     isBurn: input.isBurn,
     burnDuration: input.isBurn ? input.burnDuration : undefined,
+  });
+  return res.data.data;
+}
+
+export async function uploadMedia(
+  file: File,
+  mediaKind?: 2 | 3 | 4,
+): Promise<{ mediaAssetId: string; mediaKind: number; mimeType: string; fileSize: number; sha256: string; createdAt: string }> {
+  const formData = new FormData();
+  formData.append('file', file);
+  if (mediaKind) {
+    formData.append('mediaKind', String(mediaKind));
+  }
+  const res = await http.post<
+    ApiEnvelope<{ mediaAssetId: string; mediaKind: number; mimeType: string; fileSize: number; sha256: string; createdAt: string }>
+  >('/media/upload', formData, {
+    headers: { 'content-type': 'multipart/form-data' },
   });
   return res.data.data;
 }
@@ -98,6 +183,10 @@ export async function ackDelivered(conversationId: string, maxMessageIndex: numb
 
 export async function ackRead(conversationId: string, maxMessageIndex: number): Promise<void> {
   await http.post('/message/ack/read', { conversationId, maxMessageIndex });
+}
+
+export async function ackReadOne(messageId: string): Promise<void> {
+  await http.post('/message/ack/read-one', { messageId });
 }
 
 export async function searchUsers(keyword: string, limit = 20): Promise<FriendSearchItem[]> {
@@ -140,6 +229,13 @@ export async function unblockUser(targetUserId: string): Promise<void> {
 
 export async function triggerBurn(messageId: string): Promise<void> {
   await http.post('/burn/trigger', { messageId });
+}
+
+export async function downloadMedia(mediaAssetId: string): Promise<Blob> {
+  const res = await http.get(`/media/${mediaAssetId}/download`, {
+    responseType: 'blob',
+  });
+  return res.data as Blob;
 }
 
 export function decodePayload(payload: string): string {
