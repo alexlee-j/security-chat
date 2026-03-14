@@ -1,3 +1,13 @@
+/**
+ * 文件名：api.ts
+ * 所属模块：桌面端-API接口层
+ * 核心作用：封装所有后端API调用，包括用户认证、消息收发、会话管理、好友关系、
+ *          媒体文件上传下载等功能，统一处理请求拦截和错误处理
+ * 核心依赖：axios、crypto加密模块、types类型定义
+ * 创建时间：2024-01-01
+ * 更新说明：2026-03-14 添加异步解密支持、转发消息接口、媒体下载接口
+ */
+
 import axios from 'axios';
 import { encryptPayload, decryptPayload, decryptPayloadSync } from './crypto';
 import {
@@ -11,11 +21,17 @@ import {
   PendingFriendItem,
 } from './types';
 
+/** API基础URL，可通过环境变量配置 */
 const API_BASE = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:3000/api/v1';
+/** WebSocket基础URL */
 export const wsBaseUrl = import.meta.env.VITE_WS_BASE ?? 'http://127.0.0.1:3000/ws';
 
+/** axios实例，统一配置baseURL和超时 */
 const http = axios.create({ baseURL: API_BASE, timeout: 10000 });
 
+/**
+ * 发送消息输入参数
+ */
 type SendMessageInput = {
   conversationId: string;
   messageType: 1 | 2 | 3 | 4;

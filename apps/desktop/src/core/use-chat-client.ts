@@ -1,3 +1,13 @@
+/**
+ * 文件名：use-chat-client.ts
+ * 所属模块：桌面端-核心状态管理
+ * 核心作用：实现聊天客户端的核心状态管理和业务逻辑，包括用户认证、WebSocket连接、
+ *          消息收发、会话管理、好友关系、加密解密等完整聊天功能
+ * 核心依赖：React Hooks、Socket.IO Client、API模块、secure-storage安全存储
+ * 创建时间：2024-01-01
+ * 更新说明：2026-03-14 添加消息撤回事件监听、异步解密优化、Toast提示功能
+ */
+
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { getSecureJSON, setSecureJSON, getSecureItem, setSecureItem } from './secure-storage';
 import { io, Socket } from 'socket.io-client';
@@ -71,6 +81,10 @@ async function saveConversationPrefSnapshot(snapshot: { pinned: string[]; muted:
   await setSecureJSON(CONVERSATION_PREF_STORAGE_KEY, snapshot);
 }
 
+/**
+ * 聊天客户端状态类型定义
+ * 包含用户认证、会话、消息、好友等完整状态
+ */
 export type ChatClientState = {
   auth: AuthState | null;
   authMode: 'login' | 'register' | 'code';
@@ -85,6 +99,7 @@ export type ChatClientState = {
   loginCodeCooldown: number;
   error: string;
   conversations: ConversationListItem[];
+  /** 会话草稿：key为conversationId，value为草稿内容 */
   messageDrafts: Record<string, string>;
   pinnedConversationIds: string[];
   mutedConversationIds: string[];
@@ -154,29 +169,39 @@ export type ChatClientActions = {
   stopTyping: () => void;
 };
 
+/**
+ * 聊天客户端 Hook
+ * @returns 包含状态、操作、当前会话和解码函数的对象
+ * @description 核心状态管理Hook，整合用户认证、WebSocket连接、消息收发、会话管理等功能
+ */
 export function useChatClient(): {
   state: ChatClientState;
   actions: ChatClientActions;
   activeConversation: ConversationListItem | null;
   decodePayload: (payload: string) => string;
 } {
+  // ==================== 认证相关状态 ====================
   const [auth, setAuth] = useState<AuthState | null>(null);
   const [authMode, setAuthMode] = useState<'login' | 'register' | 'code'>('login');
-  const [account, setAccount] = useState('alice');
+  const [account, setAccount] = useState('alice');  // 默认账号，方便开发测试
   const [registerEmail, setRegisterEmail] = useState('');
   const [registerPhone, setRegisterPhone] = useState('');
   const [loginCode, setLoginCode] = useState('');
   const [codeHint, setCodeHint] = useState('');
-  const [password, setPassword] = useState('Password123');
+  const [password, setPassword] = useState('Password123');  // 默认密码，方便开发测试
   const [authSubmitting, setAuthSubmitting] = useState(false);
   const [sendingLoginCode, setSendingLoginCode] = useState(false);
   const [loginCodeCooldown, setLoginCodeCooldown] = useState(0);
   const [error, setError] = useState('');
+  
+  // ==================== 会话相关状态 ====================
   const [conversations, setConversations] = useState<ConversationListItem[]>([]);
   const [messageDrafts, setMessageDrafts] = useState<Record<string, string>>({});
   const [pinnedConversationIds, setPinnedConversationIds] = useState<string[]>([]);
   const [mutedConversationIds, setMutedConversationIds] = useState<string[]>([]);
   const [activeConversationId, setActiveConversationId] = useState('');
+  
+  // ==================== 消息相关状态 ====================
   const [messages, setMessages] = useState<MessageItem[]>([]);
   const [hasMoreHistory, setHasMoreHistory] = useState(true);
   const [loadingMoreHistory, setLoadingMoreHistory] = useState(false);
@@ -185,14 +210,12 @@ export function useChatClient(): {
   const [mediaUrl, setMediaUrl] = useState('');
   const [mediaUploading, setMediaUploading] = useState(false);
   const [sendingMessage, setSendingMessage] = useState(false);
-
-  // 当切换会话时，清除错误状态
-  useEffect(() => {
-    setError('');
-  }, [activeConversationId]);
+  
+  // ==================== 阅后即焚相关状态 ====================
   const [burnEnabled, setBurnEnabled] = useState(false);
   const [burnDuration, setBurnDuration] = useState(30);
   const [replyToMessage, setReplyToMessage] = useState<MessageItem | null>(null);
+  // ==================== 好友相关状态 ====================
   const [peerUserId, setPeerUserId] = useState('');
   const [creatingDirect, setCreatingDirect] = useState(false);
   const [typingHint, setTypingHint] = useState('');
@@ -203,17 +226,24 @@ export function useChatClient(): {
   const [friends, setFriends] = useState<FriendListItem[]>([]);
   const [blockedUsers, setBlockedUsers] = useState<BlockedFriendItem[]>([]);
 
-  const activeConversationIdRef = useRef('');
-  const authRef = useRef<AuthState | null>(null);
-  const messagesRef = useRef<MessageItem[]>([]);
-  const messageCursorRef = useRef<Record<string, number>>({});
-  const fallbackPollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const pendingMediaAssetIdRef = useRef<string | null>(null);
-  const messageDraftRef = useRef<Record<string, string>>({});
-  const autoBurnPendingRef = useRef<Set<string>>(new Set());
+  // ==================== Refs ====================
+  const activeConversationIdRef = useRef('');           // 活跃会话ID引用
+  const authRef = useRef<AuthState | null>(null);       // 认证信息引用
+  const messagesRef = useRef<MessageItem[]>([]);        // 消息列表引用
+  const messageCursorRef = useRef<Record<string, number>>({});  // 消息游标引用
+  const fallbackPollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);  // 轮询定时器
+  const pendingMediaAssetIdRef = useRef<string | null>(null);  // 待上传媒体ID
+  const messageDraftRef = useRef<Record<string, string>>({});  // 消息草稿引用
+  const autoBurnPendingRef = useRef<Set<string>>(new Set());   // 待焚毁消息集合
   // 解密缓存：Map<encryptedPayload, decryptedPayload>
   const payloadCacheRef = useRef<Map<string, string>>(new Map());
 
+  /**
+   * 解密消息 payload
+   * @param payload - 加密的 payload 字符串
+   * @returns 解密后的字符串
+   * @description 使用缓存机制避免重复解密，提升性能
+   */
   const decodePayload = (payload: string): string => {
     if (payloadCacheRef.current.has(payload)) {
       return payloadCacheRef.current.get(payload)!;

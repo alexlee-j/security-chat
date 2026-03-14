@@ -1,3 +1,13 @@
+/**
+ * 文件名：styles.css
+ * 所属模块：桌面端-全局样式
+ * 核心作用：基于 Telegram Desktop 设计语言的现代化 UI 样式系统，包含颜色变量、
+ *          组件样式、动画效果、响应式布局等完整样式定义
+ * 核心依赖：CSS3变量、Flexbox布局、CSS动画
+ * 创建时间：2024-01-01
+ * 更新说明：2026-03-14 添加消息引用样式、转发对话框样式、Toast提示样式、右键菜单样式
+ */
+
 /* ==========================================================================
    Security Chat Desktop - Telegram Style UI
    基于 Telegram Desktop 设计语言的现代化 UI 样式
@@ -12,7 +22,7 @@
   --brand-hover: #2b7fd4;
   --brand-light: #e6f3ff;
   --brand-dark: #1973c2;
-  
+
   /* 背景色系统 */
   --bg-primary: #87aadd;
   --bg-secondary: #aabfe6;

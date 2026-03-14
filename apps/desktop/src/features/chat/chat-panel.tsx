@@ -1,22 +1,50 @@
+/**
+ * 文件名：chat-panel.tsx
+ * 所属模块：桌面端-聊天面板
+ * 核心作用：实现聊天界面的核心交互功能，包括消息列表展示、消息发送、右键菜单操作
+ *          （复制/引用/转发/下载/删除）、图片预览、消息搜索、引用回复等功能
+ * 核心依赖：React(hooks)、MessageItem/ConversationListItem 类型、API 模块
+ * 创建时间：2024-01-01
+ * 更新说明：2026-03-14 添加消息引用、转发、下载功能，优化图片预览和右键菜单交互
+ */
+
 import { FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from 'react';
 import * as React from 'react';
 import { ConversationListItem, MessageItem } from '../../core/types';
 
+/**
+ * Props 类型定义 - 聊天面板组件属性
+ */
 type Props = {
+  /** 当前用户ID */
   currentUserId: string;
+  /** 当前会话ID */
   activeConversationId: string;
+  /** 当前会话信息 */
   activeConversation: ConversationListItem | null;
+  /** 消息列表 */
   messages: MessageItem[];
+  /** 输入框文本 */
   messageText: string;
+  /** 消息类型：1文本 2图片 3语音 4文件 */
   messageType: 1 | 2 | 3 | 4;
+  /** 媒体文件URL */
   mediaUrl: string;
+  /** 媒体上传中状态 */
   mediaUploading: boolean;
+  /** 发送中状态 */
   sendingMessage: boolean;
+  /** 阅后即焚开关 */
   burnEnabled: boolean;
+  /** 阅后即焚时长（秒） */
   burnDuration: number;
+  /** 引用的消息 */
   replyToMessage: MessageItem | null;
+  /** 输入提示文本 */
   typingHint: string;
+  /** 是否有更多历史消息 */
   hasMoreHistory: boolean;
+  /** 加载历史消息中状态 */
   loadingMoreHistory: boolean;
   decodePayload: (payload: string) => string;
   onMessageTextChange: (value: string) => void;
@@ -39,10 +67,17 @@ type Props = {
 
 const QUICK_EMOJIS = ['😀', '😂', '😍', '😎', '🤔', '😭', '👍', '🙏', '🎉', '❤️', '🔥', '✅'];
 
+/**
+ * Payload 数据结构 - 消息内容解析后的格式
+ */
 type PayloadData = {
+  /** 文本内容 */
   text?: string;
+  /** 媒体文件URL */
   mediaUrl?: string;
+  /** 文件名 */
   fileName?: string;
+  /** 引用的消息信息 */
   replyTo?: {
     messageId: string;
     senderId: string;
@@ -50,6 +85,11 @@ type PayloadData = {
   };
 };
 
+/**
+ * 格式化时间戳为本地时间字符串
+ * @param value - ISO 8601 格式的时间字符串
+ * @returns 格式化后的时间字符串（如：14:30）
+ */
 function formatTime(value?: string | null): string {
   if (!value) {
     return '--:--';
@@ -61,11 +101,21 @@ function formatTime(value?: string | null): string {
   return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
 }
 
+/**
+ * 获取用户名的首字母缩写（最多2个字符）
+ * @param name - 用户名
+ * @returns 大写的首字母缩写
+ */
 function getInitial(name?: string): string {
   return (name?.trim().slice(0, 2) ?? 'SC').toUpperCase();
 }
 
-// 根据用户名生成头像渐变色索引
+/**
+ * 根据用户名生成头像渐变色索引（0-4）
+ * 使用简单的哈希算法确保同一用户名始终生成相同颜色
+ * @param name - 用户名
+ * @returns 渐变色索引
+ */
 function getAvatarColorIndex(name: string): number {
   let hash = 0;
   for (let i = 0; i < name.length; i++) {
@@ -74,6 +124,12 @@ function getAvatarColorIndex(name: string): number {
   return Math.abs(hash) % 5;
 }
 
+/**
+ * 解析消息 payload JSON 字符串
+ * @param raw - JSON 字符串或原始文本
+ * @returns 解析后的 PayloadData 对象
+ * @description 兼容旧格式：如果解析失败或不是对象，返回 { text: raw }
+ */
 function parsePayload(raw: string): PayloadData {
   try {
     const parsed = JSON.parse(raw) as PayloadData;
@@ -86,6 +142,12 @@ function parsePayload(raw: string): PayloadData {
   }
 }
 
+/**
+ * 构建搜索文本，用于消息搜索功能
+ * @param row - 消息项
+ * @param payload - 解析后的消息内容
+ * @returns 小写的搜索文本
+ */
 function buildSearchText(row: MessageItem, payload: PayloadData): string {
   return [
     getTypeLabel(row.messageType),
@@ -98,6 +160,12 @@ function buildSearchText(row: MessageItem, payload: PayloadData): string {
     .toLowerCase();
 }
 
+/**
+ * 构建搜索摘要文本，限制长度
+ * @param payload - 解析后的消息内容
+ * @param maxLength - 最大长度，默认36字符
+ * @returns 截断后的摘要文本
+ */
 function buildSearchSnippet(payload: PayloadData, maxLength = 36): string {
   const source = [payload.text ?? '', payload.fileName ?? '', payload.mediaUrl ?? '']
     .join(' ')
@@ -108,6 +176,11 @@ function buildSearchSnippet(payload: PayloadData, maxLength = 36): string {
   return source.length <= maxLength ? source : `${source.slice(0, maxLength)}...`;
 }
 
+/**
+ * 获取消息类型标签
+ * @param messageType - 消息类型编号
+ * @returns 类型标签文本
+ */
 function getTypeLabel(messageType: number): string {
   if (messageType === 2) return '图片';
   if (messageType === 3) return '语音';
@@ -115,6 +188,12 @@ function getTypeLabel(messageType: number): string {
   return '文本';
 }
 
+/**
+ * 渲染高亮文本，将关键词标记为黄色背景
+ * @param text - 原始文本
+ * @param keyword - 要高亮的关键词
+ * @returns JSX.Element 高亮后的文本元素
+ */
 function renderHighlightedText(text: string, keyword: string): JSX.Element {
   const normalized = keyword.trim();
   if (!normalized) {
@@ -138,16 +217,27 @@ function renderHighlightedText(text: string, keyword: string): JSX.Element {
   );
 }
 
+/**
+ * 聊天面板主组件
+ * @param props - 组件属性
+ * @returns JSX.Element 聊天面板界面
+ * @description 实现完整的聊天功能：消息列表、输入框、搜索、右键菜单、图片预览等
+ */
 export function ChatPanel(props: Props): JSX.Element {
+  // 是否有活跃会话
   const hasActiveConversation = Boolean(props.activeConversationId);
+  // 对方用户名
   const peerName = props.activeConversation?.peerUser?.username ?? '未选择会话';
+  // 状态文本
   const statusText = hasActiveConversation ? '加密聊天中' : '请选择一个会话';
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [searchKeyword, setSearchKeyword] = useState('');
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [focusedMessageId, setFocusedMessageId] = useState('');
-  const [emojiOpen, setEmojiOpen] = useState(false);
-  const [advancedOpen, setAdvancedOpen] = useState(false);
+  
+  // UI 状态
+  const [searchOpen, setSearchOpen] = useState(false);          // 搜索面板开关
+  const [searchKeyword, setSearchKeyword] = useState('');       // 搜索关键词
+  const [menuOpen, setMenuOpen] = useState(false);              // 菜单开关
+  const [focusedMessageId, setFocusedMessageId] = useState(''); // 聚焦的消息ID
+  const [emojiOpen, setEmojiOpen] = useState(false);            // 表情面板开关
+  const [advancedOpen, setAdvancedOpen] = useState(false);      // 高级选项开关
   const [audioSourceMap, setAudioSourceMap] = useState<Record<string, string>>({});
   const [imagePreviewOpen, setImagePreviewOpen] = useState(false);
   const [imagePreviewSrc, setImagePreviewSrc] = useState('');

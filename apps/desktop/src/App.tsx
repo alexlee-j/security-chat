@@ -1,3 +1,14 @@
+/**
+ * 文件名：App.tsx
+ * 所属模块：桌面端-主应用容器
+ * 核心作用：应用根组件，负责整体布局渲染、路由切换（聊天/好友）、全局快捷键处理
+ *          整合登录界面、聊天面板、好友面板、会话侧边栏等核心模块
+ * 核心依赖：React(useEffect, useState)、useChatClient、LoginScreen、ChatPanel、
+ *          ConversationSidebar、FriendPanel
+ * 创建时间：2024-01-01
+ * 更新说明：2026-03-14 添加 Cmd/Ctrl+K 快捷键快速聚焦搜索框功能
+ */
+
 import { useEffect, useState } from 'react';
 import { LoginScreen } from './features/auth/login-screen';
 import { ChatPanel } from './features/chat/chat-panel';
@@ -5,10 +16,20 @@ import { ConversationSidebar } from './features/chat/conversation-sidebar';
 import { FriendPanel } from './features/friend/friend-panel';
 import { useChatClient } from './core/use-chat-client';
 
+/**
+ * 应用根组件
+ * @returns JSX.Element 应用主界面
+ */
 export function App(): JSX.Element {
+  // 聊天客户端状态管理：包含用户状态、消息、会话等核心数据
   const { state, actions, activeConversation, decodePayload } = useChatClient();
+  // 当前工作区：'chat' 聊天界面 | 'friend' 好友界面
   const [workspace, setWorkspace] = useState<'chat' | 'friend'>('chat');
 
+  /**
+   * 全局快捷键监听：Cmd/Ctrl + K 快速聚焦搜索框
+   * 适用于 macOS(Command) 和 Windows/Linux(Control)
+   */
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
       const metaOrCtrl = event.metaKey || event.ctrlKey;
@@ -16,6 +37,7 @@ export function App(): JSX.Element {
         return;
       }
       event.preventDefault();
+      // 切换到聊天工作区并聚焦搜索框
       setWorkspace('chat');
       window.requestAnimationFrame(() => {
         const filterInput = document.querySelector<HTMLInputElement>('.sidebar-search-input');
@@ -27,6 +49,7 @@ export function App(): JSX.Element {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
 
+  // 未登录状态：渲染登录界面
   if (!state.auth) {
     return (
       <LoginScreen
@@ -55,10 +78,13 @@ export function App(): JSX.Element {
     );
   }
 
+  // 已登录状态：渲染主工作区
   return (
     <main className="workspace-shell">
+      {/* 全局错误提示 */}
       {state.error ? <div className="error">{state.error}</div> : null}
       <div className="workspace-stage">
+        {/* 聊天工作区：包含会话侧边栏和聊天面板 */}
         {workspace === 'chat' ? (
           <div className="chat-shell telegram-desktop">
             <ConversationSidebar
