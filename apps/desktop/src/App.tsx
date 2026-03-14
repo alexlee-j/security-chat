@@ -58,112 +58,87 @@ export function App(): JSX.Element {
   return (
     <main className="workspace-shell">
       {state.error ? <div className="error">{state.error}</div> : null}
-      <section className="workspace-desktop">
-        <aside className="desktop-rail">
-          <div className="rail-brand">
-            <span className="rail-logo">SC</span>
-            <div>
-              <p className="kicker">Security Chat</p>
-              <p className="subtle">Desktop</p>
-            </div>
-          </div>
-          <button
-            type="button"
-            className={workspace === 'chat' ? 'rail-tab active' : 'rail-tab'}
-            onClick={() => setWorkspace('chat')}
-          >
-            聊天
-            {state.unreadTotal > 0 ? <span className="rail-badge">{state.unreadTotal > 99 ? '99+' : state.unreadTotal}</span> : null}
-          </button>
-          <button
-            type="button"
-            className={workspace === 'friend' ? 'rail-tab active' : 'rail-tab'}
-            onClick={() => setWorkspace('friend')}
-          >
-            好友
-          </button>
-          <button type="button" className="rail-tab" onClick={() => void actions.onLogout()}>
-            退出
-          </button>
-          <small className="subtle mono rail-user">{state.auth.userId}</small>
-        </aside>
-
-        <section className="workspace-stage">
-          {workspace === 'chat' ? (
-            <section className="chat-shell telegram-desktop">
-              <ConversationSidebar
-                userId={state.auth.userId}
-                peerUserId={state.peerUserId}
-                creatingDirect={state.creatingDirect}
-                conversations={state.conversations}
-                decodePayload={decodePayload}
-                messageDrafts={state.messageDrafts}
-                pinnedConversationIds={state.pinnedConversationIds}
-                mutedConversationIds={state.mutedConversationIds}
-                unreadTotal={state.unreadTotal}
-                activeConversationId={state.activeConversationId}
-                onPeerUserIdChange={actions.setPeerUserId}
-                onCreateDirect={actions.onCreateDirect}
-                onSelectConversation={actions.setActiveConversationId}
-                onTogglePin={actions.toggleConversationPin}
-                onToggleMute={actions.toggleConversationMute}
-              />
-
-              <ChatPanel
-                currentUserId={state.auth.userId}
-                activeConversationId={state.activeConversationId}
-                activeConversation={activeConversation}
-                messages={state.messages}
-                messageText={state.messageText}
-                messageType={state.messageType}
-                mediaUrl={state.mediaUrl}
-                mediaUploading={state.mediaUploading}
-                sendingMessage={state.sendingMessage}
-                burnEnabled={state.burnEnabled}
-                burnDuration={state.burnDuration}
-                typingHint={state.typingHint}
-                hasMoreHistory={state.hasMoreHistory}
-                loadingMoreHistory={state.loadingMoreHistory}
-                decodePayload={decodePayload}
-                onMessageTextChange={actions.setMessageText}
-                onMessageTypeChange={actions.setMessageType}
-                onMediaUrlChange={actions.setMediaUrl}
-                onBurnEnabledChange={actions.setBurnEnabled}
-                onBurnDurationChange={actions.setBurnDuration}
-                onTriggerBurn={actions.onTriggerBurn}
-                onRefreshConversation={actions.onRefreshActiveConversation}
-                onLoadOlderMessages={actions.onLoadOlderMessages}
-                onAttachMedia={actions.onAttachMedia}
-                onOpenMedia={actions.onOpenMedia}
-                onResolveMediaUrl={actions.onResolveMediaUrl}
-                onReadMessageOnce={actions.onReadMessageOnce}
-                onSubmit={actions.onSendMessage}
-                onStartTyping={actions.startTyping}
-                onStopTyping={actions.stopTyping}
-              />
-            </section>
-          ) : (
-            <FriendPanel
+      <div className="workspace-stage">
+        {workspace === 'chat' ? (
+          <div className="chat-shell telegram-desktop">
+            <ConversationSidebar
+              userId={state.auth.userId}
+              peerUserId={state.peerUserId}
+              creatingDirect={state.creatingDirect}
+              conversations={state.conversations}
+              decodePayload={decodePayload}
+              messageDrafts={state.messageDrafts}
+              pinnedConversationIds={state.pinnedConversationIds}
+              mutedConversationIds={state.mutedConversationIds}
+              unreadTotal={state.unreadTotal}
+              activeConversationId={state.activeConversationId}
+              onPeerUserIdChange={actions.setPeerUserId}
+              onCreateDirect={actions.onCreateDirect}
+              onSelectConversation={actions.setActiveConversationId}
+              onTogglePin={actions.toggleConversationPin}
+              onToggleMute={actions.toggleConversationMute}
+              onWorkspaceChange={setWorkspace}
+              onLogout={() => void actions.onLogout()}
               currentUserId={state.auth.userId}
-              friendKeyword={state.friendKeyword}
-              friendSearchResults={state.friendSearchResults}
-              incomingRequests={state.incomingRequests}
-              friends={state.friends}
-              blockedUsers={state.blockedUsers}
-              onKeywordChange={actions.setFriendKeyword}
-              onSearch={actions.onSearchFriends}
-              onRequestFriend={actions.onRequestFriend}
-              onRespondFriend={actions.onRespondFriend}
-              onBlockUser={actions.onBlockUser}
-              onUnblockUser={actions.onUnblockUser}
-              onStartDirectConversation={(targetUserId) => {
-                void actions.onStartDirectConversation(targetUserId);
-                setWorkspace('chat');
-              }}
             />
-          )}
-        </section>
-      </section>
+            <ChatPanel
+              currentUserId={state.auth.userId}
+              activeConversationId={state.activeConversationId}
+              activeConversation={activeConversation}
+              messages={state.messages}
+              messageText={state.messageText}
+              messageType={state.messageType}
+              mediaUrl={state.mediaUrl}
+              mediaUploading={state.mediaUploading}
+              sendingMessage={state.sendingMessage}
+              burnEnabled={state.burnEnabled}
+              burnDuration={state.burnDuration}
+              replyToMessage={state.replyToMessage}
+              typingHint={state.typingHint}
+              hasMoreHistory={state.hasMoreHistory}
+              loadingMoreHistory={state.loadingMoreHistory}
+              decodePayload={decodePayload}
+              onMessageTextChange={actions.setMessageText}
+              onMessageTypeChange={actions.setMessageType}
+              onMediaUrlChange={actions.setMediaUrl}
+              onBurnEnabledChange={actions.setBurnEnabled}
+              onBurnDurationChange={actions.setBurnDuration}
+              onReplyToMessageChange={actions.setReplyToMessage}
+              onTriggerBurn={actions.onTriggerBurn}
+              onRefreshConversation={actions.onRefreshActiveConversation}
+              onLoadOlderMessages={actions.onLoadOlderMessages}
+              onAttachMedia={actions.onAttachMedia}
+              onOpenMedia={actions.onOpenMedia}
+              onResolveMediaUrl={actions.onResolveMediaUrl}
+              onReadMessageOnce={actions.onReadMessageOnce}
+              onSubmit={actions.onSendMessage}
+              onStartTyping={actions.startTyping}
+              onStopTyping={actions.stopTyping}
+            />
+          </div>
+        ) : (
+          <FriendPanel
+            currentUserId={state.auth.userId}
+            friendKeyword={state.friendKeyword}
+            friendSearchResults={state.friendSearchResults}
+            incomingRequests={state.incomingRequests}
+            friends={state.friends}
+            blockedUsers={state.blockedUsers}
+            onKeywordChange={actions.setFriendKeyword}
+            onSearch={actions.onSearchFriends}
+            onRequestFriend={actions.onRequestFriend}
+            onRespondFriend={actions.onRespondFriend}
+            onBlockUser={actions.onBlockUser}
+            onUnblockUser={actions.onUnblockUser}
+            onStartDirectConversation={(targetUserId) => {
+              void actions.onStartDirectConversation(targetUserId);
+              setWorkspace('chat');
+            }}
+            onWorkspaceChange={setWorkspace}
+            onLogout={() => void actions.onLogout()}
+          />
+        )}
+      </div>
     </main>
   );
 }

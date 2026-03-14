@@ -1,5 +1,4 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
-import { getSecureJSON, setSecureJSON, getSecureItem, setSecureItem } from './secure-storage';
 import { io, Socket } from 'socket.io-client';
 import {
   ackReadOne,
@@ -8,8 +7,7 @@ import {
   blockUser,
   createDirectConversation,
   downloadMedia,
-  decodePayload as decodePayloadApi,
-  decodePayloadAsync,
+  decodePayload,
   getConversationBurnDefault,
   getBlockedUsers,
   getConversations,
@@ -47,28 +45,83 @@ const MESSAGE_CURSOR_STORAGE_KEY = 'security-chat.desktop.message-cursors.v1';
 const MESSAGE_DRAFT_STORAGE_KEY = 'security-chat.desktop.message-drafts.v1';
 const CONVERSATION_PREF_STORAGE_KEY = 'security-chat.desktop.conversation-prefs.v1';
 
-async function loadMessageCursorSnapshot(): Promise<Record<string, number>> {
-  return await getSecureJSON<Record<string, number>>(MESSAGE_CURSOR_STORAGE_KEY) || {};
+function loadMessageCursorSnapshot(): Record<string, number> {
+  try {
+    const raw = localStorage.getItem(MESSAGE_CURSOR_STORAGE_KEY);
+    if (!raw) {
+      return {};
+    }
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const result: Record<string, number> = {};
+    for (const [key, value] of Object.entries(parsed)) {
+      const num = Number(value);
+      if (key && Number.isFinite(num) && num >= 0) {
+        result[key] = num;
+      }
+    }
+    return result;
+  } catch {
+    return {};
+  }
 }
 
-async function saveMessageCursorSnapshot(snapshot: Record<string, number>): Promise<void> {
-  await setSecureJSON(MESSAGE_CURSOR_STORAGE_KEY, snapshot);
+function saveMessageCursorSnapshot(snapshot: Record<string, number>): void {
+  try {
+    localStorage.setItem(MESSAGE_CURSOR_STORAGE_KEY, JSON.stringify(snapshot));
+  } catch {
+    // Ignore persistence errors in private mode/storage-limited environments.
+  }
 }
 
-async function loadMessageDraftSnapshot(): Promise<Record<string, string>> {
-  return await getSecureJSON<Record<string, string>>(MESSAGE_DRAFT_STORAGE_KEY) || {};
+function loadMessageDraftSnapshot(): Record<string, string> {
+  try {
+    const raw = localStorage.getItem(MESSAGE_DRAFT_STORAGE_KEY);
+    if (!raw) {
+      return {};
+    }
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const result: Record<string, string> = {};
+    for (const [key, value] of Object.entries(parsed)) {
+      if (!key || typeof value !== 'string') {
+        continue;
+      }
+      result[key] = value;
+    }
+    return result;
+  } catch {
+    return {};
+  }
 }
 
-async function saveMessageDraftSnapshot(snapshot: Record<string, string>): Promise<void> {
-  await setSecureJSON(MESSAGE_DRAFT_STORAGE_KEY, snapshot);
+function saveMessageDraftSnapshot(snapshot: Record<string, string>): void {
+  try {
+    localStorage.setItem(MESSAGE_DRAFT_STORAGE_KEY, JSON.stringify(snapshot));
+  } catch {
+    // Ignore persistence errors in private mode/storage-limited environments.
+  }
 }
 
-async function loadConversationPrefSnapshot(): Promise<{ pinned: string[]; muted: string[] }> {
-  return await getSecureJSON<{ pinned: string[]; muted: string[] }>(CONVERSATION_PREF_STORAGE_KEY) || { pinned: [], muted: [] };
+function loadConversationPrefSnapshot(): { pinned: string[]; muted: string[] } {
+  try {
+    const raw = localStorage.getItem(CONVERSATION_PREF_STORAGE_KEY);
+    if (!raw) {
+      return { pinned: [], muted: [] };
+    }
+    const parsed = JSON.parse(raw) as { pinned?: unknown; muted?: unknown };
+    const pinned = Array.isArray(parsed.pinned) ? parsed.pinned.filter((v): v is string => typeof v === 'string') : [];
+    const muted = Array.isArray(parsed.muted) ? parsed.muted.filter((v): v is string => typeof v === 'string') : [];
+    return { pinned, muted };
+  } catch {
+    return { pinned: [], muted: [] };
+  }
 }
 
-async function saveConversationPrefSnapshot(snapshot: { pinned: string[]; muted: string[] }): Promise<void> {
-  await setSecureJSON(CONVERSATION_PREF_STORAGE_KEY, snapshot);
+function saveConversationPrefSnapshot(snapshot: { pinned: string[]; muted: string[] }): void {
+  try {
+    localStorage.setItem(CONVERSATION_PREF_STORAGE_KEY, JSON.stringify(snapshot));
+  } catch {
+    // Ignore persistence errors in private mode/storage-limited environments.
+  }
 }
 
 export type ChatClientState = {
@@ -100,7 +153,6 @@ export type ChatClientState = {
   sendingMessage: boolean;
   burnEnabled: boolean;
   burnDuration: number;
-  replyToMessage: MessageItem | null;
   peerUserId: string;
   creatingDirect: boolean;
   typingHint: string;
@@ -123,7 +175,6 @@ export type ChatClientActions = {
   setMediaUrl: (value: string) => void;
   setBurnEnabled: (value: boolean) => void;
   setBurnDuration: (value: number) => void;
-  setReplyToMessage: (message: MessageItem | null) => void;
   setPeerUserId: (value: string) => void;
   setActiveConversationId: (value: string) => void;
   toggleConversationPin: (conversationId: string) => void;
@@ -173,9 +224,9 @@ export function useChatClient(): {
   const [loginCodeCooldown, setLoginCodeCooldown] = useState(0);
   const [error, setError] = useState('');
   const [conversations, setConversations] = useState<ConversationListItem[]>([]);
-  const [messageDrafts, setMessageDrafts] = useState<Record<string, string>>({});
-  const [pinnedConversationIds, setPinnedConversationIds] = useState<string[]>([]);
-  const [mutedConversationIds, setMutedConversationIds] = useState<string[]>([]);
+  const [messageDrafts, setMessageDrafts] = useState<Record<string, string>>(() => loadMessageDraftSnapshot());
+  const [pinnedConversationIds, setPinnedConversationIds] = useState<string[]>(() => loadConversationPrefSnapshot().pinned);
+  const [mutedConversationIds, setMutedConversationIds] = useState<string[]>(() => loadConversationPrefSnapshot().muted);
   const [activeConversationId, setActiveConversationId] = useState('');
   const [messages, setMessages] = useState<MessageItem[]>([]);
   const [hasMoreHistory, setHasMoreHistory] = useState(true);
@@ -185,14 +236,8 @@ export function useChatClient(): {
   const [mediaUrl, setMediaUrl] = useState('');
   const [mediaUploading, setMediaUploading] = useState(false);
   const [sendingMessage, setSendingMessage] = useState(false);
-
-  // 当切换会话时，清除错误状态
-  useEffect(() => {
-    setError('');
-  }, [activeConversationId]);
   const [burnEnabled, setBurnEnabled] = useState(false);
   const [burnDuration, setBurnDuration] = useState(30);
-  const [replyToMessage, setReplyToMessage] = useState<MessageItem | null>(null);
   const [peerUserId, setPeerUserId] = useState('');
   const [creatingDirect, setCreatingDirect] = useState(false);
   const [typingHint, setTypingHint] = useState('');
@@ -206,47 +251,11 @@ export function useChatClient(): {
   const activeConversationIdRef = useRef('');
   const authRef = useRef<AuthState | null>(null);
   const messagesRef = useRef<MessageItem[]>([]);
-  const messageCursorRef = useRef<Record<string, number>>({});
+  const messageCursorRef = useRef<Record<string, number>>(loadMessageCursorSnapshot());
   const fallbackPollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pendingMediaAssetIdRef = useRef<string | null>(null);
-  const messageDraftRef = useRef<Record<string, string>>({});
+  const messageDraftRef = useRef<Record<string, string>>(loadMessageDraftSnapshot());
   const autoBurnPendingRef = useRef<Set<string>>(new Set());
-  // 解密缓存：Map<encryptedPayload, decryptedPayload>
-  const payloadCacheRef = useRef<Map<string, string>>(new Map());
-
-  const decodePayload = (payload: string): string => {
-    if (payloadCacheRef.current.has(payload)) {
-      return payloadCacheRef.current.get(payload)!;
-    }
-    try {
-      const decrypted = decodePayloadApi(payload);
-      payloadCacheRef.current.set(payload, decrypted);
-      return decrypted;
-    } catch (error) {
-      console.error('Decryption failed:', error);
-      return payload;
-    }
-  };
-
-  // 同步版本的 decodePayload，用于渲染
-  // 对于已缓存的 payload 直接返回，未缓存的返回空字符串
-  const decodePayloadSync = (payload: string): string => {
-    if (payloadCacheRef.current.has(payload)) {
-      return payloadCacheRef.current.get(payload)!;
-    }
-    // 未缓存的 payload，尝试同步解密（仅支持 Base64 格式）
-    try {
-      const parts = payload.split(':');
-      if (parts.length !== 3) {
-        const decrypted = decodeURIComponent(escape(atob(payload)));
-        payloadCacheRef.current.set(payload, decrypted);
-        return decrypted;
-      }
-    } catch {
-      // Ignore errors
-    }
-    return payload;
-  };
 
   const activeConversation = useMemo(
     () => conversations.find((c) => c.conversationId === activeConversationId) ?? null,
@@ -347,125 +356,70 @@ export function useChatClient(): {
   }
 
   async function loadMessages(conversationId: string): Promise<void> {
-    try {
-      const rows = await getMessages(conversationId, 0, 100);
-      
-      // 预先解密消息
-      for (const row of rows) {
-        if (!payloadCacheRef.current.has(row.encryptedPayload)) {
-          try {
-            const decrypted = await decodePayloadAsync(row.encryptedPayload);
-            payloadCacheRef.current.set(row.encryptedPayload, decrypted);
-          } catch (error) {
-            console.error('Decryption failed:', error);
-          }
-        }
-      }
-      
-      const nowMs = Date.now();
-      setMessages(rows.filter((row) => !isBurnExpired(row, nowMs)));
-      setHasMoreHistory(rows.length >= 100);
+    const rows = await getMessages(conversationId, 0, 100);
+    const nowMs = Date.now();
+    setMessages(rows.filter((row) => !isBurnExpired(row, nowMs)));
+    setHasMoreHistory(rows.length >= 100);
 
-      const maxIndex = rows.reduce((max, row) => Math.max(max, Number(row.messageIndex)), 0);
-      updateConversationCursor(conversationId, maxIndex);
-      if (maxIndex > 0) {
-        await Promise.all([ackDelivered(conversationId, maxIndex), ackRead(conversationId, maxIndex)])
-          .then(() => {
-            if (authRef.current) {
-              applyReadAckToActiveMessages(conversationId, maxIndex, authRef.current.userId, new Date().toISOString());
-            }
-          })
-          .catch(() => {});
-      }
-    } catch (error) {
-      console.error('加载消息失败:', error);
-      setError('加载消息失败，请稍后重试。');
-      setMessages([]);
-      setHasMoreHistory(false);
+    const maxIndex = rows.reduce((max, row) => Math.max(max, Number(row.messageIndex)), 0);
+    updateConversationCursor(conversationId, maxIndex);
+    if (maxIndex > 0) {
+      await Promise.all([ackDelivered(conversationId, maxIndex), ackRead(conversationId, maxIndex)])
+        .then(() => {
+          if (authRef.current) {
+            applyReadAckToActiveMessages(conversationId, maxIndex, authRef.current.userId, new Date().toISOString());
+          }
+        })
+        .catch(() => {});
     }
   }
 
   async function syncMessagesDelta(conversationId: string): Promise<void> {
-    try {
-      const currentRows = activeConversationIdRef.current === conversationId ? messagesRef.current : [];
-      const localCursor = messageCursorRef.current[conversationId] ?? 0;
-      const activeMax =
-        activeConversationIdRef.current === conversationId
-          ? messagesRef.current.reduce((max, row) => Math.max(max, Number(row.messageIndex)), 0)
-          : 0;
-      const afterIndex = Math.max(localCursor, activeMax);
-      const rows = await getMessages(conversationId, afterIndex, 100);
-      
-      if (rows.length > 0) {
-        // 预先解密新消息
-        for (const row of rows) {
-          if (!payloadCacheRef.current.has(row.encryptedPayload)) {
-            try {
-              const decrypted = await decodePayloadAsync(row.encryptedPayload);
-              payloadCacheRef.current.set(row.encryptedPayload, decrypted);
-            } catch (error) {
-              console.error('Decryption failed:', error);
-            }
+    const currentRows = activeConversationIdRef.current === conversationId ? messagesRef.current : [];
+    const localCursor = messageCursorRef.current[conversationId] ?? 0;
+    const activeMax =
+      activeConversationIdRef.current === conversationId
+        ? messagesRef.current.reduce((max, row) => Math.max(max, Number(row.messageIndex)), 0)
+        : 0;
+    const afterIndex = Math.max(localCursor, activeMax);
+    const rows = await getMessages(conversationId, afterIndex, 100);
+    if (rows.length > 0) {
+      const nowMs = Date.now();
+      setMessages((prev) => mergeMessages(prev, rows).filter((row) => !isBurnExpired(row, nowMs)));
+    }
+    const latestMax = [...currentRows, ...rows].reduce((max, row) => Math.max(max, Number(row.messageIndex)), 0);
+    updateConversationCursor(conversationId, latestMax);
+    if (latestMax > 0) {
+      await Promise.all([ackDelivered(conversationId, latestMax), ackRead(conversationId, latestMax)])
+        .then(() => {
+          if (authRef.current) {
+            applyReadAckToActiveMessages(conversationId, latestMax, authRef.current.userId, new Date().toISOString());
           }
-        }
-        
-        const nowMs = Date.now();
-        setMessages((prev) => mergeMessages(prev, rows).filter((row) => !isBurnExpired(row, nowMs)));
-      }
-      const latestMax = [...currentRows, ...rows].reduce((max, row) => Math.max(max, Number(row.messageIndex)), 0);
-      updateConversationCursor(conversationId, latestMax);
-      if (latestMax > 0) {
-        await Promise.all([ackDelivered(conversationId, latestMax), ackRead(conversationId, latestMax)])
-          .then(() => {
-            if (authRef.current) {
-              applyReadAckToActiveMessages(conversationId, latestMax, authRef.current.userId, new Date().toISOString());
-            }
-          })
-          .catch(() => {});
-      }
-    } catch (error) {
-      console.error('同步消息失败:', error);
-      // 同步消息失败不设置错误状态，避免影响用户体验
+        })
+        .catch(() => {});
     }
   }
 
   async function syncConversationCursor(conversationId: string, applyToActive: boolean): Promise<void> {
-    try {
-      const afterIndex = messageCursorRef.current[conversationId] ?? 0;
-      const rows = await getMessages(conversationId, afterIndex, 100);
-      if (rows.length === 0) {
-        return;
-      }
+    const afterIndex = messageCursorRef.current[conversationId] ?? 0;
+    const rows = await getMessages(conversationId, afterIndex, 100);
+    if (rows.length === 0) {
+      return;
+    }
 
-      // 预先解密新消息
-      for (const row of rows) {
-        if (!payloadCacheRef.current.has(row.encryptedPayload)) {
-          try {
-            const decrypted = await decodePayloadAsync(row.encryptedPayload);
-            payloadCacheRef.current.set(row.encryptedPayload, decrypted);
-          } catch (error) {
-            console.error('Decryption failed:', error);
+    const maxIndex = rows.reduce((max, row) => Math.max(max, Number(row.messageIndex)), 0);
+    updateConversationCursor(conversationId, maxIndex);
+
+    if (applyToActive && activeConversationIdRef.current === conversationId) {
+      const nowMs = Date.now();
+      setMessages((prev) => mergeMessages(prev, rows).filter((row) => !isBurnExpired(row, nowMs)));
+      await Promise.all([ackDelivered(conversationId, maxIndex), ackRead(conversationId, maxIndex)])
+        .then(() => {
+          if (authRef.current) {
+            applyReadAckToActiveMessages(conversationId, maxIndex, authRef.current.userId, new Date().toISOString());
           }
-        }
-      }
-
-      const maxIndex = rows.reduce((max, row) => Math.max(max, Number(row.messageIndex)), 0);
-      updateConversationCursor(conversationId, maxIndex);
-
-      if (applyToActive && activeConversationIdRef.current === conversationId) {
-        const nowMs = Date.now();
-        setMessages((prev) => mergeMessages(prev, rows).filter((row) => !isBurnExpired(row, nowMs)));
-        await Promise.all([ackDelivered(conversationId, maxIndex), ackRead(conversationId, maxIndex)])
-          .then(() => {
-            if (authRef.current) {
-              applyReadAckToActiveMessages(conversationId, maxIndex, authRef.current.userId, new Date().toISOString());
-            }
-          })
-          .catch(() => {});
-      }
-    } catch (error) {
-      console.error('同步会话游标失败:', error);
-      // 同步会话游标失败不设置错误状态，避免影响用户体验
+        })
+        .catch(() => {});
     }
   }
 
@@ -489,26 +443,12 @@ export function useChatClient(): {
     setLoadingMoreHistory(true);
     try {
       const olderRows = await getMessages(conversationId, 0, 100, oldestIndex);
-      // 预先解密新消息
-      for (const row of olderRows) {
-        if (!payloadCacheRef.current.has(row.encryptedPayload)) {
-          try {
-            const decrypted = await decodePayloadAsync(row.encryptedPayload);
-            payloadCacheRef.current.set(row.encryptedPayload, decrypted);
-          } catch (error) {
-            console.error('Decryption failed:', error);
-          }
-        }
-      }
       const nowMs = Date.now();
       setMessages((prev) => mergeMessages(olderRows, prev).filter((row) => !isBurnExpired(row, nowMs)));
       const oldestFetched = olderRows.reduce((min, row) => Math.min(min, Number(row.messageIndex)), oldestIndex);
       if (olderRows.length < 100 || oldestFetched <= 1) {
         setHasMoreHistory(false);
       }
-    } catch (error) {
-      console.error('加载历史消息失败:', error);
-      setError('加载历史消息失败，请稍后重试。');
     } finally {
       setLoadingMoreHistory(false);
     }
@@ -736,24 +676,6 @@ export function useChatClient(): {
     setSendingMessage(true);
     try {
       const isBurnForThisMessage = messageType !== 4 && burnEnabled;
-      
-      // 构建 replyTo 信息
-      const replyTo = replyToMessage
-        ? {
-            messageId: replyToMessage.id,
-            senderId: replyToMessage.senderId,
-            text: (() => {
-              try {
-                const decoded = decodePayloadSync(replyToMessage.encryptedPayload);
-                const payload = JSON.parse(decoded);
-                return payload.text || '[图片]';
-              } catch {
-                return '[消息]';
-              }
-            })(),
-          }
-        : undefined;
-      
       await sendMessage({
         conversationId: activeConversationIdRef.current,
         messageType,
@@ -763,10 +685,8 @@ export function useChatClient(): {
         mediaAssetId: messageType === 1 ? undefined : pendingMediaAssetIdRef.current ?? undefined,
         isBurn: isBurnForThisMessage,
         burnDuration: isBurnForThisMessage ? burnDuration : undefined,
-        replyTo,
       });
       setMessageText('');
-      setReplyToMessage(null);
       if (activeConversationIdRef.current) {
         const nextDrafts = { ...messageDraftRef.current };
         delete nextDrafts[activeConversationIdRef.current];
@@ -837,8 +757,7 @@ export function useChatClient(): {
       const blob = await downloadMedia(message.mediaAssetId);
       return URL.createObjectURL(blob);
     } catch {
-      // 媒体下载失败，不设置全局错误状态，避免影响其他会话
-      console.error('媒体下载失败:', message.mediaAssetId);
+      setError('媒体下载失败，请稍后重试。');
       return null;
     }
   }
@@ -1016,45 +935,6 @@ export function useChatClient(): {
   useEffect(() => {
     activeConversationIdRef.current = activeConversationId;
   }, [activeConversationId]);
-
-  // 当消息更新时，异步解密所有未解密的 payload
-  useEffect(() => {
-    let cancelled = false;
-    const decryptMessages = async () => {
-      const nowMs = Date.now();
-      let hasDecrypted = false;
-      
-      for (const row of messagesRef.current) {
-        if (isBurnExpired(row, nowMs)) {
-          continue;
-        }
-        if (!payloadCacheRef.current.has(row.encryptedPayload)) {
-          try {
-            const decrypted = await decodePayloadApi(row.encryptedPayload);
-            payloadCacheRef.current.set(row.encryptedPayload, decrypted);
-            hasDecrypted = true;
-          } catch (error) {
-            console.error('Decryption failed:', error);
-          }
-        }
-      }
-      
-      // 只有在有新解密的数据时才触发重新渲染
-      if (!cancelled && hasDecrypted) {
-        setMessages((prev) => {
-          // 创建一个新数组以触发重新渲染
-          const newMessages = [...prev];
-          return newMessages;
-        });
-      }
-    };
-    
-    void decryptMessages();
-    
-    return () => {
-      cancelled = true;
-    };
-  }, [messages.length]);
 
   function handleMessageTypeChange(value: 1 | 2 | 3 | 4): void {
     setMessageType(value);
@@ -1284,35 +1164,6 @@ export function useChatClient(): {
       onConversationEvent(payload);
     };
 
-    const onMessageRevoked = (payload: { conversationId?: string; messageId?: string; revokedByUserId?: string; revokedAt?: string }): void => {
-      console.log('收到 message.revoked 事件:', payload);
-      if (!payload.conversationId || !payload.messageId) {
-        console.log('payload 缺少必要字段，忽略事件');
-        return;
-      }
-      // 检查当前会话是否匹配
-      if (payload.conversationId !== activeConversationIdRef.current) {
-        console.log('会话ID不匹配，当前会话:', activeConversationIdRef.current, '事件会话:', payload.conversationId);
-        return;
-      }
-      // 从消息列表中移除被撤回的消息
-      setMessages((prev) => {
-        console.log('当前消息数量:', prev.length, '要删除的消息ID:', payload.messageId);
-        console.log('消息ID列表:', prev.map(m => m.id));
-        const filtered = prev.filter((row) => {
-          const match = row.id === payload.messageId;
-          if (match) {
-            console.log('找到匹配的消息:', row.id);
-          }
-          return !match;
-        });
-        console.log('过滤后消息数量:', filtered.length);
-        return filtered;
-      });
-      // 触发会话更新事件
-      onConversationEvent({ conversationId: payload.conversationId });
-    };
-
     client.on('connect', () => {
       stopFallbackPolling();
       if (activeConversationIdRef.current) {
@@ -1336,7 +1187,6 @@ export function useChatClient(): {
     client.on('message.sent', onConversationEvent);
     client.on('message.delivered', onConversationEvent);
     client.on('message.read', onMessageRead);
-    client.on('message.revoked', onMessageRevoked);
     client.on('burn.triggered', onBurnTriggered);
     client.on('conversation.updated', onConversationEvent);
     client.on('conversation.typing', (payload: { conversationId?: string; userId?: string; isTyping?: boolean }) => {
@@ -1393,7 +1243,6 @@ export function useChatClient(): {
       sendingMessage,
       burnEnabled,
       burnDuration,
-      replyToMessage,
       peerUserId,
       creatingDirect,
       typingHint,
@@ -1415,7 +1264,6 @@ export function useChatClient(): {
       setMediaUrl: handleMediaUrlChange,
       setBurnEnabled: handleBurnEnabledChange,
       setBurnDuration: handleBurnDurationChange,
-      setReplyToMessage,
       setPeerUserId,
       setActiveConversationId,
       toggleConversationPin,
@@ -1446,6 +1294,6 @@ export function useChatClient(): {
       stopTyping,
     },
     activeConversation,
-    decodePayload: decodePayloadSync,
+    decodePayload,
   };
 }

@@ -231,6 +231,7 @@ export class MessageService implements OnModuleInit, OnModuleDestroy {
         .createQueryBuilder('m')
         .where('m.conversationId = :conversationId', { conversationId: query.conversationId })
         .andWhere('m.messageIndex < :beforeIndex', { beforeIndex: String(beforeIndex) })
+        .andWhere('m.isRevoked = false')
         .orderBy('m.messageIndex', 'DESC')
         .limit(limit)
         .getMany();
@@ -241,6 +242,7 @@ export class MessageService implements OnModuleInit, OnModuleDestroy {
       const latestRows = await this.messageRepository
         .createQueryBuilder('m')
         .where('m.conversationId = :conversationId', { conversationId: query.conversationId })
+        .andWhere('m.isRevoked = false')
         .orderBy('m.messageIndex', 'DESC')
         .limit(limit)
         .getMany();
@@ -251,6 +253,7 @@ export class MessageService implements OnModuleInit, OnModuleDestroy {
       .createQueryBuilder('m')
       .where('m.conversationId = :conversationId', { conversationId: query.conversationId })
       .andWhere('m.messageIndex > :afterIndex', { afterIndex: String(afterIndex) })
+      .andWhere('m.isRevoked = false')
       .orderBy('m.messageIndex', 'ASC')
       .limit(limit)
       .getMany();

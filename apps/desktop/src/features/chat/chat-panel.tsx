@@ -1,7 +1,6 @@
 import { FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from 'react';
+import * as React from 'react';
 import { ConversationListItem, MessageItem } from '../../core/types';
-
-const QUICK_EMOJIS = ['😀', '😂', '😍', '😎', '🤔', '😭', '👍', '🙏', '🎉', '❤️', '🔥', '✅'];
 
 type Props = {
   currentUserId: string;
@@ -15,6 +14,7 @@ type Props = {
   sendingMessage: boolean;
   burnEnabled: boolean;
   burnDuration: number;
+  replyToMessage: MessageItem | null;
   typingHint: string;
   hasMoreHistory: boolean;
   loadingMoreHistory: boolean;
@@ -24,6 +24,7 @@ type Props = {
   onMediaUrlChange: (value: string) => void;
   onBurnEnabledChange: (value: boolean) => void;
   onBurnDurationChange: (value: number) => void;
+  onReplyToMessageChange: (message: MessageItem | null) => void;
   onTriggerBurn: (messageId: string) => Promise<void>;
   onRefreshConversation: () => Promise<void>;
   onLoadOlderMessages: () => Promise<void>;
@@ -36,10 +37,17 @@ type Props = {
   onStopTyping: () => void;
 };
 
+const QUICK_EMOJIS = ['😀', '😂', '😍', '😎', '🤔', '😭', '👍', '🙏', '🎉', '❤️', '🔥', '✅'];
+
 type PayloadData = {
   text?: string;
   mediaUrl?: string;
   fileName?: string;
+  replyTo?: {
+    messageId: string;
+    senderId: string;
+    text: string;
+  };
 };
 
 function formatTime(value?: string | null): string {
@@ -57,6 +65,15 @@ function getInitial(name?: string): string {
   return (name?.trim().slice(0, 2) ?? 'SC').toUpperCase();
 }
 
+// 根据用户名生成头像渐变色索引
+function getAvatarColorIndex(name: string): number {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return Math.abs(hash) % 5;
+}
+
 function parsePayload(raw: string): PayloadData {
   try {
     const parsed = JSON.parse(raw) as PayloadData;
@@ -69,16 +86,9 @@ function parsePayload(raw: string): PayloadData {
   }
 }
 
-function messageTypeLabel(messageType: number): string {
-  if (messageType === 2) return '图片';
-  if (messageType === 3) return '语音';
-  if (messageType === 4) return '文件';
-  return '文本';
-}
-
 function buildSearchText(row: MessageItem, payload: PayloadData): string {
   return [
-    messageTypeLabel(row.messageType),
+    getTypeLabel(row.messageType),
     payload.text ?? '',
     payload.mediaUrl ?? '',
     payload.fileName ?? '',
@@ -96,6 +106,13 @@ function buildSearchSnippet(payload: PayloadData, maxLength = 36): string {
     return '(空内容)';
   }
   return source.length <= maxLength ? source : `${source.slice(0, maxLength)}...`;
+}
+
+function getTypeLabel(messageType: number): string {
+  if (messageType === 2) return '图片';
+  if (messageType === 3) return '语音';
+  if (messageType === 4) return '文件';
+  return '文本';
 }
 
 function renderHighlightedText(text: string, keyword: string): JSX.Element {
@@ -132,6 +149,17 @@ export function ChatPanel(props: Props): JSX.Element {
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [audioSourceMap, setAudioSourceMap] = useState<Record<string, string>>({});
+  const [imagePreviewOpen, setImagePreviewOpen] = useState(false);
+  const [imagePreviewSrc, setImagePreviewSrc] = useState('');
+  const [imageSourceMap, setImageSourceMap] = useState<Record<string, string>>({});
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; message: MessageItem } | null>(null);
+  const [forwardDialogOpen, setForwardDialogOpen] = useState(false);
+  const [forwardMessageId, setForwardMessageId] = useState('');
+  const [forwardConversations, setForwardConversations] = useState<ConversationListItem[]>([]);
+  const [selectedForwardConversation, setSelectedForwardConversation] = useState('');
+  const [forwardLoading, setForwardLoading] = useState(false);
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info'; visible: boolean } | null>(null);
+  const [confirmDialog, setConfirmDialog] = useState<{ open: boolean; messageId: string; message?: MessageItem } | null>(null);
   const messageListRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
@@ -152,7 +180,7 @@ export function ChatPanel(props: Props): JSX.Element {
         }
         return {
           id: row.id,
-          label: `[${messageTypeLabel(row.messageType)}] ${buildSearchSnippet(payload)}`,
+          label: `[${getTypeLabel(row.messageType)}] ${buildSearchSnippet(payload)}`,
           time: formatTime(row.createdAt),
           index: row.messageIndex,
         };
@@ -214,19 +242,42 @@ export function ChatPanel(props: Props): JSX.Element {
   }
 
   useEffect(() => {
+    if (!contextMenu) {
+      return;
+    }
+    const close = (): void => setContextMenu(null);
+    window.addEventListener('click', close);
+    window.addEventListener('contextmenu', close);
+    return () => {
+      window.removeEventListener('click', close);
+      window.removeEventListener('contextmenu', close);
+    };
+  }, [contextMenu]);
+
+  useEffect(() => {
     return () => {
       for (const source of Object.values(audioSourceMap)) {
         if (source.startsWith('blob:')) {
           URL.revokeObjectURL(source);
         }
       }
+      for (const source of Object.values(imageSourceMap)) {
+        if (source.startsWith('blob:')) {
+          URL.revokeObjectURL(source);
+        }
+      }
     };
-  }, [audioSourceMap]);
+  }, [audioSourceMap, imageSourceMap]);
 
   useEffect(() => {
     setSearchKeyword('');
     setFocusedMessageId('');
     setSearchOpen(false);
+    // 重置媒体相关状态
+    setAudioSourceMap({});
+    setImageSourceMap({});
+    setImagePreviewOpen(false);
+    setImagePreviewSrc('');
     stickToBottomRef.current = true;
     window.requestAnimationFrame(() => {
       scrollToBottom();
@@ -242,6 +293,20 @@ export function ChatPanel(props: Props): JSX.Element {
     }
     messageListRef.current.scrollTop = messageListRef.current.scrollHeight;
   }, [visibleMessages.length, props.typingHint, props.activeConversationId]);
+
+  // 自动加载图片消息
+  useEffect(() => {
+    visibleMessages.forEach((row) => {
+      if (row.messageType !== 2) {
+        return;
+      }
+      if (imageSourceMap[row.id]) {
+        return;
+      }
+      const payload = parsePayload(props.decodePayload(row.encryptedPayload));
+      void prepareImageSource(row, payload);
+    });
+  }, [visibleMessages]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent | globalThis.KeyboardEvent): void => {
@@ -261,6 +326,8 @@ export function ChatPanel(props: Props): JSX.Element {
       if (event.key === 'Escape') {
         setEmojiOpen(false);
         setMenuOpen(false);
+        closeContextMenu();
+        closeImagePreview();
       }
     };
     window.addEventListener('keydown', onKeyDown);
@@ -282,6 +349,21 @@ export function ChatPanel(props: Props): JSX.Element {
     }
   }
 
+  async function prepareImageSource(row: MessageItem, payload: PayloadData): Promise<void> {
+    if (imageSourceMap[row.id]) {
+      return;
+    }
+    const resolved = await props.onResolveMediaUrl(row);
+    if (resolved) {
+      setImageSourceMap((prev) => ({ ...prev, [row.id]: resolved }));
+      return;
+    }
+    const fallback = (payload.mediaUrl ?? '').trim();
+    if (fallback) {
+      setImageSourceMap((prev) => ({ ...prev, [row.id]: fallback }));
+    }
+  }
+
   function openMediaMessage(row: MessageItem, payload: PayloadData): void {
     if (row.messageType === 3) {
       void prepareAudioSource(row, payload);
@@ -297,11 +379,230 @@ export function ChatPanel(props: Props): JSX.Element {
     }
   }
 
+  function openImagePreview(mediaUrl: string): void {
+    setImagePreviewSrc(mediaUrl);
+    setImagePreviewOpen(true);
+  }
+
+  function closeImagePreview(): void {
+    setImagePreviewOpen(false);
+    setImagePreviewSrc('');
+  }
+
+  function openContextMenu(event: React.MouseEvent, message: MessageItem): void {
+    event.preventDefault();
+    event.stopPropagation();
+    setContextMenu({
+      x: event.clientX,
+      y: event.clientY,
+      message,
+    });
+  }
+
+  function closeContextMenu(): void {
+    setContextMenu(null);
+  }
+
+  async function copyMessage(messageId: string): Promise<void> {
+    const message = props.messages.find((m: MessageItem) => m.id === messageId);
+    if (!message) {
+      return;
+    }
+    const payload = parsePayload(props.decodePayload(message.encryptedPayload));
+    const text = payload.text ?? '';
+    if (text) {
+      try {
+        await navigator.clipboard.writeText(text);
+        showToast('已复制到剪贴板', 'success');
+      } catch {
+        showToast('复制失败', 'error');
+      }
+    }
+    closeContextMenu();
+  }
+
+  function replyMessage(messageId: string): void {
+    const message = props.messages.find((m: MessageItem) => m.id === messageId);
+    if (!message) {
+      return;
+    }
+    props.onReplyToMessageChange(message);
+    closeContextMenu();
+    // 聚焦到输入框
+    window.requestAnimationFrame(() => {
+      const textarea = document.querySelector<HTMLTextAreaElement>('.composer textarea');
+      textarea?.focus();
+    });
+  }
+
+  async function loadForwardConversations(): Promise<void> {
+    try {
+      const { getConversations } = await import('../../core/api');
+      const conversations = await getConversations();
+      setForwardConversations(conversations);
+    } catch (error) {
+      console.error('加载会话列表失败:', error);
+    }
+  }
+
+  function forwardMessage(messageId: string): void {
+    setForwardMessageId(messageId);
+    setSelectedForwardConversation('');
+    void loadForwardConversations();
+    setForwardDialogOpen(true);
+    closeContextMenu();
+  }
+
+  async function downloadMedia(message: MessageItem): Promise<void> {
+    try {
+      const payload = parsePayload(props.decodePayload(message.encryptedPayload));
+      let url: string | null = null;
+      let filename = payload.fileName || 'download';
+      let revokeUrl = false;
+
+      if (message.messageType === 2) {
+        // 图片 - 使用 imageSourceMap 中的 URL 或解析新的 URL
+        if (imageSourceMap[message.id]) {
+          url = imageSourceMap[message.id];
+        } else if (message.mediaAssetId) {
+          const { downloadMedia } = await import('../../core/api');
+          const blob = await downloadMedia(message.mediaAssetId);
+          url = URL.createObjectURL(blob);
+          revokeUrl = true;
+        } else if (payload.mediaUrl) {
+          url = payload.mediaUrl;
+        }
+        if (!filename.includes('.')) {
+          filename = payload.fileName || 'image.jpg';
+        }
+      } else if (message.messageType === 4) {
+        // 文件
+        if (message.mediaAssetId) {
+          const { downloadMedia } = await import('../../core/api');
+          const blob = await downloadMedia(message.mediaAssetId);
+          url = URL.createObjectURL(blob);
+          revokeUrl = true;
+        } else if (payload.mediaUrl) {
+          url = payload.mediaUrl;
+        }
+        if (!filename.includes('.')) {
+          filename = payload.fileName || 'file';
+        }
+      }
+
+      if (!url) {
+        showToast('下载链接不可用', 'error');
+        return;
+      }
+
+      // 如果是 blob URL，先获取为 blob 再下载
+      if (url.startsWith('blob:')) {
+        const response = await fetch(url);
+        const blob = await response.blob();
+        const blobUrl = URL.createObjectURL(blob);
+        
+        // 创建下载链接
+        const a = document.createElement('a');
+        a.href = blobUrl;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        
+        // 清理 blob URL
+        URL.revokeObjectURL(blobUrl);
+      } else {
+        // 直接下载
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.target = '_blank';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      }
+
+      // 清理需要释放的 URL
+      if (revokeUrl && url.startsWith('blob:')) {
+        URL.revokeObjectURL(url);
+      }
+
+      showToast('下载已开始', 'success');
+    } catch (error) {
+      console.error('下载失败:', error);
+      showToast('下载失败，请重试', 'error');
+    }
+    closeContextMenu();
+  }
+
+  async function handleForwardSubmit(): Promise<void> {
+    if (!selectedForwardConversation) {
+      showToast('请选择要转发的会话', 'error');
+      return;
+    }
+    setForwardLoading(true);
+    try {
+      const { forwardMessage } = await import('../../core/api');
+      await forwardMessage(forwardMessageId, selectedForwardConversation);
+      setForwardDialogOpen(false);
+      showToast('消息转发成功', 'success');
+    } catch (error) {
+      console.error('转发消息失败:', error);
+      showToast('转发消息失败，请重试', 'error');
+    } finally {
+      setForwardLoading(false);
+    }
+  }
+
+  function showToast(message: string, type: 'success' | 'error' | 'info' = 'info'): void {
+    setToast({ message, type, visible: true });
+    setTimeout(() => {
+      setToast((prev) => (prev ? { ...prev, visible: false } : null));
+      setTimeout(() => setToast(null), 300);
+    }, 3000);
+  }
+
+  async function deleteMessage(messageId: string): Promise<void> {
+    const message = props.messages.find((m: MessageItem) => m.id === messageId);
+    if (!message) {
+      return;
+    }
+    if (message.senderId !== props.currentUserId) {
+      showToast('只能撤回自己发送的消息', 'error');
+      closeContextMenu();
+      return;
+    }
+    // 显示确认对话框
+    setConfirmDialog({
+      open: true,
+      messageId,
+      message,
+    });
+    closeContextMenu();
+  }
+
+  async function confirmDelete(): Promise<void> {
+    if (!confirmDialog?.messageId) {
+      return;
+    }
+    try {
+      await import('../../core/api').then(({ revokeMessage }) => revokeMessage(confirmDialog.messageId));
+      showToast('消息已撤回', 'success');
+      // 刷新会话以更新消息列表，确保用户能立即看到删除效果
+      await props.onRefreshConversation();
+      setConfirmDialog(null);
+    } catch (error) {
+      console.error('撤回消息失败:', error);
+      showToast('撤回消息失败，请重试', 'error');
+    }
+  }
+
   return (
-    <section className="chat-panel card telegram-chat">
+    <>
+      <section className="chat-panel card telegram-chat">
       <header className="chat-header">
         <div className="chat-title">
-          <span className="avatar avatar-large">{getInitial(peerName)}</span>
+          <span className="avatar avatar-large" style={{ background: `var(--avatar-gradient-${(getAvatarColorIndex(peerName) % 5) + 1})` }}>{getInitial(peerName)}</span>
           <div>
             <h3>{peerName}</h3>
             <p className="subtle">{statusText}</p>
@@ -403,47 +704,88 @@ export function ChatPanel(props: Props): JSX.Element {
               <div className="history-end subtle">没有更早消息了</div>
             )}
             {visibleMessages.map((row) => {
-              const payload = parsePayload(props.decodePayload(row.encryptedPayload));
+              const decoded = props.decodePayload(row.encryptedPayload);
+              const payload = parsePayload(decoded);
               return (
                 <article
                   key={row.id}
                   data-msg-id={row.id}
                   className={`${row.senderId === props.currentUserId ? 'message self' : 'message'}${focusedMessageId === row.id ? ' focused' : ''}`}
+                  onContextMenu={(e) => openContextMenu(e, row)}
                 >
-                  <div className="message-head">
-                    <span className="message-type-tag">{messageTypeLabel(row.messageType)}</span>
-                    {row.isBurn ? <span className="message-burn-tag">阅后即焚</span> : null}
-                  </div>
-
-                  {row.messageType === 1 ? (
-                    <div className="message-content">{renderHighlightedText(payload.text ?? '', searchKeyword)}</div>
-                  ) : (
-                    <div className="message-media">
-                      {row.messageType === 3 ? (
-                        audioSourceMap[row.id] ? (
-                          <audio
-                            controls
-                            preload="none"
-                            src={audioSourceMap[row.id]}
-                            onPlay={() => {
-                              void props.onReadMessageOnce(row);
+                  <div className="message-content" style={{ marginBottom: row.isBurn ? '6px' : '0' }}>
+                    {payload.replyTo ? (
+                      <div
+                        className="message-reply"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const targetMsg = props.messages.find((m) => m.id === payload.replyTo?.messageId);
+                          if (targetMsg) {
+                            const element = document.querySelector(`[data-msg-id="${targetMsg.id}"]`);
+                            element?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                            setFocusedMessageId(targetMsg.id);
+                            setTimeout(() => setFocusedMessageId(''), 2000);
+                          }
+                        }}
+                      >
+                        <div className="message-reply-content">
+                          <div className="message-reply-header">
+                            <span className="message-reply-label">引用</span>
+                            <span className="message-reply-sender">
+                              {payload.replyTo.senderId === props.currentUserId ? '我' : '对方'}
+                            </span>
+                          </div>
+                          <div className="message-reply-text">
+                            {payload.replyTo.text || '[图片]'}
+                          </div>
+                        </div>
+                      </div>
+                    ) : null}
+                    {row.messageType === 1 ? (
+                      renderHighlightedText(payload.text ?? '', searchKeyword)
+                    ) : row.messageType === 2 ? (
+                      <div className="message-image-wrapper">
+                        {imageSourceMap[row.id] ? (
+                          <img
+                            src={imageSourceMap[row.id]}
+                            alt={payload.fileName || '图片'}
+                            className="message-image"
+                            onClick={() => openImagePreview(imageSourceMap[row.id])}
+                            onError={(e) => {
+                              console.log('图片加载失败:', imageSourceMap[row.id]);
+                              (e.target as HTMLImageElement).style.display = 'none';
                             }}
                           />
                         ) : (
-                          <button type="button" className="link-btn" onClick={() => openMediaMessage(row, payload)}>
-                            加载语音
+                          <button type="button" className="link-btn" onClick={() => prepareImageSource(row, payload).then(() => {})}>
+                            加载图片
                           </button>
-                        )
+                        )}
+                      </div>
+                    ) : row.messageType === 3 ? (
+                      audioSourceMap[row.id] ? (
+                        <audio
+                          controls
+                          preload="none"
+                          src={audioSourceMap[row.id]}
+                          onPlay={() => {
+                            void props.onReadMessageOnce(row);
+                          }}
+                        />
                       ) : (
                         <button type="button" className="link-btn" onClick={() => openMediaMessage(row, payload)}>
-                          {row.messageType === 2 ? '查看图片' : `下载文件 ${payload.fileName ?? ''}`.trim()}
+                          加载语音
                         </button>
-                      )}
-                      {payload.text ? (
-                        <div className="message-content">{renderHighlightedText(payload.text, searchKeyword)}</div>
-                      ) : null}
-                    </div>
-                  )}
+                      )
+                    ) : (
+                      <button type="button" className="link-btn" onClick={() => openMediaMessage(row, payload)}>
+                        {`下载文件 ${payload.fileName ?? ''}`.trim()}
+                      </button>
+                    )}
+                    {payload.text && row.messageType !== 1 && row.messageType !== 2 ? (
+                      <div style={{ marginTop: '6px' }}>{renderHighlightedText(payload.text, searchKeyword)}</div>
+                    ) : null}
+                  </div>
 
                   <small className="message-meta">
                     <span>{formatTime(row.createdAt)}</span>
@@ -539,68 +881,99 @@ export function ChatPanel(props: Props): JSX.Element {
           }}
         />
         <form ref={composerFormRef} onSubmit={props.onSubmit} className="composer">
-          <button
-            type="button"
-            className="composer-tool icon-btn"
-            disabled={!hasActiveConversation || props.mediaUploading}
-            aria-label="附加"
-            onClick={() => fileInputRef.current?.click()}
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path
-                d="M15.5 5a4.5 4.5 0 0 1 0 9H8.8a2.8 2.8 0 1 1 0-5.6h6.4v1.8H8.8a1 1 0 1 0 0 2h6.7a2.7 2.7 0 1 0 0-5.4H8.2A4.2 4.2 0 1 0 8.2 15h7.1v1.8H8.2a6 6 0 1 1 0-12h7.3Z"
-                fill="currentColor"
-              />
-            </svg>
-          </button>
-          <button
-            type="button"
-            className="composer-tool icon-btn"
-            disabled={!hasActiveConversation}
-            aria-label="表情"
-            onClick={() => setEmojiOpen((v) => !v)}
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path
-                d="M12 4a8 8 0 1 0 8 8 8 8 0 0 0-8-8Zm0 14a6 6 0 1 1 6-6 6 6 0 0 1-6 6Zm-3-7a1 1 0 1 0-1-1 1 1 0 0 0 1 1Zm6 0a1 1 0 1 0-1-1 1 1 0 0 0 1 1Zm-6.2 2.6a4.1 4.1 0 0 0 6.4 0l1.6 1a6 6 0 0 1-9.6 0l1.6-1Z"
-                fill="currentColor"
-              />
-            </svg>
-          </button>
-          <textarea
-            value={props.messageText}
-            onChange={(e) => props.onMessageTextChange(e.target.value)}
-            placeholder="输入消息，按 Enter 发送"
-            onFocus={props.onStartTyping}
-            onBlur={props.onStopTyping}
-            rows={1}
-            onKeyDown={(event: KeyboardEvent<HTMLTextAreaElement>) => {
-              if (event.key !== 'Enter') {
-                return;
+          {props.replyToMessage ? (
+            <div className="reply-preview">
+              <div className="reply-preview-content">
+                <div className="reply-preview-header">
+                  <span className="reply-preview-label">引用</span>
+                  <span className="reply-preview-sender">
+                    {props.replyToMessage.senderId === props.currentUserId ? '我' : '对方'}
+                  </span>
+                </div>
+                <div className="reply-preview-text">
+                  {(() => {
+                    const payload = parsePayload(props.decodePayload(props.replyToMessage!.encryptedPayload));
+                    const content = payload.text || (props.replyToMessage!.messageType === 2 ? '[图片]' : props.replyToMessage!.messageType === 3 ? '[语音]' : '[文件]');
+                    return content.slice(0, 60) + (content.length > 60 ? '...' : '');
+                  })()}
+                </div>
+              </div>
+              <button
+                type="button"
+                className="reply-preview-close"
+                onClick={() => props.onReplyToMessageChange(null)}
+                aria-label="取消引用"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" fill="currentColor"/>
+                </svg>
+              </button>
+            </div>
+          ) : null}
+          <div className="composer-input-row">
+            <button
+              type="button"
+              className="composer-tool icon-btn"
+              disabled={!hasActiveConversation || props.mediaUploading}
+              aria-label="附加"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M15.5 5a4.5 4.5 0 0 1 0 9H8.8a2.8 2.8 0 1 1 0-5.6h6.4v1.8H8.8a1 1 0 1 0 0 2h6.7a2.7 2.7 0 1 0 0-5.4H8.2A4.2 4.2 0 1 0 8.2 15h7.1v1.8H8.2a6 6 0 1 1 0-12h7.3Z"
+                  fill="currentColor"
+                />
+              </svg>
+            </button>
+            <button
+              type="button"
+              className="composer-tool icon-btn"
+              disabled={!hasActiveConversation}
+              aria-label="表情"
+              onClick={() => setEmojiOpen((v) => !v)}
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M12 4a8 8 0 1 0 8 8 8 8 0 0 0-8-8Zm0 14a6 6 0 1 1 6-6 6 6 0 0 1-6 6Zm-3-7a1 1 0 1 0-1-1 1 1 0 0 0 1 1Zm6 0a1 1 0 1 0-1-1 1 1 0 0 0 1 1Zm-6.2 2.6a4.1 4.1 0 0 0 6.4 0l1.6 1a6 6 0 0 1-9.6 0l1.6-1Z"
+                  fill="currentColor"
+                />
+              </svg>
+            </button>
+            <textarea
+              value={props.messageText}
+              onChange={(e) => props.onMessageTextChange(e.target.value)}
+              placeholder="输入消息，按 Enter 发送"
+              onFocus={props.onStartTyping}
+              onBlur={props.onStopTyping}
+              rows={1}
+              onKeyDown={(event: KeyboardEvent<HTMLTextAreaElement>) => {
+                if (event.key !== 'Enter') {
+                  return;
+                }
+                if (event.shiftKey) {
+                  return;
+                }
+                event.preventDefault();
+                composerFormRef.current?.requestSubmit();
+              }}
+              disabled={!hasActiveConversation}
+            />
+            <button
+              type="submit"
+              className="composer-send icon-btn"
+              disabled={
+                !hasActiveConversation ||
+                props.sendingMessage ||
+                props.mediaUploading ||
+                (props.messageType === 1 ? !props.messageText.trim() : !props.mediaUrl.trim())
               }
-              if (event.shiftKey) {
-                return;
-              }
-              event.preventDefault();
-              composerFormRef.current?.requestSubmit();
-            }}
-            disabled={!hasActiveConversation}
-          />
-          <button
-            type="submit"
-            className="composer-send icon-btn"
-            disabled={
-              !hasActiveConversation ||
-              props.sendingMessage ||
-              props.mediaUploading ||
-              (props.messageType === 1 ? !props.messageText.trim() : !props.mediaUrl.trim())
-            }
-            aria-label="发送消息"
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="m21 12-17 7 3.6-7L4 5l17 7Z" fill="currentColor" />
-            </svg>
-          </button>
+              aria-label="发送消息"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="m21 12-17 7 3.6-7L4 5l17 7Z" fill="currentColor" />
+              </svg>
+            </button>
+          </div>
         </form>
         {emojiOpen ? (
           <div className="emoji-panel">
@@ -616,5 +989,184 @@ export function ChatPanel(props: Props): JSX.Element {
         </small>
       </footer>
     </section>
+
+    {/* 图片预览模态框 */}
+    {imagePreviewOpen ? (
+      <div className="image-preview-overlay" onClick={closeImagePreview}>
+        <button className="image-preview-close" onClick={closeImagePreview} aria-label="关闭预览">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" fill="currentColor"/>
+          </svg>
+        </button>
+        <img src={imagePreviewSrc} alt="预览" className="image-preview-image" onClick={(e) => e.stopPropagation()} />
+      </div>
+    ) : null}
+
+    {/* 消息右键菜单 */}
+    {contextMenu ? (
+      <div
+        className="message-context-menu"
+        style={{ left: `${contextMenu.x}px`, top: `${contextMenu.y}px` }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button type="button" onClick={() => copyMessage(contextMenu.message.id)}>
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z" fill="currentColor"/>
+          </svg>
+          复制
+        </button>
+        <button type="button" onClick={() => replyMessage(contextMenu.message.id)}>
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z" fill="currentColor"/>
+          </svg>
+          引用
+        </button>
+        <button type="button" onClick={() => forwardMessage(contextMenu.message.id)}>
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92s2.92-1.31 2.92-2.92-1.31-2.92-2.92-2.92z" fill="currentColor"/>
+          </svg>
+          转发
+        </button>
+        {[2, 4].includes(contextMenu.message.messageType) ? (
+          <button type="button" onClick={() => downloadMedia(contextMenu.message)}>
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z" fill="currentColor"/>
+            </svg>
+            下载
+          </button>
+        ) : null}
+        <div className="message-context-menu-divider" />
+        <button type="button" className="message-context-menu-danger" onClick={() => deleteMessage(contextMenu.message.id)}>
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" fill="currentColor"/>
+          </svg>
+          删除
+        </button>
+      </div>
+    ) : null}
+
+    {/* 转发对话框 */}
+    {forwardDialogOpen ? (
+      <div className="forward-dialog-overlay" onClick={() => !forwardLoading && setForwardDialogOpen(false)}>
+        <div className="forward-dialog" onClick={(e) => e.stopPropagation()}>
+          <div className="forward-dialog-header">
+            <h3>转发消息</h3>
+            <button
+              type="button"
+              className="forward-dialog-close"
+              onClick={() => setForwardDialogOpen(false)}
+              disabled={forwardLoading}
+              aria-label="关闭"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" fill="currentColor"/>
+              </svg>
+            </button>
+          </div>
+          <div className="forward-dialog-content">
+            {forwardConversations.length === 0 ? (
+              <div className="forward-dialog-empty">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H6l-2 2V4h16v12z" fill="currentColor"/>
+                </svg>
+                <p>暂无会话</p>
+              </div>
+            ) : (
+              <div className="forward-dialog-list">
+                {forwardConversations.map((conv) => (
+                  <label
+                    key={conv.conversationId}
+                    className={`forward-dialog-item ${selectedForwardConversation === conv.conversationId ? 'selected' : ''}`}
+                  >
+                    <input
+                      type="radio"
+                      name="forward-conversation"
+                      value={conv.conversationId}
+                      checked={selectedForwardConversation === conv.conversationId}
+                      onChange={(e) => setSelectedForwardConversation(e.target.value)}
+                      disabled={forwardLoading}
+                    />
+                    <span className="avatar" style={{ background: `var(--avatar-gradient-${(getAvatarColorIndex(conv.peerUser?.username || '') % 5) + 1})` }}>
+                      {getInitial(conv.peerUser?.username)}
+                    </span>
+                    <span className="forward-dialog-item-name">
+                      {conv.peerUser?.username || '未知用户'}
+                    </span>
+                    {selectedForwardConversation === conv.conversationId && (
+                      <svg className="forward-dialog-check" viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" fill="currentColor"/>
+                      </svg>
+                    )}
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="forward-dialog-actions">
+            <button
+              type="button"
+              className="ghost-btn"
+              onClick={() => setForwardDialogOpen(false)}
+              disabled={forwardLoading}
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              className="primary-btn"
+              onClick={handleForwardSubmit}
+              disabled={forwardLoading || !selectedForwardConversation}
+            >
+              {forwardLoading ? (
+                <>
+                  <span className="spinner" />
+                  转发中...
+                </>
+              ) : '转发'}
+            </button>
+          </div>
+        </div>
+      </div>
+    ) : null}
+
+    {/* 确认对话框 */}
+    {confirmDialog?.open ? (
+      <div className="confirm-dialog-overlay" onClick={() => setConfirmDialog(null)}>
+        <div className="confirm-dialog" onClick={(e) => e.stopPropagation()}>
+          <div className="confirm-dialog-icon">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" fill="currentColor"/>
+            </svg>
+          </div>
+          <h3>确认撤回消息</h3>
+          <p>撤回后，该消息将从双方聊天中删除，是否确认？</p>
+          <div className="confirm-dialog-actions">
+            <button type="button" className="ghost-btn" onClick={() => setConfirmDialog(null)}>
+              取消
+            </button>
+            <button type="button" className="danger-btn" onClick={confirmDelete}>
+              确认撤回
+            </button>
+          </div>
+        </div>
+      </div>
+    ) : null}
+
+    {/* Toast 提示 */}
+    {toast ? (
+      <div className={`toast toast-${toast.type} ${toast.visible ? 'visible' : ''}`}>
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          {toast.type === 'success' ? (
+            <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" fill="currentColor"/>
+          ) : toast.type === 'error' ? (
+            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z" fill="currentColor"/>
+          ) : (
+            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z" fill="currentColor"/>
+          )}
+        </svg>
+        <span>{toast.message}</span>
+      </div>
+    ) : null}
+    </>
   );
 }

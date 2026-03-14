@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
+import * as React from 'react';
 import { BlockedFriendItem, FriendListItem, FriendSearchItem, PendingFriendItem } from '../../core/types';
 
 type Props = {
@@ -15,7 +16,9 @@ type Props = {
   onBlockUser: (targetUserId: string) => Promise<void>;
   onUnblockUser: (targetUserId: string) => Promise<void>;
   onStartDirectConversation: (targetUserId: string) => void;
-};
+  onWorkspaceChange?: (workspace: 'chat' | 'friend') => void;
+  onLogout?: () => void;
+}
 
 type FriendEntry =
   | { kind: 'friend'; userId: string; username: string; online?: boolean }
@@ -66,7 +69,33 @@ function getInitials(value: string): string {
   return value.trim().slice(0, 2).toUpperCase();
 }
 
+// 根据用户名生成头像渐变色索引
+function getAvatarColorIndex(name: string): number {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return Math.abs(hash) % 5;
+}
+
 export function FriendPanel(props: Props): JSX.Element {
+  const { onWorkspaceChange, onLogout, currentUserId } = props;
+  const [navDrawerOpen, setNavDrawerOpen] = useState(false);
+
+  // ESC 键关闭抽屉
+  useEffect(() => {
+    if (!navDrawerOpen) {
+      return;
+    }
+    const onKeyDown = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') {
+        setNavDrawerOpen(false);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [navDrawerOpen]);
+
   const entries = useMemo(
     () => toFriendEntry(props.friends, props.incomingRequests, props.blockedUsers),
     [props.friends, props.incomingRequests, props.blockedUsers],
@@ -75,7 +104,7 @@ export function FriendPanel(props: Props): JSX.Element {
   const [qrInput, setQrInput] = useState('');
   const [qrHint, setQrHint] = useState('');
   const [pendingOps, setPendingOps] = useState<Record<string, boolean>>({});
-  const ownAddCode = `sc:add:${props.currentUserId}`;
+  const ownAddCode = `sc:add:${currentUserId}`;
 
   function isPending(key: string): boolean {
     return Boolean(pendingOps[key]);
@@ -154,7 +183,7 @@ export function FriendPanel(props: Props): JSX.Element {
       setQrHint('请输入扫码结果或用户ID');
       return;
     }
-    if (targetUserId === props.currentUserId) {
+    if (targetUserId === currentUserId) {
       setQrHint('不能添加自己');
       return;
     }
@@ -168,11 +197,26 @@ export function FriendPanel(props: Props): JSX.Element {
   }
 
   return (
-    <section className="friend-panel card telegram-friends">
+    <>
+      <section className="friend-panel card telegram-friends">
       <header className="friend-head">
-        <div>
-          <p className="kicker">People</p>
-          <h3>好友中心</h3>
+        <div className="friend-head-left">
+          <div className="sidebar-nav-menu friend-nav-menu">
+            <button
+              type="button"
+              className="nav-menu-btn"
+              aria-label="导航菜单"
+              onClick={() => setNavDrawerOpen(true)}
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M4 6h16v2H4V6Zm0 5h16v2H4v-2Zm0 5h16v2H4v-2Z" fill="currentColor" />
+              </svg>
+            </button>
+          </div>
+          <div>
+            <p className="kicker">People</p>
+            <h3>好友中心</h3>
+          </div>
         </div>
         <span className="subtle">{props.friends.length} 位好友</span>
       </header>
@@ -196,7 +240,7 @@ export function FriendPanel(props: Props): JSX.Element {
                 className={item.userId === selectedUserId ? 'friend-nav-item active' : 'friend-nav-item'}
                 onClick={() => setSelectedUserId(item.userId)}
               >
-                <span className="avatar">{getInitials(item.username)}</span>
+                <span className="avatar" style={{ background: `var(--avatar-gradient-${(getAvatarColorIndex(item.username) % 5) + 1})` }}>{getInitials(item.username)}</span>
                 <span className="friend-nav-main">
                   <span>{item.username}</span>
                   <small className="subtle">
@@ -218,7 +262,7 @@ export function FriendPanel(props: Props): JSX.Element {
             ) : (
               <div className="friend-profile-body">
                 <div className="friend-identity">
-                  <span className="avatar avatar-large">{getInitials(selectedEntry.username)}</span>
+                  <span className="avatar avatar-large" style={{ background: `var(--avatar-gradient-${(getAvatarColorIndex(selectedEntry.username) % 5) + 1})` }}>{getInitials(selectedEntry.username)}</span>
                   <div>
                     <strong>{selectedEntry.username}</strong>
                     <small className="subtle mono">{selectedEntry.userId}</small>
@@ -391,6 +435,78 @@ export function FriendPanel(props: Props): JSX.Element {
           ) : null}
         </section>
       </div>
+      
+      {/* 导航抽屉 */}
+      <div className={`nav-drawer ${navDrawerOpen ? 'nav-drawer-open' : ''}`}>
+        <div className="nav-drawer-content">
+          <div className="nav-drawer-header">
+            <button
+              type="button"
+              className="nav-drawer-close-btn"
+              aria-label="关闭菜单"
+              onClick={() => setNavDrawerOpen(false)}
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" fill="currentColor"/>
+              </svg>
+            </button>
+            <span className="nav-drawer-logo">SC</span>
+            <div>
+              <p className="nav-drawer-title">Security Chat</p>
+              <p className="nav-drawer-subtitle">Desktop</p>
+            </div>
+          </div>
+          
+          <nav className="nav-drawer-nav">
+            <button
+              type="button"
+              className="nav-drawer-item"
+              onClick={() => {
+                onWorkspaceChange?.('chat');
+                setNavDrawerOpen(false);
+              }}
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z" fill="currentColor"/>
+              </svg>
+              <span>聊天</span>
+            </button>
+            
+            <button
+              type="button"
+              className="nav-drawer-item active"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z" fill="currentColor"/>
+              </svg>
+              <span>好友</span>
+            </button>
+          </nav>
+          
+          <div className="nav-drawer-divider" />
+          
+          <div className="nav-drawer-user">
+            <p className="nav-drawer-user-label">当前用户</p>
+            <p className="nav-drawer-user-id">{currentUserId}</p>
+          </div>
+          
+          <button
+            type="button"
+            className="nav-drawer-item nav-drawer-logout"
+            onClick={() => {
+              onLogout?.();
+              setNavDrawerOpen(false);
+            }}
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z" fill="currentColor"/>
+            </svg>
+            <span>退出登录</span>
+          </button>
+        </div>
+        <div className="nav-drawer-overlay" onClick={() => setNavDrawerOpen(false)} aria-hidden="true" />
+      </div>
     </section>
+    </>
   );
 }

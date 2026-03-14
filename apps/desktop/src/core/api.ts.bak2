@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { encryptPayload, decryptPayload, decryptPayloadSync } from './crypto';
+import { encryptPayload, decryptPayload } from './crypto';
 import {
   ApiEnvelope,
   AuthResult,
@@ -25,11 +25,6 @@ type SendMessageInput = {
   mediaAssetId?: string;
   isBurn: boolean;
   burnDuration?: number;
-  replyTo?: {
-    messageId: string;
-    senderId: string;
-    text: string;
-  };
 };
 
 type EncodedPayload = {
@@ -38,11 +33,6 @@ type EncodedPayload = {
   text?: string;
   mediaUrl?: string;
   fileName?: string;
-  replyTo?: {
-    messageId: string;
-    senderId: string;
-    text: string;
-  };
 };
 
 export function setAuthToken(token: string | null): void {
@@ -156,11 +146,7 @@ export async function sendMessage(input: SendMessageInput): Promise<{ messageId:
   if (input.fileName?.trim()) {
     payload.fileName = input.fileName.trim();
   }
-  if (input.replyTo) {
-    payload.replyTo = input.replyTo;
-  }
 
-  // 使用 Base64 编码而不是 AES-GCM 加密，以便前端能够正确解密自己发送的消息
   const encryptedPayload = btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
   const nonce = crypto.randomUUID().replace(/-/g, '').slice(0, 24);
   const res = await http.post<ApiEnvelope<{ messageId: string; messageIndex: string }>>('/message/send', {
@@ -246,20 +232,6 @@ export async function triggerBurn(messageId: string): Promise<void> {
   await http.post('/burn/trigger', { messageId });
 }
 
-export async function revokeMessage(messageId: string): Promise<void> {
-  await http.post('/message/ack/revoke', { messageId });
-}
-
-export async function forwardMessage(originalMessageId: string, conversationId: string, isBurn?: boolean, burnDuration?: number): Promise<{ messageId: string; messageIndex: string }> {
-  const res = await http.post<ApiEnvelope<{ messageId: string; messageIndex: string }>>('/message/forward', {
-    originalMessageId,
-    conversationId,
-    isBurn,
-    burnDuration,
-  });
-  return res.data.data;
-}
-
 export async function downloadMedia(mediaAssetId: string): Promise<Blob> {
   const res = await http.get(`/media/${mediaAssetId}/download`, {
     responseType: 'blob',
@@ -268,9 +240,9 @@ export async function downloadMedia(mediaAssetId: string): Promise<Blob> {
 }
 
 export function decodePayload(payload: string): string {
-  return decryptPayloadSync(payload);
-}
-
-export async function decodePayloadAsync(payload: string): Promise<string> {
-  return await decryptPayload(payload);
+  try {
+    return decodeURIComponent(escape(atob(payload)));
+  } catch {
+    return payload;
+  }
 }
