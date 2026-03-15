@@ -42,6 +42,7 @@ import {
   updateConversationBurnDefault,
   wsBaseUrl,
 } from './api';
+import { clearEncryptionKey } from './crypto';
 import {
   AuthState,
   BlockedFriendItem,
@@ -90,7 +91,6 @@ export type ChatClientState = {
   authMode: 'login' | 'register' | 'code';
   account: string;
   registerEmail: string;
-  registerPhone: string;
   loginCode: string;
   codeHint: string;
   password: string;
@@ -98,6 +98,8 @@ export type ChatClientState = {
   sendingLoginCode: boolean;
   loginCodeCooldown: number;
   error: string;
+  /** Toast 提示状态 */
+  toast: { message: string; type: 'success' | 'error' | 'info'; visible: boolean } | null;
   conversations: ConversationListItem[];
   /** 会话草稿：key为conversationId，value为草稿内容 */
   messageDrafts: Record<string, string>;
@@ -130,7 +132,6 @@ export type ChatClientActions = {
   setAuthMode: (value: 'login' | 'register' | 'code') => void;
   setAccount: (value: string) => void;
   setRegisterEmail: (value: string) => void;
-  setRegisterPhone: (value: string) => void;
   setLoginCode: (value: string) => void;
   setPassword: (value: string) => void;
   setMessageText: (value: string) => void;
@@ -183,16 +184,18 @@ export function useChatClient(): {
   // ==================== 认证相关状态 ====================
   const [auth, setAuth] = useState<AuthState | null>(null);
   const [authMode, setAuthMode] = useState<'login' | 'register' | 'code'>('login');
-  const [account, setAccount] = useState('alice');  // 默认账号，方便开发测试
+  const [account, setAccount] = useState('');
   const [registerEmail, setRegisterEmail] = useState('');
-  const [registerPhone, setRegisterPhone] = useState('');
   const [loginCode, setLoginCode] = useState('');
   const [codeHint, setCodeHint] = useState('');
-  const [password, setPassword] = useState('Password123');  // 默认密码，方便开发测试
+  const [password, setPassword] = useState('');
   const [authSubmitting, setAuthSubmitting] = useState(false);
   const [sendingLoginCode, setSendingLoginCode] = useState(false);
   const [loginCodeCooldown, setLoginCodeCooldown] = useState(0);
   const [error, setError] = useState('');
+  
+  // ==================== Toast 提示状态 ====================
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info'; visible: boolean } | null>(null);
   
   // ==================== 会话相关状态 ====================
   const [conversations, setConversations] = useState<ConversationListItem[]>([]);
@@ -237,6 +240,9 @@ export function useChatClient(): {
   const autoBurnPendingRef = useRef<Set<string>>(new Set());   // 待焚毁消息集合
   // 解密缓存：Map<encryptedPayload, decryptedPayload>
   const payloadCacheRef = useRef<Map<string, string>>(new Map());
+  // Toast 定时器引用，用于清理
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const toastHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   /**
    * 解密消息 payload
@@ -277,6 +283,27 @@ export function useChatClient(): {
     }
     return payload;
   };
+
+  /**
+   * 显示 Toast 提示
+   * @param message - 提示消息
+   * @param type - 提示类型：success | error | info
+   */
+  function showToast(message: string, type: 'success' | 'error' | 'info' = 'info'): void {
+    // 清理之前的定时器
+    if (toastTimerRef.current) {
+      clearTimeout(toastTimerRef.current);
+    }
+    if (toastHideTimerRef.current) {
+      clearTimeout(toastHideTimerRef.current);
+    }
+
+    setToast({ message, type, visible: true });
+    toastTimerRef.current = setTimeout(() => {
+      setToast((prev) => (prev ? { ...prev, visible: false } : null));
+      toastHideTimerRef.current = setTimeout(() => setToast(null), 300);
+    }, 3000);
+  }
 
   const activeConversation = useMemo(
     () => conversations.find((c) => c.conversationId === activeConversationId) ?? null,
@@ -384,7 +411,7 @@ export function useChatClient(): {
       for (const row of rows) {
         if (!payloadCacheRef.current.has(row.encryptedPayload)) {
           try {
-            const decrypted = await decodePayloadAsync(row.encryptedPayload);
+            const decrypted = await decodePayloadAsync(row.encryptedPayload, password);
             payloadCacheRef.current.set(row.encryptedPayload, decrypted);
           } catch (error) {
             console.error('Decryption failed:', error);
@@ -431,7 +458,7 @@ export function useChatClient(): {
         for (const row of rows) {
           if (!payloadCacheRef.current.has(row.encryptedPayload)) {
             try {
-              const decrypted = await decodePayloadAsync(row.encryptedPayload);
+              const decrypted = await decodePayloadAsync(row.encryptedPayload, password);
               payloadCacheRef.current.set(row.encryptedPayload, decrypted);
             } catch (error) {
               console.error('Decryption failed:', error);
@@ -471,7 +498,7 @@ export function useChatClient(): {
       for (const row of rows) {
         if (!payloadCacheRef.current.has(row.encryptedPayload)) {
           try {
-            const decrypted = await decodePayloadAsync(row.encryptedPayload);
+            const decrypted = await decodePayloadAsync(row.encryptedPayload, password);
             payloadCacheRef.current.set(row.encryptedPayload, decrypted);
           } catch (error) {
             console.error('Decryption failed:', error);
@@ -523,7 +550,7 @@ export function useChatClient(): {
       for (const row of olderRows) {
         if (!payloadCacheRef.current.has(row.encryptedPayload)) {
           try {
-            const decrypted = await decodePayloadAsync(row.encryptedPayload);
+            const decrypted = await decodePayloadAsync(row.encryptedPayload, password);
             payloadCacheRef.current.set(row.encryptedPayload, decrypted);
           } catch (error) {
             console.error('Decryption failed:', error);
@@ -583,53 +610,13 @@ export function useChatClient(): {
       return;
     }
     setAuthSubmitting(true);
-    setError('');
     try {
       const result = await login(account, password);
       setAuthToken(result.accessToken);
       setAuth({ token: result.accessToken, userId: result.userId });
       await Promise.all([loadConversations(), loadFriendData()]);
     } catch {
-      setError('登录失败，请检查账号密码或后端服务状态。');
-    } finally {
-      setAuthSubmitting(false);
-    }
-  }
-
-  async function onRegister(event: FormEvent<HTMLFormElement>): Promise<void> {
-    event.preventDefault();
-    if (authSubmitting) {
-      return;
-    }
-    setAuthSubmitting(true);
-    setError('');
-    const username = account.trim();
-    const email = registerEmail.trim();
-    const phone = registerPhone.trim();
-    const pwd = password.trim();
-    if (!username || !email || !phone || !pwd) {
-      setError('请完整填写账号、邮箱、手机号和密码。');
-      return;
-    }
-    try {
-      const seed = crypto.randomUUID().replace(/-/g, '');
-      const result = await register({
-        username,
-        email,
-        phone,
-        password: pwd,
-        deviceName: 'desktop-client',
-        deviceType: 'mac',
-        identityPublicKey: `idpk-${seed}`,
-        signedPreKey: `spk-${seed}`,
-        signedPreKeySignature: `sig-${seed}`,
-      });
-      setAuthToken(result.accessToken);
-      setAuth({ token: result.accessToken, userId: result.userId });
-      setAuthMode('login');
-      await Promise.all([loadConversations(), loadFriendData()]);
-    } catch {
-      setError('注册失败，请检查输入格式或更换账号信息。');
+      showToast('登录失败，请检查账号密码或后端服务状态', 'error');
     } finally {
       setAuthSubmitting(false);
     }
@@ -639,21 +626,23 @@ export function useChatClient(): {
     if (sendingLoginCode || loginCodeCooldown > 0) {
       return;
     }
-    setSendingLoginCode(true);
-    setError('');
-    setCodeHint('');
-    const identity = account.trim();
-    if (!identity) {
-      setError('请输入用户名/邮箱/手机号。');
+    const accountValue = account.trim();
+    if (!accountValue) {
+      showToast('请输入账号或邮箱', 'error');
       return;
     }
-    const payload = identity.startsWith('+') || /^\d{8,20}$/.test(identity) ? { phone: identity } : { account: identity };
+    // 验证输入格式是否为邮箱
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const isEmail = emailRegex.test(accountValue);
+    
+    setSendingLoginCode(true);
     try {
-      const result = await sendLoginCode(payload);
-      setCodeHint(result.debugCode ? `验证码：${result.debugCode}` : '验证码已发送，请查收。');
+      await sendLoginCode({ account: accountValue });
+      setCodeHint(`验证码已发送至 ${isEmail ? accountValue : '您的邮箱'}`);
       setLoginCodeCooldown(60);
+      showToast('验证码已发送', 'success');
     } catch {
-      setError('发送验证码失败，请稍后重试。');
+      showToast('发送验证码失败，请稍后重试', 'error');
     } finally {
       setSendingLoginCode(false);
     }
@@ -665,28 +654,148 @@ export function useChatClient(): {
       return;
     }
     setAuthSubmitting(true);
-    setError('');
-    const identity = account.trim();
-    const code = loginCode.trim();
-    if (!identity || !code) {
-      setError('请输入用户名/邮箱/手机号和验证码。');
-      return;
-    }
-    const payload =
-      identity.startsWith('+') || /^\d{8,20}$/.test(identity)
-        ? { phone: identity, code }
-        : { account: identity, code };
     try {
-      const result = await loginWithCode(payload);
+      const result = await loginWithCode({ account: account.trim(), code: loginCode.trim() });
       setAuthToken(result.accessToken);
       setAuth({ token: result.accessToken, userId: result.userId });
       await Promise.all([loadConversations(), loadFriendData()]);
     } catch {
-      setError('验证码登录失败，请检查验证码或重新发送。');
+      showToast('登录失败，请检查验证码或后端服务状态', 'error');
     } finally {
       setAuthSubmitting(false);
     }
   }
+
+  async function onRegister(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    if (authSubmitting) {
+      return;
+    }
+    setAuthSubmitting(true);
+
+    const username = account.trim();
+    const email = registerEmail.trim();
+    const pwd = password.trim();
+
+    // 基础非空验证
+    if (!username || !email || !pwd) {
+      showToast('请完整填写账号、邮箱和密码', 'error');
+      setAuthSubmitting(false);
+      return;
+    }
+
+    // 用户名格式验证（3-50字符）
+    if (username.length < 3 || username.length > 50) {
+      showToast('账号长度需在 3-50 个字符之间', 'error');
+      setAuthSubmitting(false);
+      return;
+    }
+
+    // 邮箱格式验证
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      showToast('请输入有效的邮箱地址', 'error');
+      setAuthSubmitting(false);
+      return;
+    }
+
+    // 密码长度验证（8-64字符）
+    if (pwd.length < 8 || pwd.length > 64) {
+      showToast('密码长度需在 8-64 个字符之间', 'error');
+      setAuthSubmitting(false);
+      return;
+    }
+
+    try {
+      const seed = crypto.randomUUID().replace(/-/g, '');
+
+      // 检测操作系统类型
+      const deviceType = detectDeviceType();
+
+      const result = await register({
+        username,
+        email,
+        phone: '', // 移除手机号输入，传入空字符串
+        password: pwd,
+        deviceName: 'desktop-client',
+        deviceType,
+        identityPublicKey: `idpk-${seed}`,
+        signedPreKey: `spk-${seed}`,
+        signedPreKeySignature: `sig-${seed}`,
+      });
+
+      setAuthToken(result.accessToken);
+      setAuth({ token: result.accessToken, userId: result.userId });
+      setAuthMode('login');
+      showToast('注册成功', 'success');
+      await Promise.all([loadConversations(), loadFriendData()]);
+    } catch (error: any) {
+      // 详细错误日志
+      console.error('注册失败:', error);
+
+      // 根据错误信息显示具体原因
+      const errorData = error?.response?.data?.error || {};
+      const errorMsg = errorData?.message || error?.response?.data?.message || error?.message || '';
+
+      if (errorMsg.includes('already exists') || errorMsg.includes('User already exists')) {
+        showToast('该账号或邮箱已被注册', 'error');
+      } else if (errorMsg.includes('username')) {
+        showToast('账号格式不正确（3-50字符）', 'error');
+      } else if (errorMsg.includes('email')) {
+        showToast('邮箱格式不正确', 'error');
+      } else if (errorMsg.includes('password')) {
+        showToast('密码长度需在 8-64 个字符之间', 'error');
+      } else if (errorData?.code === 'VALIDATION_ERROR' || error?.response?.status === 400) {
+        // 处理验证错误详情
+        const details = errorData?.details || [];
+        if (details.length > 0) {
+          const firstError = details[0];
+          showToast(`${firstError.field}: ${firstError.message}`, 'error');
+        } else {
+          showToast(errorMsg || '输入信息格式不正确，请检查', 'error');
+        }
+      } else {
+        showToast('注册失败，请检查输入信息或稍后重试', 'error');
+      }
+    } finally {
+      setAuthSubmitting(false);
+    }
+  }
+
+  /**
+   * 检测设备类型
+   * @returns 'mac' | 'windows'
+   * @description 后端目前只支持 mac/windows，Linux 默认返回 mac
+   */
+  /**
+   * 检测设备类型
+   * @returns 'mac' | 'windows' | 'linux'
+   * @description 根据 navigator.platform 和 userAgent 检测操作系统类型
+   */
+  function detectDeviceType(): 'mac' | 'windows' | 'linux' {
+    const platform = navigator.platform?.toLowerCase() || '';
+    const userAgent = navigator.userAgent?.toLowerCase() || '';
+
+    // Windows 检测
+    if (platform.includes('win') || userAgent.includes('windows')) {
+      return 'windows';
+    }
+
+    // macOS 检测
+    if (platform.includes('mac') || userAgent.includes('macintosh') || userAgent.includes('mac os')) {
+      return 'mac';
+    }
+
+    // Linux 检测
+    if (platform.includes('linux') || userAgent.includes('linux')) {
+      return 'linux';
+    }
+
+    // 默认返回 mac（向后兼容）
+    return 'mac';
+  }
+
+
 
   async function onLogout(): Promise<void> {
     try {
@@ -702,7 +811,6 @@ export function useChatClient(): {
     setAuthMode('login');
     setAccount('');
     setRegisterEmail('');
-    setRegisterPhone('');
     setLoginCode('');
     setCodeHint('');
     setAuthSubmitting(false);
@@ -710,6 +818,8 @@ export function useChatClient(): {
     setLoginCodeCooldown(0);
     setPassword('');
     setError('');
+    // 清除加密密钥
+    clearEncryptionKey();
     setConversations([]);
     setActiveConversationId('');
     setMessages([]);
@@ -740,6 +850,23 @@ export function useChatClient(): {
     setMutedConversationIds([]);
     saveConversationPrefSnapshot({ pinned: [], muted: [] });
   }
+
+  // 验证码倒计时效果
+  useEffect(() => {
+    if (loginCodeCooldown <= 0) {
+      return;
+    }
+    const timer = setInterval(() => {
+      setLoginCodeCooldown((prev) => {
+        if (prev <= 1) {
+          clearInterval(timer);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [loginCodeCooldown]);
 
   async function onSendMessage(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
@@ -1225,15 +1352,7 @@ export function useChatClient(): {
     });
   }
 
-  useEffect(() => {
-    if (loginCodeCooldown <= 0) {
-      return;
-    }
-    const timer = setTimeout(() => {
-      setLoginCodeCooldown((prev) => Math.max(prev - 1, 0));
-    }, 1000);
-    return () => clearTimeout(timer);
-  }, [loginCodeCooldown]);
+
 
   useEffect(() => {
     if (!auth) {
@@ -1277,6 +1396,32 @@ export function useChatClient(): {
     const client = io(wsBaseUrl, {
       transports: ['websocket'],
       auth: { token: auth.token },
+      reconnection: true,
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+      timeout: 20000,
+    });
+
+    // WebSocket 连接事件处理
+    client.on('connect', () => {
+      console.log('WebSocket connected');
+    });
+
+    client.on('connect_error', (error) => {
+      console.error('WebSocket connection error:', error.message);
+    });
+
+    client.on('disconnect', (reason) => {
+      console.log('WebSocket disconnected:', reason);
+      if (reason === 'io server disconnect') {
+        // 服务器主动断开，需要手动重连
+        client.connect();
+      }
+    });
+
+    client.on('error', (error) => {
+      console.error('WebSocket error:', error);
     });
 
     const onConversationEvent = (payload: WsConversationEvent): void => {
@@ -1384,6 +1529,13 @@ export function useChatClient(): {
       stopFallbackPolling();
       client.disconnect();
       setSocket(null);
+      // 清理 Toast 定时器
+      if (toastTimerRef.current) {
+        clearTimeout(toastTimerRef.current);
+      }
+      if (toastHideTimerRef.current) {
+        clearTimeout(toastHideTimerRef.current);
+      }
     };
   }, [auth]);
 
@@ -1399,7 +1551,6 @@ export function useChatClient(): {
       authMode,
       account,
       registerEmail,
-      registerPhone,
       loginCode,
       codeHint,
       password,
@@ -1407,6 +1558,7 @@ export function useChatClient(): {
       sendingLoginCode,
       loginCodeCooldown,
       error,
+      toast,
       conversations,
       messageDrafts,
       pinnedConversationIds,
@@ -1437,7 +1589,6 @@ export function useChatClient(): {
       setAuthMode,
       setAccount,
       setRegisterEmail,
-      setRegisterPhone,
       setLoginCode,
       setPassword,
       setMessageText,

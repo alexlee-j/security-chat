@@ -21,8 +21,8 @@ export class RegisterDto {
   deviceName!: string;
 
   @IsString()
-  @Matches(/^(ios|android|mac|windows)$/)
-  deviceType!: 'ios' | 'android' | 'mac' | 'windows';
+  @Matches(/^(ios|android|mac|windows|linux)$/)
+  deviceType!: 'ios' | 'android' | 'mac' | 'windows' | 'linux';
 
   @IsString()
   @IsNotEmpty()

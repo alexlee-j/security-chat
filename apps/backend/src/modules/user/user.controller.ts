@@ -85,7 +85,7 @@ export class UserController {
   ): Promise<Array<{
     deviceId: string;
     deviceName: string;
-    deviceType: 'ios' | 'android' | 'mac' | 'windows';
+    deviceType: 'ios' | 'android' | 'mac' | 'windows' | 'linux';
     identityPublicKey: string;
     signedPreKey: string;
     signedPreKeySignature: string;

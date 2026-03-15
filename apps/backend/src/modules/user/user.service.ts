@@ -16,7 +16,7 @@ interface CreateUserInput {
   passwordHash: string;
   device: {
     deviceName: string;
-    deviceType: 'ios' | 'android' | 'mac' | 'windows';
+    deviceType: 'ios' | 'android' | 'mac' | 'windows' | 'linux';
     identityPublicKey: string;
     signedPreKey: string;
     signedPreKeySignature: string;
@@ -128,7 +128,7 @@ export class UserService {
   async listDevices(userId: string): Promise<Array<{
     deviceId: string;
     deviceName: string;
-    deviceType: 'ios' | 'android' | 'mac' | 'windows';
+    deviceType: 'ios' | 'android' | 'mac' | 'windows' | 'linux';
     identityPublicKey: string;
     signedPreKey: string;
     signedPreKeySignature: string;

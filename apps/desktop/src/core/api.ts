@@ -27,7 +27,26 @@ const API_BASE = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:3000/api/v1'
 export const wsBaseUrl = import.meta.env.VITE_WS_BASE ?? 'http://127.0.0.1:3000/ws';
 
 /** axios实例，统一配置baseURL和超时 */
-const http = axios.create({ baseURL: API_BASE, timeout: 10000 });
+const http = axios.create({ 
+  baseURL: API_BASE, 
+  timeout: 10000,
+  headers: {
+    'Content-Type': 'application/json'
+  }
+});
+
+// 响应拦截器 - 统一错误处理
+http.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    console.error('API Error:', error?.response?.status, error?.response?.data);
+    // 打印完整的错误响应以便调试
+    if (error?.response?.data?.error) {
+      console.error('Error details:', JSON.stringify(error.response.data.error, null, 2));
+    }
+    return Promise.reject(error);
+  }
+);
 
 /**
  * 发送消息输入参数
@@ -97,7 +116,7 @@ export async function register(input: {
   phone: string;
   password: string;
   deviceName: string;
-  deviceType: 'mac' | 'windows';
+  deviceType: 'mac' | 'windows' | 'linux';
   identityPublicKey: string;
   signedPreKey: string;
   signedPreKeySignature: string;
@@ -287,6 +306,6 @@ export function decodePayload(payload: string): string {
   return decryptPayloadSync(payload);
 }
 
-export async function decodePayloadAsync(payload: string): Promise<string> {
-  return await decryptPayload(payload);
+export async function decodePayloadAsync(payload: string, password?: string): Promise<string> {
+  return await decryptPayload(payload, password);
 }

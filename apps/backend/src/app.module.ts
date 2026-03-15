@@ -13,6 +13,7 @@ import { MediaModule } from './modules/media/media.module';
 import { NotificationModule } from './modules/notification/notification.module';
 import { SecurityModule } from './modules/security/security.module';
 import { UserModule } from './modules/user/user.module';
+import { MailModule } from './modules/mail/mail.module';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { UserModule } from './modules/user/user.module';
     BurnModule,
     NotificationModule,
     SecurityModule,
+    MailModule,
   ],
   controllers: [AppController],
   providers: [AppService],

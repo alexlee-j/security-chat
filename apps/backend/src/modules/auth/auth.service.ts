@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { BadRequestException, Inject, Injectable, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { ConfigService } from '@nestjs/config';
@@ -8,6 +8,7 @@ import { REDIS_CLIENT } from '../../infra/redis/redis.module';
 import { RequestUser } from '../../common/decorators/current-user.decorator';
 import { SecurityService } from '../security/security.service';
 import { UserService } from '../user/user.service';
+import { MailService } from '../mail/mail.service';
 import { LoginDto } from './dto/login.dto';
 import { LoginWithCodeDto } from './dto/login-with-code.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
@@ -23,11 +24,14 @@ interface AuthTokens {
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+  
   constructor(
     private readonly configService: ConfigService,
     private readonly userService: UserService,
     private readonly securityService: SecurityService,
     private readonly jwtService: JwtService,
+    private readonly mailService: MailService,
     @Inject(REDIS_CLIENT)
     private readonly redis: Redis,
   ) {}
@@ -109,13 +113,17 @@ export class AuthService {
     const expiresInSec = 300;
     if (!user) {
       await this.securityService.recordLoginFailure(identity, clientIp);
-      // Keep response shape stable to avoid account enumeration.
-      return { sent: true, expiresInSec };
+      throw new BadRequestException('User not found');
     }
 
     const code = String(Math.floor(100000 + Math.random() * 900000));
     const key = `auth:login-code:${identity}`;
     await this.redis.set(key, code, 'EX', expiresInSec);
+
+    // 发送验证码邮件
+    this.logger.log(`Sending login code to user ${user.id} at email ${user.email}`);
+    await this.mailService.sendLoginCode(user.email, code);
+    this.logger.log(`Login code sent successfully to ${user.email}`);
 
     const debugEnabled = this.configService.get<string>('AUTH_CODE_DEBUG_RETURN', 'false') === 'true';
     return {

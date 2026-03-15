@@ -1,0 +1,98 @@
+import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import * as nodemailer from 'nodemailer';
+
+@Injectable()
+export class MailService {
+  private transporter: nodemailer.Transporter;
+  private readonly logger = new Logger(MailService.name);
+
+  constructor(private readonly configService: ConfigService) {
+    const smtpConfig = {
+      host: this.configService.get<string>('SMTP_HOST'),
+      port: parseInt(this.configService.get<string>('SMTP_PORT') || '587'),
+      secure: false, // 使用587端口时，需要设置为false
+      auth: {
+        user: this.configService.get<string>('SMTP_USER'),
+        pass: this.configService.get<string>('SMTP_PASS'),
+      },
+    };
+
+    this.logger.log('SMTP Configuration:', {
+      host: smtpConfig.host,
+      port: smtpConfig.port,
+      secure: smtpConfig.secure,
+      user: smtpConfig.auth.user,
+      pass: '***', // 隐藏密码
+    });
+
+    this.transporter = nodemailer.createTransport(smtpConfig);
+
+    // 验证 SMTP 配置
+    this.verifyConnection();
+  }
+
+  private async verifyConnection(): Promise<void> {
+    try {
+      await this.transporter.verify();
+      this.logger.log('SMTP connection verified successfully');
+    } catch (error) {
+      this.logger.error('SMTP connection verification failed:', error);
+    }
+  }
+
+  async sendEmail(to: string, subject: string, html: string): Promise<void> {
+    this.logger.log(`Attempting to send email to ${to}`);
+    const mailOptions = {
+      from: this.configService.get<string>('SMTP_FROM'),
+      to,
+      subject,
+      html,
+    };
+    this.logger.log('Email options:', {
+      from: mailOptions.from,
+      to: mailOptions.to,
+      subject: mailOptions.subject,
+      html: mailOptions.html.substring(0, 100) + '...', // 只记录前100个字符
+    });
+    
+    this.logger.log('SMTP Configuration:', {
+      host: this.configService.get<string>('SMTP_HOST'),
+      port: this.configService.get<string>('SMTP_PORT'),
+      secure: this.configService.get<boolean>('SMTP_SECURE'),
+      user: this.configService.get<string>('SMTP_USER'),
+      pass: '***', // 隐藏密码
+    });
+    
+    // 验证SMTP连接
+    await this.transporter.verify();
+    this.logger.log('SMTP connection verified successfully');
+    
+    const info = await this.transporter.sendMail(mailOptions);
+    this.logger.log(`Email sent successfully to ${to}`, {
+      messageId: info.messageId,
+      accepted: info.accepted,
+      rejected: info.rejected,
+      pending: info.pending,
+    });
+  }
+
+  async sendLoginCode(email: string, code: string): Promise<void> {
+    const subject = 'Security Chat 登录验证码';
+    const html = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <div style="background-color: #f5f5f5; padding: 20px;">
+          <h2 style="color: #333;">Security Chat 登录验证码</h2>
+          <p style="font-size: 16px; line-height: 1.5;">您的登录验证码是：</p>
+          <div style="background-color: #fff; border: 1px solid #ddd; padding: 20px; margin: 20px 0; text-align: center;">
+            <span style="font-size: 32px; font-weight: bold; color: #3390ec;">${code}</span>
+          </div>
+          <p style="font-size: 14px; color: #666;">此验证码将在 5 分钟后过期，请及时使用。</p>
+          <p style="font-size: 14px; color: #666;">如果您没有请求此验证码，请忽略此邮件。</p>
+        </div>
+      </div>
+    `;
+
+    await this.sendEmail(email, subject, html);
+  }
+}

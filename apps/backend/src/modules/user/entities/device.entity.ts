@@ -22,7 +22,7 @@ export class Device {
   deviceName!: string;
 
   @Column({ name: 'device_type', type: 'varchar', length: 20 })
-  deviceType!: 'ios' | 'android' | 'mac' | 'windows';
+  deviceType!: 'ios' | 'android' | 'mac' | 'windows' | 'linux';
 
   @Column({ name: 'identity_public_key', type: 'text' })
   identityPublicKey!: string;
