@@ -89,10 +89,66 @@ export class UserController {
     identityPublicKey: string;
     signedPreKey: string;
     signedPreKeySignature: string;
+    registrationId: number | null;
     createdAt: string;
     lastActiveAt: string | null;
   }>> {
     return this.userService.listDevices(user.userId);
+  }
+
+  @Get('signal/info')
+  getUserSignalInfo(
+    @CurrentUser() user: RequestUser,
+  ): Promise<{
+    identityPublicKey: string;
+    identityKeyFingerprint: string;
+    registrationId: number;
+    signalVersion: number;
+  } | null> {
+    return this.userService.getUserSignalInfo(user.userId);
+  }
+
+  @Post('signal/verify-key')
+  verifyIdentityKey(
+    @CurrentUser() user: RequestUser,
+    @Body() dto: { deviceId: string; fingerprint: string },
+  ): Promise<{ verified: boolean }> {
+    return this.userService.verifyIdentityKey(user.userId, dto.deviceId, dto.fingerprint);
+  }
+
+  @Put('signal/signed-prekey')
+  updateSignedPreKey(
+    @CurrentUser() user: RequestUser,
+    @Body() dto: { deviceId: string; signedPreKey: string; signedPreKeySignature: string },
+  ): Promise<{ updated: boolean }> {
+    return this.userService.updateSignedPreKey(user.userId, dto.deviceId, dto.signedPreKey, dto.signedPreKeySignature);
+  }
+
+  @Post('signal/devices/batch')
+  getDevicesByUserIds(
+    @Body() dto: { userIds: string[] },
+  ): Promise<Array<{
+    userId: string;
+    devices: Array<{
+      deviceId: string;
+      identityPublicKey: string;
+      signedPreKey: string;
+      signedPreKeySignature: string;
+      registrationId: number | null;
+    }>;
+  }>> {
+    return this.userService.getDevicesByUserIds(dto.userIds);
+  }
+
+  @Get('signal/prekeys/:deviceId')
+  getPrekeysByDeviceId(
+    @Param('deviceId', new ParseUUIDPipe()) deviceId: string,
+    @Body('limit') limit: number = 10,
+  ): Promise<Array<{
+    preKeyId: string;
+    publicKey: string;
+  }>> {
+    return this.userService.getPrekeysByDeviceId(deviceId, limit);
   }
 
   @Put('device/:deviceId')

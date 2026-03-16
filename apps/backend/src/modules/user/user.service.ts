@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { Device } from './entities/device.entity';
 import { OneTimePrekey } from './entities/one-time-prekey.entity';
 import { User } from './entities/user.entity';
@@ -20,6 +20,7 @@ interface CreateUserInput {
     identityPublicKey: string;
     signedPreKey: string;
     signedPreKeySignature: string;
+    registrationId?: number;
   };
 }
 
@@ -40,6 +41,10 @@ export class UserService {
       email: input.email,
       phone: input.phone,
       passwordHash: input.passwordHash,
+      identityPublicKey: input.device.identityPublicKey,
+      identityKeyFingerprint: input.device.identityPublicKey.substring(0, 16),
+      registrationId: input.device.registrationId || Math.floor(Math.random() * 65535),
+      signalVersion: 3,
     });
 
     const savedUser = await this.userRepository.save(user);
@@ -51,6 +56,7 @@ export class UserService {
       identityPublicKey: input.device.identityPublicKey,
       signedPreKey: input.device.signedPreKey,
       signedPreKeySignature: input.device.signedPreKeySignature,
+      registrationId: input.device.registrationId || Math.floor(Math.random() * 65535),
       lastActiveAt: new Date(),
     });
 
@@ -88,9 +94,10 @@ export class UserService {
   ): Promise<{ inserted: number; deviceId: string }> {
     await this.assertOwnDevice(userId, deviceId);
 
-    const rows = prekeys.map((publicKey) =>
+    const rows = prekeys.map((publicKey, index) =>
       this.oneTimePrekeyRepository.create({
         deviceId,
+        keyId: index + 1,
         publicKey,
         isUsed: false,
       }),
@@ -106,10 +113,11 @@ export class UserService {
 
   async registerDevice(userId: string, deviceData: {
     deviceName: string;
-    deviceType: 'ios' | 'android' | 'mac' | 'windows';
+    deviceType: 'ios' | 'android' | 'mac' | 'windows' | 'linux';
     identityPublicKey: string;
     signedPreKey: string;
     signedPreKeySignature: string;
+    registrationId?: number;
   }): Promise<{ deviceId: string }> {
     const device = this.deviceRepository.create({
       userId,
@@ -118,6 +126,7 @@ export class UserService {
       identityPublicKey: deviceData.identityPublicKey,
       signedPreKey: deviceData.signedPreKey,
       signedPreKeySignature: deviceData.signedPreKeySignature,
+      registrationId: deviceData.registrationId || Math.floor(Math.random() * 65535),
       lastActiveAt: new Date(),
     });
 
@@ -132,6 +141,7 @@ export class UserService {
     identityPublicKey: string;
     signedPreKey: string;
     signedPreKeySignature: string;
+    registrationId: number | null;
     createdAt: string;
     lastActiveAt: string | null;
   }>> {
@@ -147,6 +157,7 @@ export class UserService {
       identityPublicKey: device.identityPublicKey,
       signedPreKey: device.signedPreKey,
       signedPreKeySignature: device.signedPreKeySignature,
+      registrationId: device.registrationId,
       createdAt: device.createdAt.toISOString(),
       lastActiveAt: device.lastActiveAt?.toISOString() || null,
     }));
@@ -286,5 +297,96 @@ export class UserService {
     if (device.userId !== userId) {
       throw new ForbiddenException('Device does not belong to current user');
     }
+  }
+
+  async getUserSignalInfo(userId: string): Promise<{
+    identityPublicKey: string;
+    identityKeyFingerprint: string;
+    registrationId: number;
+    signalVersion: number;
+  } | null> {
+    const user = await this.userRepository.findOne({
+      where: { id: userId },
+      select: ['identityPublicKey', 'identityKeyFingerprint', 'registrationId', 'signalVersion'],
+    });
+
+    return user ? {
+      identityPublicKey: user.identityPublicKey!,
+      identityKeyFingerprint: user.identityKeyFingerprint!,
+      registrationId: user.registrationId!,
+      signalVersion: user.signalVersion!,
+    } : null;
+  }
+
+  async verifyIdentityKey(userId: string, deviceId: string, fingerprint: string): Promise<{ verified: boolean }> {
+    const device = await this.deviceRepository.findOne({
+      where: { id: deviceId, userId },
+      select: ['identityPublicKey'],
+    });
+
+    if (!device) {
+      throw new NotFoundException('Device not found');
+    }
+
+    const deviceFingerprint = device.identityPublicKey.substring(0, 16);
+    return { verified: deviceFingerprint === fingerprint };
+  }
+
+  async updateSignedPreKey(userId: string, deviceId: string, signedPreKey: string, signedPreKeySignature: string): Promise<{ updated: boolean }> {
+    await this.assertOwnDevice(userId, deviceId);
+
+    const result = await this.deviceRepository.update(
+      { id: deviceId, userId },
+      { signedPreKey, signedPreKeySignature },
+    );
+
+    return { updated: (result.affected || 0) > 0 };
+  }
+
+  async getDevicesByUserIds(userIds: string[]): Promise<Array<{
+    userId: string;
+    devices: Array<{
+      deviceId: string;
+      identityPublicKey: string;
+      signedPreKey: string;
+      signedPreKeySignature: string;
+      registrationId: number | null;
+    }>;
+  }>> {
+    const devices = await this.deviceRepository.find({
+      where: { userId: In(userIds) },
+      select: ['id', 'userId', 'identityPublicKey', 'signedPreKey', 'signedPreKeySignature', 'registrationId'],
+    });
+
+    const result = userIds.map(userId => ({
+      userId,
+      devices: devices
+        .filter(device => device.userId === userId)
+        .map(device => ({
+          deviceId: device.id,
+          identityPublicKey: device.identityPublicKey,
+          signedPreKey: device.signedPreKey,
+          signedPreKeySignature: device.signedPreKeySignature,
+          registrationId: device.registrationId,
+        })),
+    }));
+
+    return result;
+  }
+
+  async getPrekeysByDeviceId(deviceId: string, limit: number = 10): Promise<Array<{
+    preKeyId: string;
+    publicKey: string;
+  }>> {
+    const prekeys = await this.oneTimePrekeyRepository.find({
+      where: { deviceId, isUsed: false },
+      order: { createdAt: 'ASC' },
+      take: limit,
+    });
+
+    return prekeys.map(prekey => ({
+      preKeyId: prekey.id,
+      publicKey: prekey.publicKey,
+    }));
   }
 }

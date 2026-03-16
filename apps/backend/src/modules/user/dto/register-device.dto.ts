@@ -1,12 +1,12 @@
-import { IsString, IsIn, MaxLength } from 'class-validator';
+import { IsString, IsIn, MaxLength, IsOptional, IsNumber } from 'class-validator';
 
 export class RegisterDeviceDto {
   @IsString()
   @MaxLength(100)
   deviceName!: string;
 
-  @IsIn(['ios', 'android', 'mac', 'windows'])
-  deviceType!: 'ios' | 'android' | 'mac' | 'windows';
+  @IsIn(['ios', 'android', 'mac', 'windows', 'linux'])
+  deviceType!: 'ios' | 'android' | 'mac' | 'windows' | 'linux';
 
   @IsString()
   identityPublicKey!: string;
@@ -16,4 +16,8 @@ export class RegisterDeviceDto {
 
   @IsString()
   signedPreKeySignature!: string;
+
+  @IsOptional()
+  @IsNumber()
+  registrationId?: number;
 }

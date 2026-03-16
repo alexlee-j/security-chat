@@ -33,6 +33,12 @@ export class Device {
   @Column({ name: 'signed_pre_key_signature', type: 'text' })
   signedPreKeySignature!: string;
 
+  @Column({ name: 'registration_id', type: 'int', nullable: true })
+  registrationId!: number | null;
+
+  @Column({ name: 'signal_version', type: 'varchar', length: 20, default: 'v1' })
+  signalVersion!: string;
+
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt!: Date;
 
