@@ -22,6 +22,9 @@ export class Message {
   @Column({ name: 'sender_id', type: 'uuid' })
   senderId!: string;
 
+  @Column({ name: 'source_device_id', type: 'uuid', nullable: true })
+  sourceDeviceId!: string | null;
+
   @Column({ name: 'message_type', type: 'smallint' })
   messageType!: number;
 

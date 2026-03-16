@@ -20,8 +20,8 @@ export class User {
   @Column({ type: 'varchar', length: 100, unique: true })
   email!: string;
 
-  @Column({ type: 'varchar', length: 20, unique: true })
-  phone!: string;
+  @Column({ type: 'varchar', length: 20, unique: true, nullable: true })
+  phone!: string | null;
 
   @Column({ name: 'password_hash', type: 'varchar', length: 255 })
   passwordHash!: string;
@@ -59,7 +59,7 @@ export class User {
   @BeforeInsert()
   normalizeFields(): void {
     this.email = this.email.trim().toLowerCase();
-    this.phone = this.phone.trim();
+    this.phone = this.phone ? this.phone.trim() : null;
     this.username = this.username.trim();
   }
 }

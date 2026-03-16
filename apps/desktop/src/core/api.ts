@@ -65,6 +65,7 @@ type SendMessageInput = {
     senderId: string;
     text: string;
   };
+  encryptedPayload?: string; // Signal 加密后的 payload
 };
 
 type EncodedPayload = {
@@ -177,26 +178,35 @@ export async function getMessages(
 }
 
 export async function sendMessage(input: SendMessageInput): Promise<{ messageId: string; messageIndex: string }> {
-  const payload: EncodedPayload = {
-    v: 1,
-    type: input.messageType,
-  };
+  // 如果提供了 Signal 加密后的 payload，直接使用
+  // 否则使用默认的 Base64 编码
+  let encryptedPayload: string;
+  
+  if (input.encryptedPayload) {
+    encryptedPayload = input.encryptedPayload;
+  } else {
+    const payload: EncodedPayload = {
+      v: 1,
+      type: input.messageType,
+    };
 
-  if (input.text.trim()) {
-    payload.text = input.text.trim();
-  }
-  if (input.mediaUrl?.trim()) {
-    payload.mediaUrl = input.mediaUrl.trim();
-  }
-  if (input.fileName?.trim()) {
-    payload.fileName = input.fileName.trim();
-  }
-  if (input.replyTo) {
-    payload.replyTo = input.replyTo;
-  }
+    if (input.text.trim()) {
+      payload.text = input.text.trim();
+    }
+    if (input.mediaUrl?.trim()) {
+      payload.mediaUrl = input.mediaUrl.trim();
+    }
+    if (input.fileName?.trim()) {
+      payload.fileName = input.fileName.trim();
+    }
+    if (input.replyTo) {
+      payload.replyTo = input.replyTo;
+    }
 
-  // 使用 Base64 编码而不是 AES-GCM 加密，以便前端能够正确解密自己发送的消息
-  const encryptedPayload = btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
+    // 使用 Base64 编码而不是 AES-GCM 加密，以便前端能够正确解密自己发送的消息
+    encryptedPayload = btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
+  }
+  
   const nonce = crypto.randomUUID().replace(/-/g, '').slice(0, 24);
   const res = await http.post<ApiEnvelope<{ messageId: string; messageIndex: string }>>('/message/send', {
     conversationId: input.conversationId,
@@ -308,4 +318,163 @@ export function decodePayload(payload: string): string {
 
 export async function decodePayloadAsync(payload: string, password?: string): Promise<string> {
   return await decryptPayload(payload, password);
+}
+
+// Signal协议相关API
+
+export interface SignalInfo {
+  identityPublicKey: string;
+  identityKeyFingerprint: string;
+  registrationId: number;
+  signalVersion: number;
+}
+
+export interface PrekeyBundle {
+  registrationId: number;
+  identityKey: string;
+  signedPrekey: {
+    keyId: number;
+    publicKey: string;
+    signature: string;
+  };
+  oneTimePrekey?: {
+    preKeyId: string;
+    keyId: number;
+    publicKey: string;
+  };
+}
+
+export interface PrekeyBundlePeek {
+  registrationId: number;
+  identityKey: string;
+  signedPrekey: {
+    keyId: number;
+    publicKey: string;
+    signature: string;
+  };
+  oneTimePrekeyAvailable: boolean;
+}
+
+export interface PrekeyStats {
+  total: number;
+  used: number;
+  available: number;
+  needsReplenish: boolean;
+}
+
+export interface DeviceInfo {
+  deviceId: string;
+  identityPublicKey: string;
+  signedPreKey: string;
+  signedPreKeySignature: string;
+  registrationId: number | null;
+}
+
+export interface LinkingQRCode {
+  temporaryToken: string;
+  qrCodeData: string;
+  expiresAt: Date;
+}
+
+export interface LinkingVerification {
+  valid: boolean;
+  userId?: string;
+  fingerprint?: string;
+  expiresAt?: Date;
+}
+
+export interface VerificationStatus {
+  userId: string;
+  fingerprint: string;
+  isVerified: boolean;
+  verifiedAt?: string;
+  devices: Array<{
+    deviceId: string;
+    deviceName: string;
+    fingerprint: string;
+    isVerified: boolean;
+  }>;
+}
+
+export interface IdentityKeyResponse {
+  userId: string;
+  identityKey: string;
+  fingerprint: string;
+  registrationId: number;
+}
+
+export async function getSignalInfo(): Promise<SignalInfo> {
+  const res = await http.get<ApiEnvelope<SignalInfo>>('/user/signal/info');
+  return res.data.data;
+}
+
+export async function verifyIdentityKey(deviceId: string, fingerprint: string): Promise<{ verified: boolean }> {
+  const res = await http.post<ApiEnvelope<{ verified: boolean }>>('/user/signal/verify-key', { deviceId, fingerprint });
+  return res.data.data;
+}
+
+export async function updateSignedPrekey(deviceId: string, signedPreKey: string, signedPreKeySignature: string): Promise<{ updated: boolean }> {
+  const res = await http.put<ApiEnvelope<{ updated: boolean }>>('/user/signal/signed-prekey', { deviceId, signedPreKey, signedPreKeySignature });
+  return res.data.data;
+}
+
+export async function getDevicesByUserIds(userIds: string[]): Promise<Array<{ userId: string; devices: DeviceInfo[] }>> {
+  const res = await http.post<ApiEnvelope<Array<{ userId: string; devices: DeviceInfo[] }>>>('/user/signal/devices/batch', { userIds });
+  return res.data.data;
+}
+
+export async function getPrekeyBundle(userId: string, deviceId: string): Promise<PrekeyBundle> {
+  const res = await http.get<ApiEnvelope<PrekeyBundle>>(`/user/keys/bundle/${userId}/${deviceId}`);
+  return res.data.data;
+}
+
+export async function peekPrekeyBundle(userId: string, deviceId: string): Promise<PrekeyBundlePeek> {
+  const res = await http.get<ApiEnvelope<PrekeyBundlePeek>>(`/user/keys/bundle/${userId}/${deviceId}/peek`);
+  return res.data.data;
+}
+
+export async function getPrekeyStats(deviceId: string): Promise<PrekeyStats> {
+  const res = await http.get<ApiEnvelope<PrekeyStats>>(`/user/keys/prekeys/${deviceId}/stats`);
+  return res.data.data;
+}
+
+// 设备链接API
+export async function generateLinkingQRCode(deviceName: string, deviceType: string): Promise<LinkingQRCode> {
+  const res = await http.post<ApiEnvelope<LinkingQRCode>>('/user/device/linking/qrcode', { deviceName, deviceType });
+  return res.data.data;
+}
+
+export async function verifyLinkingToken(temporaryToken: string): Promise<LinkingVerification> {
+  const res = await http.post<ApiEnvelope<LinkingVerification>>('/user/device/linking/verify', { temporaryToken });
+  return res.data.data;
+}
+
+export interface LinkDeviceData {
+  deviceName: string;
+  deviceType: 'ios' | 'android' | 'mac' | 'windows' | 'linux';
+  identityPublicKey: string;
+  signedPreKey: string;
+  signedPreKeySignature: string;
+  registrationId?: number;
+}
+
+export async function confirmLinkDevice(temporaryToken: string, deviceData: LinkDeviceData): Promise<{ deviceId: string; success: boolean }> {
+  const res = await http.post<ApiEnvelope<{ deviceId: string; success: boolean }>>('/user/device/linking/confirm', { temporaryToken, ...deviceData });
+  return res.data.data;
+}
+
+// 密钥验证API
+export async function verifyKey(userId: string, deviceId: string | undefined, fingerprint: string, isVerified: boolean): Promise<{ success: boolean; message: string }> {
+  const res = await http.post<ApiEnvelope<{ success: boolean; message: string }>>('/user/keys/verify', { userId, deviceId, fingerprint, isVerified });
+  return res.data.data;
+}
+
+export async function getVerificationStatus(userId: string): Promise<VerificationStatus> {
+  const res = await http.get<ApiEnvelope<VerificationStatus>>(`/user/keys/verify/${userId}`);
+  return res.data.data;
+}
+
+export async function getIdentityKey(userId: string): Promise<IdentityKeyResponse> {
+  const res = await http.get<ApiEnvelope<IdentityKeyResponse>>(`/user/keys/identity/${userId}`);
+  return res.data.data;
 }

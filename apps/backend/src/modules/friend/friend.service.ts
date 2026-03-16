@@ -395,4 +395,37 @@ export class FriendService {
       relation: relationMap.get(u.id) ?? 'none',
     }));
   }
+
+  /**
+   * 检查两个用户是否是好友关系
+   */
+  async areFriends(userId: string, otherUserId: string): Promise<boolean> {
+    const relations = await this.friendshipRepository.find({
+      where: [
+        { userId, friendId: otherUserId },
+        { userId: otherUserId, friendId: userId },
+      ],
+      select: ['userId', 'friendId', 'status'],
+    });
+
+    if (!relations.length) {
+      return false;
+    }
+
+    let outgoingStatus: number | null = null;
+    let incomingStatus: number | null = null;
+
+    for (const row of relations) {
+      if (row.userId === userId) {
+        outgoingStatus = row.status;
+      } else {
+        incomingStatus = row.status;
+      }
+    }
+
+    const hasFriendRelation = outgoingStatus === 1 || incomingStatus === 1;
+    const hasBlockedRelation = outgoingStatus === 2 || incomingStatus === 2;
+
+    return hasFriendRelation && !hasBlockedRelation;
+  }
 }

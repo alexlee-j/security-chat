@@ -38,6 +38,7 @@ export type MessageItem = {
   id: string;
   conversationId: string;
   senderId: string;
+  sourceDeviceId?: string;
   messageType: number;
   encryptedPayload: string;
   nonce: string;

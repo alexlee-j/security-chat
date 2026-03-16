@@ -5,9 +5,11 @@ import { UserService } from './user.service';
 import { Device } from './entities/device.entity';
 import { OneTimePrekey } from './entities/one-time-prekey.entity';
 import { User } from './entities/user.entity';
+import { KeyVerification } from './entities/key-verification.entity';
+import { FriendModule } from '../friend/friend.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([User, Device, OneTimePrekey])],
+  imports: [TypeOrmModule.forFeature([User, Device, OneTimePrekey, KeyVerification]), FriendModule],
   controllers: [UserController],
   providers: [UserService],
   exports: [UserService],

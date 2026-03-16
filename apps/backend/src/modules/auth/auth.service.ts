@@ -37,11 +37,18 @@ export class AuthService {
   ) {}
 
   async register(dto: RegisterDto): Promise<AuthTokens> {
-    const exists = await Promise.all([
+    // 检查唯一性，phone 为空字符串时跳过检查
+    const existsChecks = [
       this.userService.findByEmail(dto.email),
-      this.userService.findByPhone(dto.phone),
       this.userService.findByUsername(dto.username),
-    ]);
+    ];
+    
+    // 仅当 phone 非空时才检查 phone 唯一性
+    if (dto.phone && dto.phone.trim()) {
+      existsChecks.push(this.userService.findByPhone(dto.phone));
+    }
+    
+    const exists = await Promise.all(existsChecks);
 
     if (exists.some(Boolean)) {
       throw new BadRequestException('User already exists with same email/phone/username');

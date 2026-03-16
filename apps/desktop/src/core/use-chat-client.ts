@@ -23,6 +23,7 @@ import {
   getConversationBurnDefault,
   getBlockedUsers,
   getConversations,
+  getDevicesByUserIds,
   getFriends,
   getIncomingRequests,
   getMessages,
@@ -53,6 +54,8 @@ import {
   PendingFriendItem,
   WsConversationEvent,
 } from './types';
+import { useSignal } from './use-signal';
+import { isSignalProtocolError, isExpectedSignalError } from './signal/errors';
 
 const MESSAGE_CURSOR_STORAGE_KEY = 'security-chat.desktop.message-cursors.v1';
 const MESSAGE_DRAFT_STORAGE_KEY = 'security-chat.desktop.message-drafts.v1';
@@ -181,6 +184,9 @@ export function useChatClient(): {
   activeConversation: ConversationListItem | null;
   decodePayload: (payload: string) => string;
 } {
+  // ==================== Signal协议 ====================
+  const { state: signalState, actions: signalActions } = useSignal();
+
   // ==================== 认证相关状态 ====================
   const [auth, setAuth] = useState<AuthState | null>(null);
   const [authMode, setAuthMode] = useState<'login' | 'register' | 'code'>('login');
@@ -247,15 +253,43 @@ export function useChatClient(): {
   /**
    * 解密消息 payload
    * @param payload - 加密的 payload 字符串
+   * @param senderId - 发送者ID（用于Signal协议解密）
+   * @param sourceDeviceId - 发送设备ID（用于Signal协议解密）
    * @returns 解密后的字符串
    * @description 使用缓存机制避免重复解密，提升性能
    */
-  const decodePayload = (payload: string): string => {
+  const decodePayload = async (payload: string, senderId?: string, sourceDeviceId?: string): Promise<string> => {
     if (payloadCacheRef.current.has(payload)) {
       return payloadCacheRef.current.get(payload)!;
     }
     try {
-      const decrypted = decodePayloadApi(payload);
+      let decrypted: string;
+
+      // 尝试使用Signal协议解密
+      if (signalState.initialized && senderId) {
+        try {
+          // 使用实际的设备ID，如果没有则使用默认值
+          const senderDeviceId = sourceDeviceId || '1';
+          decrypted = await signalActions.decryptMessage(senderId, senderDeviceId, payload);
+        } catch (error) {
+          if (isExpectedSignalError(error)) {
+            // 预期的 Signal 错误（如会话不存在），降级到默认解密
+            console.warn('Signal decryption failed (expected), falling back to default:', error);
+            decrypted = decodePayloadApi(payload);
+          } else if (isSignalProtocolError(error)) {
+            // 其他 Signal 协议错误，记录并降级
+            console.error('Signal protocol error:', error);
+            decrypted = decodePayloadApi(payload);
+          } else {
+            // 非 Signal 错误（如网络错误、编程错误），抛出
+            throw error;
+          }
+        }
+      } else {
+        // 使用默认解密
+        decrypted = decodePayloadApi(payload);
+      }
+
       payloadCacheRef.current.set(payload, decrypted);
       return decrypted;
     } catch (error) {
@@ -411,7 +445,7 @@ export function useChatClient(): {
       for (const row of rows) {
         if (!payloadCacheRef.current.has(row.encryptedPayload)) {
           try {
-            const decrypted = await decodePayloadAsync(row.encryptedPayload, password);
+            const decrypted = await decodePayload(row.encryptedPayload, row.senderId, row.sourceDeviceId);
             payloadCacheRef.current.set(row.encryptedPayload, decrypted);
           } catch (error) {
             console.error('Decryption failed:', error);
@@ -458,7 +492,7 @@ export function useChatClient(): {
         for (const row of rows) {
           if (!payloadCacheRef.current.has(row.encryptedPayload)) {
             try {
-              const decrypted = await decodePayloadAsync(row.encryptedPayload, password);
+              const decrypted = await decodePayload(row.encryptedPayload, row.senderId, row.sourceDeviceId);
               payloadCacheRef.current.set(row.encryptedPayload, decrypted);
             } catch (error) {
               console.error('Decryption failed:', error);
@@ -498,7 +532,7 @@ export function useChatClient(): {
       for (const row of rows) {
         if (!payloadCacheRef.current.has(row.encryptedPayload)) {
           try {
-            const decrypted = await decodePayloadAsync(row.encryptedPayload, password);
+            const decrypted = await decodePayload(row.encryptedPayload, row.senderId, row.sourceDeviceId);
             payloadCacheRef.current.set(row.encryptedPayload, decrypted);
           } catch (error) {
             console.error('Decryption failed:', error);
@@ -550,7 +584,7 @@ export function useChatClient(): {
       for (const row of olderRows) {
         if (!payloadCacheRef.current.has(row.encryptedPayload)) {
           try {
-            const decrypted = await decodePayloadAsync(row.encryptedPayload, password);
+            const decrypted = await decodePayload(row.encryptedPayload, row.senderId, row.sourceDeviceId);
             payloadCacheRef.current.set(row.encryptedPayload, decrypted);
           } catch (error) {
             console.error('Decryption failed:', error);
@@ -707,10 +741,26 @@ export function useChatClient(): {
     }
 
     try {
-      const seed = crypto.randomUUID().replace(/-/g, '');
+      // 初始化Signal协议，生成身份密钥
+      await signalActions.initialize();
+
+      // 获取密钥管理器
+      const keyManager = new (await import('./signal/key-management')).KeyManager();
+      await keyManager.initialize();
+
+      // 获取身份密钥对
+      const identityKeyPair = await keyManager.getIdentityKeyPair();
+
+      // 生成签名预密钥
+      const signedPrekey = await (await import('./signal')).X3DH.generateSignedPrekey(identityKeyPair, 1);
 
       // 检测操作系统类型
       const deviceType = detectDeviceType();
+
+      // 转换密钥为Base64格式
+      const identityPublicKey = btoa(String.fromCharCode(...identityKeyPair.publicKeyBytes));
+      const signedPreKeyPublic = btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.exportKey('raw', signedPrekey.keyPair.publicKey))));
+      const signedPreKeySignature = btoa(String.fromCharCode(...signedPrekey.signature));
 
       const result = await register({
         username,
@@ -719,9 +769,9 @@ export function useChatClient(): {
         password: pwd,
         deviceName: 'desktop-client',
         deviceType,
-        identityPublicKey: `idpk-${seed}`,
-        signedPreKey: `spk-${seed}`,
-        signedPreKeySignature: `sig-${seed}`,
+        identityPublicKey,
+        signedPreKey: signedPreKeyPublic,
+        signedPreKeySignature,
       });
 
       setAuthToken(result.accessToken);
@@ -910,7 +960,48 @@ export function useChatClient(): {
             })(),
           }
         : undefined;
-      
+
+      // 构建消息内容
+      const messageContent = {
+        type: messageType,
+        text: text || undefined,
+        mediaUrl: messageType === 1 ? undefined : mediaUrl.trim() || undefined,
+        fileName: messageType === 4 ? (mediaUrl.trim() || 'file') : undefined,
+        replyTo,
+      };
+
+      // 序列化消息内容
+      const messageText = JSON.stringify(messageContent);
+
+      // 获取接收方信息
+      const recipientUserId = activeConversation?.peerUser?.userId;
+      if (!recipientUserId) {
+        setError('无法获取接收方信息');
+        return;
+      }
+
+      // 使用Signal协议加密消息
+      let encryptedPayload: string;
+      try {
+        if (signalState.initialized) {
+          // 获取接收方的设备列表
+          const devices = await getDevicesByUserIds([recipientUserId]);
+          const recipientDevice = devices[0]?.devices?.[0];
+          if (!recipientDevice) {
+            throw new Error('无法获取接收方设备信息');
+          }
+          const recipientDeviceId = recipientDevice.deviceId;
+          encryptedPayload = await signalActions.encryptMessage(recipientUserId, recipientDeviceId, messageText);
+        } else {
+          //  fallback到原有的Base64编码
+          encryptedPayload = btoa(unescape(encodeURIComponent(messageText)));
+        }
+      } catch (error) {
+        console.error('Encryption failed, falling back to Base64:', error);
+        // 加密失败时fallback到原有的Base64编码
+        encryptedPayload = btoa(unescape(encodeURIComponent(messageText)));
+      }
+
       await sendMessage({
         conversationId: activeConversationIdRef.current,
         messageType,
@@ -921,6 +1012,7 @@ export function useChatClient(): {
         isBurn: isBurnForThisMessage,
         burnDuration: isBurnForThisMessage ? burnDuration : undefined,
         replyTo,
+        encryptedPayload, // 使用 Signal 加密后的 payload
       });
       setMessageText('');
       setReplyToMessage(null);
@@ -1187,7 +1279,7 @@ export function useChatClient(): {
         }
         if (!payloadCacheRef.current.has(row.encryptedPayload)) {
           try {
-            const decrypted = await decodePayloadApi(row.encryptedPayload);
+            const decrypted = await decodePayload(row.encryptedPayload, row.senderId, row.sourceDeviceId);
             payloadCacheRef.current.set(row.encryptedPayload, decrypted);
             hasDecrypted = true;
           } catch (error) {
@@ -1211,7 +1303,7 @@ export function useChatClient(): {
     return () => {
       cancelled = true;
     };
-  }, [messages.length]);
+  }, [messages.length, signalState.initialized]);
 
   function handleMessageTypeChange(value: 1 | 2 | 3 | 4): void {
     setMessageType(value);

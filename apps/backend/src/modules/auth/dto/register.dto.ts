@@ -9,7 +9,8 @@ export class RegisterDto {
   email!: string;
 
   @IsString()
-  @Matches(/^\+?[0-9]{8,20}$/)
+  // @Matches(/^\+?[0-9]{8,20}$/)
+  // 暂时注释手机号格式校验，支持空字符串
   phone!: string;
 
   @IsString()

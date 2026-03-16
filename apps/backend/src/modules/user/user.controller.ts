@@ -9,18 +9,25 @@ import {
   Post,
   Put,
   UseGuards,
+  BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { CurrentUser, RequestUser } from '../../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { FriendService } from '../friend/friend.service';
 import { ConsumePrekeyDto } from './dto/consume-prekey.dto';
 import { UploadPrekeysDto } from './dto/upload-prekeys.dto';
 import { RegisterDeviceDto } from './dto/register-device.dto';
+import { GenerateLinkingQRCodeDto, LinkDeviceRequestDto, ConfirmLinkDeviceDto } from './dto/link-device.dto';
 import { UserService } from './user.service';
 
 @Controller('user')
 @UseGuards(JwtAuthGuard)
 export class UserController {
-  constructor(private readonly userService: UserService) {}
+  constructor(
+    private readonly userService: UserService,
+    private readonly friendService: FriendService,
+  ) {}
 
   @Get(':id')
   async profile(@Param('id', new ParseUUIDPipe()) id: string): Promise<{
@@ -140,15 +147,64 @@ export class UserController {
     return this.userService.getDevicesByUserIds(dto.userIds);
   }
 
-  @Get('signal/prekeys/:deviceId')
-  getPrekeysByDeviceId(
+  @Get('keys/bundle/:userId/:deviceId')
+  async getPrekeyBundle(
+    @Param('userId', new ParseUUIDPipe()) userId: string,
     @Param('deviceId', new ParseUUIDPipe()) deviceId: string,
-    @Body('limit') limit: number = 10,
-  ): Promise<Array<{
-    preKeyId: string;
-    publicKey: string;
-  }>> {
-    return this.userService.getPrekeysByDeviceId(deviceId, limit);
+  ): Promise<{
+    registrationId: number;
+    identityKey: string;
+    signedPrekey: {
+      keyId: number;
+      publicKey: string;
+      signature: string;
+    };
+    oneTimePrekey?: {
+      preKeyId: string;
+      keyId: number;
+      publicKey: string;
+    };
+  } | null> {
+    // 注意：预密钥包包含公钥，可以公开访问
+    // 这是 Signal 协议的设计，任何人都可以获取以建立加密会话
+    return this.userService.getPrekeyBundle(userId, deviceId);
+  }
+
+  @Get('keys/bundle/:userId/:deviceId/peek')
+  async peekPrekeyBundle(
+    @Param('userId', new ParseUUIDPipe()) userId: string,
+    @Param('deviceId', new ParseUUIDPipe()) deviceId: string,
+  ): Promise<{
+    registrationId: number;
+    identityKey: string;
+    signedPrekey: {
+      keyId: number;
+      publicKey: string;
+      signature: string;
+    };
+    oneTimePrekeyAvailable: boolean;
+  } | null> {
+    // 注意：预密钥包包含公钥，可以公开访问
+    return this.userService.peekPrekeyBundle(userId, deviceId);
+  }
+
+  @Get('keys/prekeys/:deviceId/stats')
+  async getPrekeyStats(
+    @CurrentUser() user: RequestUser,
+    @Param('deviceId', new ParseUUIDPipe()) deviceId: string,
+  ): Promise<{
+    total: number;
+    used: number;
+    available: number;
+    needsReplenish: boolean;
+  }> {
+    // 验证设备所有权
+    const devices = await this.userService.listDevices(user.userId);
+    const device = devices.find(d => d.deviceId === deviceId);
+    if (!device) {
+      throw new NotFoundException('Device not found or not owned by user');
+    }
+    return this.userService.getPrekeyStats(deviceId);
   }
 
   @Put('device/:deviceId')
@@ -166,5 +222,120 @@ export class UserController {
     @Param('deviceId', new ParseUUIDPipe()) deviceId: string,
   ): Promise<{ deleted: boolean }> {
     return this.userService.deleteDevice(user.userId, deviceId);
+  }
+
+  // ==================== 设备链接功能 ====================
+
+  @Post('device/linking/qrcode')
+  async generateLinkingQRCode(
+    @CurrentUser() user: RequestUser,
+    @Body() dto: GenerateLinkingQRCodeDto,
+  ): Promise<{
+    temporaryToken: string;
+    qrCodeData: string;
+    expiresAt: Date;
+  }> {
+    return this.userService.generateLinkingQRCode(
+      user.userId,
+      dto.deviceName,
+      dto.deviceType,
+    );
+  }
+
+  @Post('device/linking/verify')
+  async verifyLinkingToken(
+    @Body() dto: { temporaryToken: string },
+  ): Promise<{
+    valid: boolean;
+    userId?: string;
+    fingerprint?: string;
+    expiresAt?: Date;
+  }> {
+    return this.userService.verifyLinkingToken(dto.temporaryToken);
+  }
+
+  @Post('device/linking/confirm')
+  async confirmLinkDevice(
+    @CurrentUser() user: RequestUser,
+    @Body() dto: LinkDeviceRequestDto,
+  ): Promise<{ deviceId: string; success: boolean }> {
+    return this.userService.confirmLinkDevice(user.userId, dto.temporaryToken, {
+      deviceName: dto.deviceName,
+      deviceType: dto.deviceType,
+      identityPublicKey: dto.identityPublicKey,
+      signedPreKey: dto.signedPreKey,
+      signedPreKeySignature: dto.signedPreKeySignature,
+      registrationId: dto.registrationId,
+    });
+  }
+
+  // ==================== 密钥验证接口 ====================
+
+  @Post('keys/verify')
+  async verifyKey(
+    @CurrentUser() user: RequestUser,
+    @Body() dto: { userId: string; deviceId?: string; fingerprint: string; isVerified: boolean },
+  ): Promise<{ success: boolean; message: string }> {
+    return this.userService.verifyKey(
+      user.userId,
+      dto.userId,
+      dto.deviceId,
+      dto.fingerprint,
+      dto.isVerified
+    );
+  }
+
+  @Get('keys/verify/:userId')
+  async getVerificationStatus(
+    @CurrentUser() user: RequestUser,
+    @Param('userId', new ParseUUIDPipe()) userId: string,
+  ): Promise<{
+    userId: string;
+    fingerprint: string;
+    isVerified: boolean;
+    verifiedAt?: string;
+    devices: Array<{
+      deviceId: string;
+      deviceName: string;
+      fingerprint: string;
+      isVerified: boolean;
+    }>;
+  }> {
+    return this.userService.getVerificationStatus(user.userId, userId);
+  }
+
+  @Get('keys/identity/:userId')
+  async getIdentityKey(
+    @Param('userId', new ParseUUIDPipe()) userId: string,
+  ): Promise<{
+    userId: string;
+    identityKey: string;
+    fingerprint: string;
+    registrationId: number;
+  }> {
+    const user = await this.userService.findById(userId);
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    return {
+      userId: user.id,
+      identityKey: user.identityPublicKey!,
+      fingerprint: user.identityKeyFingerprint!,
+      registrationId: user.registrationId!,
+    };
+  }
+
+  // ==================== 私有辅助方法 ====================
+
+  /**
+   * 验证两个用户是否是好友关系
+   * 如果不是好友，抛出 ForbiddenException
+   */
+  private async assertIsFriend(userId: string, otherUserId: string): Promise<void> {
+    const areFriends = await this.friendService.areFriends(userId, otherUserId);
+    if (!areFriends) {
+      throw new ForbiddenException('You can only access prekey bundles of your friends');
+    }
   }
 }
