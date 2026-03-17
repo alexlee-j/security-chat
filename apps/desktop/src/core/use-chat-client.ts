@@ -267,22 +267,28 @@ export function useChatClient(): {
 
       // 尝试使用Signal协议解密
       if (signalState.initialized && senderId) {
-        try {
-          // 使用实际的设备ID，如果没有则使用默认值
-          const senderDeviceId = sourceDeviceId || '1';
-          decrypted = await signalActions.decryptMessage(senderId, senderDeviceId, payload);
-        } catch (error) {
-          if (isExpectedSignalError(error)) {
-            // 预期的 Signal 错误（如会话不存在），降级到默认解密
-            console.warn('Signal decryption failed (expected), falling back to default:', error);
-            decrypted = decodePayloadApi(payload);
-          } else if (isSignalProtocolError(error)) {
-            // 其他 Signal 协议错误，记录并降级
-            console.error('Signal protocol error:', error);
-            decrypted = decodePayloadApi(payload);
-          } else {
-            // 非 Signal 错误（如网络错误、编程错误），抛出
-            throw error;
+        // 如果是自己发送的消息，跳过Signal解密，使用默认解密
+        if (senderId === authRef.current?.userId) {
+          console.log('Skipping Signal decryption for self-sent message');
+          decrypted = decodePayloadApi(payload);
+        } else {
+          try {
+            // 使用实际的设备ID，如果没有则使用默认值
+            const senderDeviceId = sourceDeviceId || '1';
+            decrypted = await signalActions.decryptMessage(senderId, senderDeviceId, payload);
+          } catch (error) {
+            if (isExpectedSignalError(error)) {
+              // 预期的 Signal 错误（如会话不存在），降级到默认解密
+              console.warn('Signal decryption failed (expected), falling back to default:', error);
+              decrypted = decodePayloadApi(payload);
+            } else if (isSignalProtocolError(error)) {
+              // 其他 Signal 协议错误，记录并降级
+              console.error('Signal protocol error:', error);
+              decrypted = decodePayloadApi(payload);
+            } else {
+              // 非 Signal 错误（如网络错误、编程错误），抛出
+              throw error;
+            }
           }
         }
       } else {
@@ -1139,13 +1145,37 @@ export function useChatClient(): {
     }
     setCreatingDirect(true);
     try {
-      const result = await createDirectConversation(peerUserId.trim());
+      let targetUserId = peerUserId.trim();
+      
+      // 如果不是 UUID 格式，尝试搜索用户
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (!uuidRegex.test(targetUserId)) {
+        console.log('输入的不是 UUID，尝试搜索用户:', targetUserId);
+        const searchResults = await searchUsers(targetUserId, 5);
+        if (searchResults.length === 0) {
+          setError('未找到该用户，请检查用户名。');
+          setCreatingDirect(false);
+          return;
+        }
+        if (searchResults.length === 1) {
+          // 只有一个结果，直接使用
+          targetUserId = searchResults[0].userId;
+          console.log('找到用户:', searchResults[0].username, 'ID:', targetUserId);
+        } else {
+          // 多个结果，显示选择列表（简化处理：使用第一个）
+          console.log('找到多个用户，使用第一个:', searchResults[0].username);
+          targetUserId = searchResults[0].userId;
+        }
+      }
+      
+      const result = await createDirectConversation(targetUserId);
       setPeerUserId('');
       setError('');
       await loadConversations();
       setActiveConversationId(result.conversationId);
-    } catch {
-      setError('创建单聊失败，请确认用户 ID。');
+    } catch (error) {
+      console.error('创建单聊失败:', error);
+      setError('创建单聊失败，请确认用户 ID 或用户名。');
     } finally {
       setCreatingDirect(false);
     }

@@ -282,7 +282,7 @@ export function ConversationSidebar(props: Props): JSX.Element {
         <input
           value={props.peerUserId}
           onChange={(e) => props.onPeerUserIdChange(e.target.value)}
-          placeholder="输入用户 ID 发起聊天"
+          placeholder="输入用户名或用户 ID 发起聊天"
           disabled={props.creatingDirect}
         />
         <button type="submit" disabled={props.creatingDirect || !props.peerUserId.trim()}>

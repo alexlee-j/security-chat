@@ -101,29 +101,77 @@ export class IdentityKeys {
     const data = await this.storage.get('identityKeyPair');
     if (!data) return null;
 
-    // 确保publicKeyBytes是Uint8Array类型
-    if (data.publicKeyBytes) {
-      if (Array.isArray(data.publicKeyBytes)) {
-        // 从数组创建Uint8Array
-        data.publicKeyBytes = new Uint8Array(data.publicKeyBytes);
-      } else if (typeof data.publicKeyBytes === 'object') {
-        // 处理从JSON.parse得到的对象
-        const keys = Object.keys(data.publicKeyBytes).sort((a, b) => parseInt(a) - parseInt(b));
-        const array = keys.map(key => data.publicKeyBytes[key]);
-        data.publicKeyBytes = new Uint8Array(array);
-      }
-    }
+    try {
+      // 从 JWK 重新导入私钥
+      const privateKey = await crypto.subtle.importKey(
+        'jwk',
+        data.privateKeyJwk,
+        { name: 'ECDH', namedCurve: 'P-256' },
+        true,
+        ['deriveBits', 'deriveKey']
+      );
 
-    // 重建CryptoKey对象（简化实现，实际需要使用importKey）
-    return data;
+      // 从 JWK 重新导入公钥
+      const publicKey = await crypto.subtle.importKey(
+        'jwk',
+        data.publicKeyJwk,
+        { name: 'ECDH', namedCurve: 'P-256' },
+        true,
+        []
+      );
+
+      // 确保 publicKeyBytes 是 Uint8Array
+      let publicKeyBytes: Uint8Array;
+      if (data.publicKeyBytes) {
+        if (Array.isArray(data.publicKeyBytes)) {
+          publicKeyBytes = new Uint8Array(data.publicKeyBytes);
+        } else if (typeof data.publicKeyBytes === 'object') {
+          const keys = Object.keys(data.publicKeyBytes).sort((a, b) => parseInt(a) - parseInt(b));
+          const array = keys.map(key => data.publicKeyBytes[key]);
+          publicKeyBytes = new Uint8Array(array);
+        } else {
+          publicKeyBytes = new Uint8Array(data.publicKeyBytes);
+        }
+      } else {
+        // 如果没有存储 publicKeyBytes，从公钥导出
+        const exported = await crypto.subtle.exportKey('raw', publicKey);
+        publicKeyBytes = new Uint8Array(exported);
+      }
+
+      return {
+        privateKey,
+        publicKey,
+        publicKeyBytes,
+      };
+    } catch (error) {
+      console.error('Failed to import identity key pair:', error);
+      return null;
+    }
   }
 
   /**
    * 保存身份密钥对
    */
   async saveKeyPair(keyPair: IdentityKeyPair): Promise<void> {
-    // 简化实现，实际需要导出密钥为可存储格式
-    await this.storage.set('identityKeyPair', keyPair);
+    try {
+      // 导出私钥为 JWK 格式
+      const privateKeyJwk = await crypto.subtle.exportKey('jwk', keyPair.privateKey);
+
+      // 导出公钥为 JWK 格式
+      const publicKeyJwk = await crypto.subtle.exportKey('jwk', keyPair.publicKey);
+
+      // 存储可序列化的数据
+      const data = {
+        privateKeyJwk,
+        publicKeyJwk,
+        publicKeyBytes: Array.from(keyPair.publicKeyBytes),
+      };
+
+      await this.storage.set('identityKeyPair', data);
+    } catch (error) {
+      console.error('Failed to save identity key pair:', error);
+      throw error;
+    }
   }
 
   /**
@@ -205,12 +253,114 @@ export class Prekeys {
   }
 
   /**
+   * 序列化签名预密钥
+   */
+  private async serializeSignedPrekey(prekey: SignedPrekey): Promise<any> {
+    const privateKeyJwk = await crypto.subtle.exportKey('jwk', prekey.keyPair.privateKey);
+    const publicKeyJwk = await crypto.subtle.exportKey('jwk', prekey.keyPair.publicKey);
+
+    return {
+      keyId: prekey.keyId,
+      privateKeyJwk,
+      publicKeyJwk,
+      signature: Array.from(prekey.signature),
+    };
+  }
+
+  /**
+   * 反序列化签名预密钥
+   */
+  private async deserializeSignedPrekey(data: any): Promise<SignedPrekey> {
+    const privateKey = await crypto.subtle.importKey(
+      'jwk',
+      data.privateKeyJwk,
+      { name: 'ECDH', namedCurve: 'P-256' },
+      true,
+      ['deriveBits', 'deriveKey']
+    );
+
+    const publicKey = await crypto.subtle.importKey(
+      'jwk',
+      data.publicKeyJwk,
+      { name: 'ECDH', namedCurve: 'P-256' },
+      true,
+      []
+    );
+
+    let signature: Uint8Array;
+    if (Array.isArray(data.signature)) {
+      signature = new Uint8Array(data.signature);
+    } else if (typeof data.signature === 'object') {
+      const keys = Object.keys(data.signature).sort((a, b) => parseInt(a) - parseInt(b));
+      signature = new Uint8Array(keys.map(key => data.signature[key]));
+    } else {
+      signature = new Uint8Array(data.signature);
+    }
+
+    return {
+      keyId: data.keyId,
+      keyPair: { privateKey, publicKey },
+      signature,
+    };
+  }
+
+  /**
+   * 序列化一次性预密钥
+   */
+  private async serializeOneTimePrekey(prekey: OneTimePrekey): Promise<any> {
+    const privateKeyJwk = await crypto.subtle.exportKey('jwk', prekey.keyPair.privateKey);
+    const publicKeyJwk = await crypto.subtle.exportKey('jwk', prekey.keyPair.publicKey);
+
+    return {
+      keyId: prekey.keyId,
+      privateKeyJwk,
+      publicKeyJwk,
+    };
+  }
+
+  /**
+   * 反序列化一次性预密钥
+   */
+  private async deserializeOneTimePrekey(data: any): Promise<OneTimePrekey> {
+    const privateKey = await crypto.subtle.importKey(
+      'jwk',
+      data.privateKeyJwk,
+      { name: 'ECDH', namedCurve: 'P-256' },
+      true,
+      ['deriveBits', 'deriveKey']
+    );
+
+    const publicKey = await crypto.subtle.importKey(
+      'jwk',
+      data.publicKeyJwk,
+      { name: 'ECDH', namedCurve: 'P-256' },
+      true,
+      []
+    );
+
+    return {
+      keyId: data.keyId,
+      keyPair: { privateKey, publicKey },
+    };
+  }
+
+  /**
    * 获取签名预密钥
    */
   async getSignedPrekeys(): Promise<Map<number, SignedPrekey>> {
     const data = await this.storage.get('signedPrekeys');
     if (!data) return new Map();
-    return new Map(Object.entries(data).map(([key, value]) => [parseInt(key), value as SignedPrekey]));
+
+    const result = new Map<number, SignedPrekey>();
+    for (const [key, value] of Object.entries(data)) {
+      try {
+        const prekey = await this.deserializeSignedPrekey(value);
+        result.set(parseInt(key), prekey);
+      } catch (error) {
+        console.error(`Failed to deserialize signed prekey ${key}:`, error);
+      }
+    }
+    return result;
   }
 
   /**
@@ -219,21 +369,39 @@ export class Prekeys {
   async getOneTimePrekeys(): Promise<Map<number, OneTimePrekey>> {
     const data = await this.storage.get('oneTimePrekeys');
     if (!data) return new Map();
-    return new Map(Object.entries(data).map(([key, value]) => [parseInt(key), value as OneTimePrekey]));
+
+    const result = new Map<number, OneTimePrekey>();
+    for (const [key, value] of Object.entries(data)) {
+      try {
+        const prekey = await this.deserializeOneTimePrekey(value);
+        result.set(parseInt(key), prekey);
+      } catch (error) {
+        console.error(`Failed to deserialize one-time prekey ${key}:`, error);
+      }
+    }
+    return result;
   }
 
   /**
    * 保存签名预密钥
    */
   async saveSignedPrekeys(prekeys: Map<number, SignedPrekey>): Promise<void> {
-    await this.storage.set('signedPrekeys', Object.fromEntries(prekeys));
+    const serialized: Record<string, any> = {};
+    for (const [keyId, prekey] of prekeys) {
+      serialized[keyId] = await this.serializeSignedPrekey(prekey);
+    }
+    await this.storage.set('signedPrekeys', serialized);
   }
 
   /**
    * 保存一次性预密钥
    */
   async saveOneTimePrekeys(prekeys: Map<number, OneTimePrekey>): Promise<void> {
-    await this.storage.set('oneTimePrekeys', Object.fromEntries(prekeys));
+    const serialized: Record<string, any> = {};
+    for (const [keyId, prekey] of prekeys) {
+      serialized[keyId] = await this.serializeOneTimePrekey(prekey);
+    }
+    await this.storage.set('oneTimePrekeys', serialized);
   }
 
   /**

@@ -49,6 +49,8 @@ export interface SessionState {
   } | null;
   rootKey: Uint8Array;
   previousChainLength: number;
+  // 发送方在初始化时生成的临时公钥，用于第一条消息的 baseKey
+  ephemeralPublicKey?: Uint8Array;
 }
 
 export interface EncryptedMessage {
@@ -135,6 +137,9 @@ export class X3DH {
       ['deriveBits', 'deriveKey']
     );
 
+    // 导出临时公钥
+    const ephemeralPublicKeyBytes = await crypto.subtle.exportKey('raw', ephemeralKeyPair.publicKey);
+
     // 计算共享密钥（简化实现）
     const initialSecret = await this.calculateSharedSecret(ephemeralKeyPair.privateKey, prekeyBundle.identityKey);
 
@@ -151,6 +156,7 @@ export class X3DH {
       receivingChain: null,
       rootKey,
       previousChainLength: 0,
+      ephemeralPublicKey: new Uint8Array(ephemeralPublicKeyBytes),
     };
   }
 
@@ -180,7 +186,7 @@ export class X3DH {
   /**
    * 计算共享密钥
    */
-  private static async calculateSharedSecret(privateKey: CryptoKey, publicKeyBytes: Uint8Array): Promise<Uint8Array> {
+  static async calculateSharedSecret(privateKey: CryptoKey, publicKeyBytes: Uint8Array): Promise<Uint8Array> {
     // 确保publicKeyBytes是有效的Uint8Array
     if (!publicKeyBytes) {
       throw new Error('公钥字节数组为空 (null/undefined)');
@@ -234,9 +240,12 @@ export class X3DH {
     const encoder = new TextEncoder();
     const saltBytes = encoder.encode(salt);
 
+    // 创建 secret 的副本，确保是独立的 ArrayBuffer
+    const secretBuffer = secret.slice().buffer;
+
     const keyMaterial = await crypto.subtle.importKey(
       'raw',
-      secret.buffer as ArrayBuffer,
+      secretBuffer,
       { name: 'PBKDF2' },
       false,
       ['deriveBits']
@@ -265,36 +274,115 @@ export class DoubleRatchet {
    * 发送消息密钥
    */
   static async sendMessageKey(sendingChain: { key: Uint8Array; index: number }): Promise<Uint8Array> {
-    // 简化实现：直接返回链密钥
-    return sendingChain.key;
+    // 使用 KDF 派生消息密钥
+    return this.deriveMessageKey(sendingChain.key);
   }
 
   /**
    * 接收消息密钥
    */
   static async receiveMessageKey(receivingChain: { key: Uint8Array; index: number }, messageNumber: number): Promise<Uint8Array> {
-    // 简化实现：直接返回链密钥
-    return receivingChain.key;
+    // 使用 KDF 派生消息密钥
+    return this.deriveMessageKey(receivingChain.key);
+  }
+
+  /**
+   * 派生消息密钥
+   */
+  private static async deriveMessageKey(chainKey: Uint8Array): Promise<Uint8Array> {
+    // 使用 HKDF 派生消息密钥
+    const encoder = new TextEncoder();
+    const salt = encoder.encode('message_key');
+
+    // 创建 key 的副本，确保是独立的 ArrayBuffer
+    const keyBuffer = chainKey.slice().buffer;
+
+    const keyMaterial = await crypto.subtle.importKey(
+      'raw',
+      keyBuffer,
+      { name: 'PBKDF2' },
+      false,
+      ['deriveBits']
+    );
+
+    const derivedBits = await crypto.subtle.deriveBits(
+      {
+        name: 'PBKDF2',
+        salt,
+        iterations: 1,
+        hash: 'SHA-256',
+      },
+      keyMaterial,
+      256
+    );
+
+    return new Uint8Array(derivedBits);
   }
 
   /**
    * 推进发送链
    */
   static async nextChainKey(currentKey: Uint8Array): Promise<Uint8Array> {
-    // 简化实现：生成新的随机密钥
-    const newKey = new Uint8Array(32);
-    crypto.getRandomValues(newKey);
-    return newKey;
+    // 使用 KDF 推进链密钥
+    const encoder = new TextEncoder();
+    const salt = encoder.encode('chain_key');
+
+    // 创建 key 的副本，确保是独立的 ArrayBuffer
+    const keyBuffer = currentKey.slice().buffer;
+
+    const keyMaterial = await crypto.subtle.importKey(
+      'raw',
+      keyBuffer,
+      { name: 'PBKDF2' },
+      false,
+      ['deriveBits']
+    );
+
+    const derivedBits = await crypto.subtle.deriveBits(
+      {
+        name: 'PBKDF2',
+        salt,
+        iterations: 1,
+        hash: 'SHA-256',
+      },
+      keyMaterial,
+      256
+    );
+
+    return new Uint8Array(derivedBits);
   }
 
   /**
    * DH棘轮
    */
   static async dhRatchet(rootKey: Uint8Array, localKeyPair: CryptoKeyPair, remotePublicKey: Uint8Array): Promise<Uint8Array> {
-    // 简化实现：生成新的根密钥
-    const newRootKey = new Uint8Array(32);
-    crypto.getRandomValues(newRootKey);
-    return newRootKey;
+    // 计算共享密钥
+    const sharedSecret = await X3DH.calculateSharedSecret(localKeyPair.privateKey, remotePublicKey);
+
+    // 派生新的根密钥
+    const encoder = new TextEncoder();
+    const salt = encoder.encode('dh_ratchet');
+
+    const keyMaterial = await crypto.subtle.importKey(
+      'raw',
+      sharedSecret.buffer as ArrayBuffer,
+      { name: 'PBKDF2' },
+      false,
+      ['deriveBits']
+    );
+
+    const derivedBits = await crypto.subtle.deriveBits(
+      {
+        name: 'PBKDF2',
+        salt,
+        iterations: 1,
+        hash: 'SHA-256',
+      },
+      keyMaterial,
+      256
+    );
+
+    return new Uint8Array(derivedBits);
   }
 }
 
@@ -397,38 +485,48 @@ export class SignalProtocol {
     if (!session.sendingChain) {
       throw new Error('Sending chain is null');
     }
-    
+
     const messageKey = await DoubleRatchet.sendMessageKey(session.sendingChain);
-    
+
     // 加密消息（简化实现）
     const encoder = new TextEncoder();
     const plaintextBytes = encoder.encode(plaintext);
     const ciphertext = await this.encrypt(plaintextBytes, messageKey);
 
-    // 生成新的DH密钥对
-    const newDHKeyPair = await crypto.subtle.generateKey(
-      { name: 'ECDH', namedCurve: 'P-256' },
-      true,
-      ['deriveBits', 'deriveKey']
-    );
+    // 确定 baseKey：第一条消息使用 ephemeralPublicKey，后续消息使用新的 DH 公钥
+    let baseKey: Uint8Array;
+    let dhPublicKey: Uint8Array | undefined;
+
+    if (session.sendingChain.index === 0 && session.ephemeralPublicKey) {
+      // 第一条消息：使用初始化时生成的临时公钥
+      baseKey = session.ephemeralPublicKey;
+      dhPublicKey = session.ephemeralPublicKey;
+    } else {
+      // 后续消息：生成新的 DH 密钥对
+      const newDHKeyPair = await crypto.subtle.generateKey(
+        { name: 'ECDH', namedCurve: 'P-256' },
+        true,
+        ['deriveBits', 'deriveKey']
+      );
+      const dhPublicKeyBytes = await crypto.subtle.exportKey('raw', newDHKeyPair.publicKey);
+      baseKey = new Uint8Array(dhPublicKeyBytes);
+      dhPublicKey = baseKey;
+    }
 
     // 更新会话状态
     session.sendingChain.key = await DoubleRatchet.nextChainKey(session.sendingChain.key);
     session.sendingChain.index++;
 
-    // 导出公钥
-    const dhPublicKeyBytes = await crypto.subtle.exportKey('raw', newDHKeyPair.publicKey);
-
     return {
       version: 3,
       registrationId: 12345, // 实际应该从本地存储获取
       signedPreKeyId: 1,
-      baseKey: new Uint8Array(dhPublicKeyBytes),
+      baseKey,
       identityKey: session.remoteIdentityKey,
       messageNumber: session.sendingChain.index,
       previousChainLength: session.previousChainLength,
       ciphertext,
-      dhPublicKey: new Uint8Array(dhPublicKeyBytes),
+      dhPublicKey,
     };
   }
 
@@ -506,7 +604,7 @@ export class SignalProtocol {
    */
   async decryptMessage(session: SessionState, encryptedMessage: EncryptedMessage): Promise<string> {
     const messageKey = await DoubleRatchet.receiveMessageKey(session.receivingChain!, encryptedMessage.messageNumber);
-    
+
     // 解密消息
     const plaintextBytes = await this.decrypt(encryptedMessage.ciphertext, messageKey);
     const plaintext = new TextDecoder().decode(plaintextBytes);
