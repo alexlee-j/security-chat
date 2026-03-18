@@ -479,6 +479,32 @@ export async function getIdentityKey(userId: string): Promise<IdentityKeyRespons
   return res.data.data;
 }
 
+// 设备管理 API
+export async function getDevices(): Promise<Array<{
+  deviceId: string;
+  deviceName: string;
+  deviceType: 'ios' | 'android' | 'mac' | 'windows' | 'linux';
+  identityPublicKey: string;
+  signedPreKey: string;
+  signedPreKeySignature: string;
+  registrationId: number | null;
+  createdAt: string;
+  lastActiveAt: string | null;
+}>> {
+  const res = await http.get<ApiEnvelope<Array<{
+    deviceId: string;
+    deviceName: string;
+    deviceType: 'ios' | 'android' | 'mac' | 'windows' | 'linux';
+    identityPublicKey: string;
+    signedPreKey: string;
+    signedPreKeySignature: string;
+    registrationId: number | null;
+    createdAt: string;
+    lastActiveAt: string | null;
+  }>>>('/user/device/list');
+  return res.data.data;
+}
+
 // 预密钥上传 API
 export async function uploadPrekeys(data: {
   deviceId: string;
@@ -487,7 +513,7 @@ export async function uploadPrekeys(data: {
     publicKey: string;
     signature: string;
   };
-  oneTimePrekeys: Array<{
+  oneTimePrekeys?: Array<{
     keyId: number;
     publicKey: string;
   }>;

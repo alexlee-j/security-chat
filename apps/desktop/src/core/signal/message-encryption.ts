@@ -196,6 +196,14 @@ export class MessageEncryptionService {
   }
 
   /**
+   * CryptoKey 转 Base64
+   */
+  private async cryptoKeyToBase64(key: CryptoKey): Promise<string> {
+    const rawKey = await crypto.subtle.exportKey('raw', key);
+    return this.uint8ArrayToBase64(new Uint8Array(rawKey));
+  }
+
+  /**
    * 上传预密钥（使用指定的 KeyManager 实例）
    */
   async uploadPrekeysWithKeyManager(keyManager: KeyManager): Promise<void> {
@@ -212,21 +220,17 @@ export class MessageEncryptionService {
       const deviceId = await this.getCurrentDeviceIdWithKeyManager(keyManager);
 
       // 准备上传数据
-      const signedPrekeyPublic = new Uint8Array(await crypto.subtle.exportKey('raw', signedPrekeys[0].keyPair.publicKey));
       const data = {
         deviceId,
         signedPrekey: {
           keyId: signedPrekeys[0].keyId,
-          publicKey: this.uint8ArrayToBase64(signedPrekeyPublic),
-          signature: this.uint8ArrayToBase64(signedPrekeys[0].signature),
+          publicKey: await this.cryptoKeyToBase64(signedPrekeys[0].keyPair.publicKey), // 转换为Base64
+          signature: this.uint8ArrayToBase64(signedPrekeys[0].signature), // 转换为Base64
         },
-        oneTimePrekeys: await Promise.all(oneTimePrekeys.map(async (prekey) => {
-          const publicKey = new Uint8Array(await crypto.subtle.exportKey('raw', prekey.keyPair.publicKey));
-          return {
-            keyId: prekey.keyId,
-            publicKey: this.uint8ArrayToBase64(publicKey),
-          };
-        })),
+        oneTimePrekeys: await Promise.all(oneTimePrekeys.map(async (prekey) => ({
+          keyId: prekey.keyId,
+          publicKey: await this.cryptoKeyToBase64(prekey.keyPair.publicKey), // 转换为Base64
+        }))),
       };
 
       // 调用 API 上传预密钥
@@ -251,7 +255,21 @@ export class MessageEncryptionService {
     if (deviceId) {
       return deviceId;
     }
-    // 如果没有存储，生成一个新的设备 ID
+    
+    // 如果没有存储，尝试从认证信息中获取设备ID
+    const authInfo = localStorage.getItem('auth-info');
+    if (authInfo) {
+      try {
+        const parsed = JSON.parse(authInfo);
+        if (parsed.deviceId) {
+          return parsed.deviceId;
+        }
+      } catch (e) {
+        console.warn('Could not parse auth-info from localStorage');
+      }
+    }
+    
+    // 如果都没有，生成一个新的设备 ID
     const newDeviceId = crypto.randomUUID();
     await keyManager['secureStorage'].set('currentDeviceId', newDeviceId);
     return newDeviceId;

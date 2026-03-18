@@ -158,10 +158,16 @@ export function useSignal(): { state: SignalState; actions: SignalActions } {
         }
 
         // 上传预密钥到服务器（使用同一个 keyManager）
-        console.log('[Signal] Uploading prekeys to server...');
-        await messageEncryptionService.uploadPrekeysWithKeyManager(keyManager);
-        setState(prev => ({ ...prev, prekeysUploaded: true }));
-        console.log('[Signal] Prekeys uploaded successfully');
+        // 仅在有认证令牌时才上传
+        const authToken = localStorage.getItem('auth-token');
+        if (authToken && authToken.trim() !== '') {
+          console.log('[Signal] Uploading prekeys to server...');
+          await messageEncryptionService.uploadPrekeysWithKeyManager(keyManager);
+          setState(prev => ({ ...prev, prekeysUploaded: true }));
+          console.log('[Signal] Prekeys uploaded successfully');
+        } else {
+          console.log('[Signal] No auth token found, skipping prekeys upload');
+        }
       } catch (error) {
         console.error('[Signal] Failed to upload prekeys:', error);
         // 上传预密钥失败不影响初始化

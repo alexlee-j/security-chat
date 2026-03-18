@@ -52,7 +52,10 @@ export class UserController {
     @CurrentUser() user: RequestUser,
     @Body() dto: UploadPrekeysDto,
   ): Promise<{ inserted: number; deviceId: string }> {
-    return this.userService.uploadOneTimePrekeys(user.userId, dto.deviceId, dto.prekeys);
+    return this.userService.uploadOneTimePrekeys(user.userId, dto.deviceId, {
+      signedPrekey: dto.signedPrekey,
+      oneTimePrekeys: dto.oneTimePrekeys,
+    });
   }
 
   @Get('keys/device/:deviceId/next')
@@ -166,13 +169,9 @@ export class UserController {
       publicKey: string;
     };
   } | null> {
-    // 验证好友关系或自己是所有者
-    if (user.userId !== userId) {
-      await this.assertIsFriend(user.userId, userId);
-    }
-    
     // 注意：预密钥包包含公钥，可以公开访问
     // 这是 Signal 协议的设计，任何人都可以获取以建立加密会话
+    // 不需要验证好友关系，因为预密钥包是用于建立初始会话的
     return this.userService.getPrekeyBundle(userId, deviceId);
   }
 

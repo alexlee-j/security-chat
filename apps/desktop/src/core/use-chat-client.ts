@@ -815,7 +815,28 @@ export function useChatClient(): {
         signedPreKeySignature,
       });
 
-      // 注册成功后，生成一次性预密钥并上传
+      setAuthToken(result.accessToken);
+      setAuth({ token: result.accessToken, userId: result.userId });
+
+      // 注册成功后，获取设备列表并更新本地设备ID
+      try {
+        // 等待认证令牌生效
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        // 获取设备列表
+        const devices = await import('./api').then(api => api.getDevices());
+        if (devices && devices.length > 0) {
+          const primaryDevice = devices[0]; // 假设第一个设备是主要设备
+          
+          // 更新本地存储中的设备ID
+          await keyManager['secureStorage'].set('currentDeviceId', primaryDevice.deviceId);
+          console.log('Updated current device ID to:', primaryDevice.deviceId);
+        }
+      } catch (deviceError) {
+        console.error('Failed to get devices after registration:', deviceError);
+      }
+
+      // 生成一次性预密钥并上传
       await keyManager.generateOneTimePrekeys(100);
       try {
         const { messageEncryptionService } = await import('./signal/message-encryption');
@@ -825,9 +846,6 @@ export function useChatClient(): {
         console.error('Failed to upload prekeys after registration:', uploadError);
         // 预密钥上传失败不影响注册成功，可以后续补充
       }
-
-      setAuthToken(result.accessToken);
-      setAuth({ token: result.accessToken, userId: result.userId });
       setAuthMode('login');
       showToast('注册成功', 'success');
       await Promise.all([loadConversations(), loadFriendData()]);

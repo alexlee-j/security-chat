@@ -131,23 +131,51 @@ export class UserService {
   async uploadOneTimePrekeys(
     userId: string,
     deviceId: string,
-    prekeys: string[],
+    data: {
+      signedPrekey?: {
+        keyId: number;
+        publicKey: string;
+        signature: string;
+      };
+      oneTimePrekeys?: Array<{
+        keyId: number;
+        publicKey: string;
+      }>;
+    },
   ): Promise<{ inserted: number; deviceId: string }> {
     await this.assertOwnDevice(userId, deviceId);
 
-    const rows = prekeys.map((publicKey, index) =>
-      this.oneTimePrekeyRepository.create({
-        deviceId,
-        keyId: index + 1,
-        publicKey,
-        isUsed: false,
-      }),
-    );
+    let insertedCount = 0;
 
-    await this.oneTimePrekeyRepository.save(rows);
+    // 更新签名预密钥（如果提供）
+    if (data.signedPrekey) {
+      await this.deviceRepository.update(
+        { id: deviceId, userId },
+        {
+          signedPreKey: data.signedPrekey.publicKey,
+          signedPreKeySignature: data.signedPrekey.signature,
+        },
+      );
+      insertedCount++; // 计入签名预密钥的更新
+    }
+
+    // 插入一次性预密钥（如果提供）
+    if (data.oneTimePrekeys && data.oneTimePrekeys.length > 0) {
+      const rows = data.oneTimePrekeys.map((prekey) =>
+        this.oneTimePrekeyRepository.create({
+          deviceId,
+          keyId: prekey.keyId,
+          publicKey: prekey.publicKey,
+          isUsed: false,
+        }),
+      );
+
+      await this.oneTimePrekeyRepository.save(rows);
+      insertedCount += rows.length;
+    }
 
     return {
-      inserted: rows.length,
+      inserted: insertedCount,
       deviceId,
     };
   }
@@ -334,6 +362,16 @@ export class UserService {
     });
 
     if (!device) {
+      // 检查用户是否没有任何设备，如果是，则可能是注册后首次上传预密钥
+      const userDevices = await this.deviceRepository.find({
+        where: { userId },
+        select: ['id'],
+      });
+      
+      if (userDevices.length === 0) {
+        throw new NotFoundException('No devices found for user');
+      }
+      
       throw new NotFoundException('Device not found');
     }
 

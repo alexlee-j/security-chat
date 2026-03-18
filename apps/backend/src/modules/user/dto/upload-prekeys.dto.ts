@@ -1,13 +1,40 @@
-import { ArrayMaxSize, ArrayMinSize, IsArray, IsString, IsUUID, MaxLength } from 'class-validator';
+import { IsArray, IsObject, IsOptional, IsString, IsUUID, ValidateNested, MaxLength, IsNumber } from 'class-validator';
+import { Type } from 'class-transformer';
+
+class SignedPrekeyDto {
+  @IsNumber()
+  keyId!: number;
+
+  @IsString()
+  @MaxLength(4096)
+  publicKey!: string;
+
+  @IsString()
+  @MaxLength(4096)
+  signature!: string;
+}
+
+class OneTimePrekeyDto {
+  @IsNumber()
+  keyId!: number;
+
+  @IsString()
+  @MaxLength(4096)
+  publicKey!: string;
+}
 
 export class UploadPrekeysDto {
   @IsUUID()
   deviceId!: string;
 
+  @ValidateNested()
+  @Type(() => SignedPrekeyDto)
+  @IsOptional()
+  signedPrekey?: SignedPrekeyDto;
+
   @IsArray()
-  @ArrayMinSize(1)
-  @ArrayMaxSize(200)
-  @IsString({ each: true })
-  @MaxLength(4096, { each: true })
-  prekeys!: string[];
+  @ValidateNested({ each: true })
+  @Type(() => OneTimePrekeyDto)
+  @IsOptional()
+  oneTimePrekeys?: OneTimePrekeyDto[];
 }

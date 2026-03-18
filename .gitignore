@@ -6,3 +6,4 @@ dist
 coverage
 apps/backend/.nestjs
 apps/backend/node_modules
+tests/archive/
