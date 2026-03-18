@@ -149,6 +149,7 @@ export class UserController {
 
   @Get('keys/bundle/:userId/:deviceId')
   async getPrekeyBundle(
+    @CurrentUser() user: RequestUser,
     @Param('userId', new ParseUUIDPipe()) userId: string,
     @Param('deviceId', new ParseUUIDPipe()) deviceId: string,
   ): Promise<{
@@ -165,6 +166,11 @@ export class UserController {
       publicKey: string;
     };
   } | null> {
+    // 验证好友关系或自己是所有者
+    if (user.userId !== userId) {
+      await this.assertIsFriend(user.userId, userId);
+    }
+    
     // 注意：预密钥包包含公钥，可以公开访问
     // 这是 Signal 协议的设计，任何人都可以获取以建立加密会话
     return this.userService.getPrekeyBundle(userId, deviceId);

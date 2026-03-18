@@ -305,14 +305,32 @@ export function useChatClient(): {
   };
 
   // 同步版本的 decodePayload，用于渲染
-  // 对于已缓存的 payload 直接返回，未缓存的返回空字符串
+  // 对于已缓存的 payload 直接返回，未缓存的触发异步解密并返回占位符
   const decodePayloadSync = (payload: string): string => {
     if (payloadCacheRef.current.has(payload)) {
       return payloadCacheRef.current.get(payload)!;
     }
-    // 未缓存的 payload，尝试同步解密（仅支持 Base64 格式）
+    
+    // 未缓存的 payload，检查是否是 Signal 加密格式（包含 :）
+    const parts = payload.split(':');
+    const isSignalEncrypted = parts.length === 3;
+    
+    if (isSignalEncrypted && signalState.initialized) {
+      // Signal 加密的消息，触发异步解密
+      setTimeout(() => {
+        if (!payloadCacheRef.current.has(payload)) {
+          const message = messagesRef.current.find(m => m.encryptedPayload === payload);
+          if (message) {
+            void decodePayload(payload, message.senderId, message.sourceDeviceId);
+          }
+        }
+      }, 0);
+      // 返回占位符，避免显示加密内容
+      return '';
+    }
+    
+    // 尝试同步解密（仅支持 Base64 格式）
     try {
-      const parts = payload.split(':');
       if (parts.length !== 3) {
         const decrypted = decodeURIComponent(escape(atob(payload)));
         payloadCacheRef.current.set(payload, decrypted);
@@ -321,6 +339,7 @@ export function useChatClient(): {
     } catch {
       // Ignore errors
     }
+    
     return payload;
   };
 
@@ -654,6 +673,22 @@ export function useChatClient(): {
       const result = await login(account, password);
       setAuthToken(result.accessToken);
       setAuth({ token: result.accessToken, userId: result.userId });
+      
+      // 登录后初始化 Signal 协议并检查预密钥
+      try {
+        await signalActions.initialize();
+        
+        // 检查并补充预密钥
+        const prekeysStatus = signalState.prekeysStatus;
+        if (prekeysStatus && (!prekeysStatus.hasSignedPrekeys || !prekeysStatus.hasOneTimePrekeys || prekeysStatus.oneTimePrekeysCount < 100)) {
+          console.log('[Login] Replenishing prekeys after login...');
+          await signalActions.replenishPrekeys();
+        }
+      } catch (signalError) {
+        console.error('[Login] Failed to initialize Signal protocol:', signalError);
+        // Signal 初始化失败不影响登录
+      }
+      
       await Promise.all([loadConversations(), loadFriendData()]);
     } catch {
       showToast('登录失败，请检查账号密码或后端服务状态', 'error');
@@ -779,6 +814,17 @@ export function useChatClient(): {
         signedPreKey: signedPreKeyPublic,
         signedPreKeySignature,
       });
+
+      // 注册成功后，生成一次性预密钥并上传
+      await keyManager.generateOneTimePrekeys(100);
+      try {
+        const { messageEncryptionService } = await import('./signal/message-encryption');
+        await messageEncryptionService.uploadPrekeys();
+        console.log('Prekeys uploaded successfully after registration');
+      } catch (uploadError) {
+        console.error('Failed to upload prekeys after registration:', uploadError);
+        // 预密钥上传失败不影响注册成功，可以后续补充
+      }
 
       setAuthToken(result.accessToken);
       setAuth({ token: result.accessToken, userId: result.userId });
@@ -1007,6 +1053,9 @@ export function useChatClient(): {
         // 加密失败时fallback到原有的Base64编码
         encryptedPayload = btoa(unescape(encodeURIComponent(messageText)));
       }
+
+      // 对于自己发送的消息，预先缓存明文，避免解密时无法显示
+      payloadCacheRef.current.set(encryptedPayload, messageText);
 
       await sendMessage({
         conversationId: activeConversationIdRef.current,

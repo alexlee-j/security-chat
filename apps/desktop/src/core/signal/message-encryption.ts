@@ -63,7 +63,7 @@ export class MessageEncryptionService {
     senderDeviceId: string,
     encryptedMessage: EncryptedMessage
   ): Promise<string> {
-    // 修复从JSON解析的Uint8Array对象
+    // 修复从 JSON 解析的 Uint8Array 对象
     const fixedEncryptedMessage = this.fixEncryptedMessage(encryptedMessage);
 
     // 检查是否已有会话
@@ -88,7 +88,7 @@ export class MessageEncryptionService {
   }
 
   /**
-   * 修复从JSON解析的EncryptedMessage对象，将普通对象转换回Uint8Array
+   * 修复从 JSON 解析的 EncryptedMessage 对象，将普通对象转换回 Uint8Array
    */
   private fixEncryptedMessage(encryptedMessage: any): EncryptedMessage {
     return {
@@ -101,11 +101,11 @@ export class MessageEncryptionService {
   }
 
   /**
-   * 将对象转换为Uint8Array
+   * 将对象转换为 Uint8Array
    */
   private objectToUint8Array(obj: any): Uint8Array {
     console.log('objectToUint8Array input:', obj, 'type:', typeof obj, 'instanceof Uint8Array:', obj instanceof Uint8Array);
-    
+
     if (obj instanceof Uint8Array) {
       return obj;
     }
@@ -116,7 +116,7 @@ export class MessageEncryptionService {
       return this.base64ToUint8Array(obj);
     }
     if (obj && typeof obj === 'object') {
-      // 处理从JSON解析的对象，可能有data属性或直接是数字数组
+      // 处理从 JSON 解析的对象，可能有 data 属性或直接是数字数组
       if (obj.data && Array.isArray(obj.data)) {
         return new Uint8Array(obj.data);
       }
@@ -129,7 +129,7 @@ export class MessageEncryptionService {
     try {
       return new Uint8Array(obj);
     } catch (error) {
-      throw new Error(`无法将对象转换为Uint8Array: ${JSON.stringify(obj)}`);
+      throw new Error(`无法将对象转换为 Uint8Array: ${JSON.stringify(obj)}`);
     }
   }
 
@@ -143,7 +143,7 @@ export class MessageEncryptionService {
       // 验证密钥长度
       const identityKey = this.base64ToUint8Array(data.identityKey);
       const signedPrekeyPublic = this.base64ToUint8Array(data.signedPrekey.publicKey);
-      
+
       console.log('Prekey bundle received:', {
         identityKeyLength: identityKey.length,
         signedPrekeyLength: signedPrekeyPublic.length,
@@ -175,7 +175,7 @@ export class MessageEncryptionService {
   }
 
   /**
-   * Base64转Uint8Array
+   * Base64 转 Uint8Array
    */
   private base64ToUint8Array(base64: string): Uint8Array {
     const binaryString = atob(base64);
@@ -188,7 +188,7 @@ export class MessageEncryptionService {
   }
 
   /**
-   * Uint8Array转Base64
+   * Uint8Array 转 Base64
    */
   private uint8ArrayToBase64(array: Uint8Array): string {
     const binaryString = Array.from(array, byte => String.fromCharCode(byte)).join('');
@@ -196,33 +196,79 @@ export class MessageEncryptionService {
   }
 
   /**
-   * 上传预密钥
+   * 上传预密钥（使用指定的 KeyManager 实例）
    */
-  async uploadPrekeys(): Promise<void> {
+  async uploadPrekeysWithKeyManager(keyManager: KeyManager): Promise<void> {
     try {
-      const identityKeyPair = await this.keyManager.getIdentityKeyPair();
-      const signedPrekeys = await this.keyManager.getSignedPrekeys();
-      const oneTimePrekeys = await this.keyManager.getOneTimePrekeys();
+      const identityKeyPair = await keyManager.getIdentityKeyPair();
+      const signedPrekeys = await keyManager.getSignedPrekeys();
+      const oneTimePrekeys = await keyManager.getOneTimePrekeys();
+
+      if (signedPrekeys.length === 0) {
+        throw new Error('No signed prekeys to upload');
+      }
+
+      // 获取当前设备 ID（从本地存储或登录响应获取）
+      const deviceId = await this.getCurrentDeviceIdWithKeyManager(keyManager);
 
       // 准备上传数据
+      const signedPrekeyPublic = new Uint8Array(await crypto.subtle.exportKey('raw', signedPrekeys[0].keyPair.publicKey));
       const data = {
+        deviceId,
         signedPrekey: {
           keyId: signedPrekeys[0].keyId,
-          publicKey: this.uint8ArrayToBase64(signedPrekeys[0].keyPair.publicKey as any),
+          publicKey: this.uint8ArrayToBase64(signedPrekeyPublic),
           signature: this.uint8ArrayToBase64(signedPrekeys[0].signature),
         },
-        oneTimePrekeys: oneTimePrekeys.map(prekey => ({
-          keyId: prekey.keyId,
-          publicKey: this.uint8ArrayToBase64(prekey.keyPair.publicKey as any),
+        oneTimePrekeys: await Promise.all(oneTimePrekeys.map(async (prekey) => {
+          const publicKey = new Uint8Array(await crypto.subtle.exportKey('raw', prekey.keyPair.publicKey));
+          return {
+            keyId: prekey.keyId,
+            publicKey: this.uint8ArrayToBase64(publicKey),
+          };
         })),
       };
 
-      // 注意：需要在api.ts中添加uploadPrekeys函数
-      // await api.uploadPrekeys(data);
+      // 调用 API 上传预密钥
+      await api.uploadPrekeys(data);
+
+      console.log('Prekeys uploaded successfully:', {
+        signedPrekeyId: signedPrekeys[0].keyId,
+        oneTimePrekeysCount: oneTimePrekeys.length,
+      });
     } catch (error) {
       console.error('Error uploading prekeys:', error);
       throw new Error('Failed to upload prekeys');
     }
+  }
+
+  /**
+   * 获取当前设备 ID（使用指定的 KeyManager 实例）
+   */
+  private async getCurrentDeviceIdWithKeyManager(keyManager: KeyManager): Promise<string> {
+    // 从本地存储获取设备 ID
+    const deviceId = await keyManager['secureStorage'].get('currentDeviceId');
+    if (deviceId) {
+      return deviceId;
+    }
+    // 如果没有存储，生成一个新的设备 ID
+    const newDeviceId = crypto.randomUUID();
+    await keyManager['secureStorage'].set('currentDeviceId', newDeviceId);
+    return newDeviceId;
+  }
+
+  /**
+   * 上传预密钥
+   */
+  async uploadPrekeys(): Promise<void> {
+    return this.uploadPrekeysWithKeyManager(this.keyManager);
+  }
+
+  /**
+   * 获取当前设备 ID
+   */
+  private async getCurrentDeviceId(): Promise<string> {
+    return this.getCurrentDeviceIdWithKeyManager(this.keyManager);
   }
 
   /**

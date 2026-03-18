@@ -322,10 +322,85 @@ async function runTest() {
     console.log('\n步骤 10: 用户 A 查看回复');
     await pageA.waitForTimeout(5000);
     await screenshot(pageA, "debug-a");
-    
+
     const pageAContentFinal = await pageA.content();
     const hasReply = pageAContentFinal.includes('Reply from') || pageAContentFinal.includes('Signal encryption test reply');
     console.log('用户 A 收到回复:', hasReply ? '✅ 是' : '❌ 否');
+
+    // ========== 步骤 11: 验证 A 账号历史消息显示（重新加载） ==========
+    console.log('\n步骤 11: 验证 A 账号历史消息显示（重新加载）');
+    
+    // 刷新页面重新加载消息
+    await pageA.reload();
+    await pageA.waitForTimeout(3000);
+    
+    // 检查是否需要重新登录
+    const pageContent = await pageA.content();
+    const isLoginPage = pageContent.includes('登录') || pageContent.includes('密码');
+    
+    if (isLoginPage) {
+      console.log('刷新后需要重新登录');
+      // 重新登录
+      const usernameInput = await pageA.locator('input[name="username"]').first();
+      const passwordInput = await pageA.locator('input[type="password"]').first();
+      const loginButton = await pageA.locator('button[type="submit"]').first();
+      
+      if (await usernameInput.count() > 0 && await passwordInput.count() > 0) {
+        await usernameInput.fill(userA.username);
+        await passwordInput.fill(userA.password);
+        await loginButton.click();
+        await pageA.waitForTimeout(5000);
+        console.log('重新登录完成');
+      }
+    }
+    
+    await pageA.waitForTimeout(5000);
+    await screenshot(pageA, "debug-a");
+    
+    // 检查是否有会话列表
+    const pageContentAfterLogin = await pageA.content();
+    const isStillLoginPage = pageContentAfterLogin.includes('登录') || pageContentAfterLogin.includes('密码');
+    console.log('登录后是否在登录页:', isStillLoginPage ? '是' : '否');
+    
+    const conversationCount = await pageA.locator('[class*="conversation"], [class*="chat-item"], .conversation-item').count();
+    console.log('会话数量:', conversationCount);
+    
+    // 点击会话查看历史消息 - 找到包含用户B用户名的会话
+    const conversationWithB = await pageA.locator(`text=${userB.username}`).first();
+    if (await conversationWithB.count() > 0) {
+      console.log('点击与用户B的会话');
+      await conversationWithB.click();
+      
+      // 等待消息列表加载
+      await pageA.waitForTimeout(5000);
+      
+      // 等待消息元素出现
+      try {
+        await pageA.waitForSelector('[class*="message"]', { timeout: 10000 });
+        console.log('消息列表已加载');
+      } catch (e) {
+        console.log('等待消息列表超时');
+      }
+      
+      // 再等待解密完成
+      await pageA.waitForTimeout(8000);
+      await screenshot(pageA, "debug-a");
+    } else {
+      console.log('未找到与用户B的会话');
+    }
+    
+    // 检查历史消息是否显示正常 - 使用 locator 直接查找
+    const hasHistoryMessage = await pageA.locator('text=Signal encryption test').count() > 0;
+    const hasOwnMessage = await pageA.locator(`text=Hello from ${userA.username}`).count() > 0;
+    const hasReplyMessage = await pageA.locator('text=Reply from').count() > 0;
+    
+    console.log('找到历史消息元素:', hasHistoryMessage ? '✅ 是' : '❌ 否');
+    console.log('找到自己发送消息元素:', hasOwnMessage ? '✅ 是' : '❌ 否');
+    console.log('找到回复消息元素:', hasReplyMessage ? '✅ 是' : '❌ 否');
+    
+    console.log('A 账号历史消息显示:', hasHistoryMessage ? '✅ 正常' : '❌ 异常');
+    console.log('A 账号自己发送的消息:', hasOwnMessage ? '✅ 正常' : '❌ 异常');
+    console.log('A 账号收到的回复:', hasReplyMessage ? '✅ 正常' : '❌ 异常');
 
     // ========== 测试结果汇总 ==========
     console.log('\n========== 测试结果汇总 ==========');
@@ -337,6 +412,7 @@ async function runTest() {
     console.log('消息接收 (B):', hasReceivedMessage ? '✅ 通过' : '❌ 失败');
     console.log('右键菜单:', '✅ 正常');
     console.log('消息回复 (B→A):', hasReply ? '✅ 通过' : '❌ 失败');
+    console.log('A 历史消息显示:', hasHistoryMessage ? '✅ 正常' : '❌ 异常');
     console.log('双向通信:', (hasReceivedMessage && hasReply) ? '✅ 正常' : '❌ 异常');
 
     // 检查控制台日志中的加密相关消息

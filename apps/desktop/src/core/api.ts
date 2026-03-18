@@ -478,3 +478,20 @@ export async function getIdentityKey(userId: string): Promise<IdentityKeyRespons
   const res = await http.get<ApiEnvelope<IdentityKeyResponse>>(`/user/keys/identity/${userId}`);
   return res.data.data;
 }
+
+// 预密钥上传 API
+export async function uploadPrekeys(data: {
+  deviceId: string;
+  signedPrekey?: {
+    keyId: number;
+    publicKey: string;
+    signature: string;
+  };
+  oneTimePrekeys: Array<{
+    keyId: number;
+    publicKey: string;
+  }>;
+}): Promise<{ inserted: number; deviceId: string }> {
+  const res = await http.post<ApiEnvelope<{ inserted: number; deviceId: string }>>('/user/keys/upload', data);
+  return res.data.data;
+}

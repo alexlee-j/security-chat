@@ -43,7 +43,11 @@ export class LocalSecureStorage implements SecureStorage {
 
   async set(key: string, value: any): Promise<void> {
     try {
-      localStorage.setItem(this.prefix + key, JSON.stringify(value));
+      const stringValue = JSON.stringify(value);
+      const fullKey = this.prefix + key;
+      console.log('[LocalStorage] Setting', fullKey, 'with', stringValue.length, 'bytes');
+      localStorage.setItem(fullKey, stringValue);
+      console.log('[LocalStorage] Verify:', localStorage.getItem(fullKey) ? 'saved' : 'NOT saved');
     } catch (error) {
       console.error('Error setting to storage:', error);
     }
@@ -102,7 +106,7 @@ export class IdentityKeys {
     if (!data) return null;
 
     try {
-      // 从 JWK 重新导入私钥
+      // 从 JWK 重新导入 ECDH 私钥
       const privateKey = await crypto.subtle.importKey(
         'jwk',
         data.privateKeyJwk,
@@ -111,13 +115,31 @@ export class IdentityKeys {
         ['deriveBits', 'deriveKey']
       );
 
-      // 从 JWK 重新导入公钥
+      // 从 JWK 重新导入 ECDH 公钥
       const publicKey = await crypto.subtle.importKey(
         'jwk',
         data.publicKeyJwk,
         { name: 'ECDH', namedCurve: 'P-256' },
         true,
         []
+      );
+
+      // 从 JWK 重新导入 ECDSA 签名私钥
+      const signingPrivateKey = await crypto.subtle.importKey(
+        'jwk',
+        data.signingPrivateKeyJwk,
+        { name: 'ECDSA', namedCurve: 'P-256' },
+        true,
+        ['sign']
+      );
+
+      // 从 JWK 重新导入 ECDSA 签名公钥
+      const signingPublicKey = await crypto.subtle.importKey(
+        'jwk',
+        data.signingPublicKeyJwk,
+        { name: 'ECDSA', namedCurve: 'P-256' },
+        true,
+        ['verify']
       );
 
       // 确保 publicKeyBytes 是 Uint8Array
@@ -142,6 +164,8 @@ export class IdentityKeys {
         privateKey,
         publicKey,
         publicKeyBytes,
+        signingPrivateKey,
+        signingPublicKey,
       };
     } catch (error) {
       console.error('Failed to import identity key pair:', error);
@@ -154,16 +178,24 @@ export class IdentityKeys {
    */
   async saveKeyPair(keyPair: IdentityKeyPair): Promise<void> {
     try {
-      // 导出私钥为 JWK 格式
+      // 导出 ECDH 私钥为 JWK 格式
       const privateKeyJwk = await crypto.subtle.exportKey('jwk', keyPair.privateKey);
 
-      // 导出公钥为 JWK 格式
+      // 导出 ECDH 公钥为 JWK 格式
       const publicKeyJwk = await crypto.subtle.exportKey('jwk', keyPair.publicKey);
+
+      // 导出 ECDSA 签名私钥为 JWK 格式
+      const signingPrivateKeyJwk = await crypto.subtle.exportKey('jwk', keyPair.signingPrivateKey);
+
+      // 导出 ECDSA 签名公钥为 JWK 格式
+      const signingPublicKeyJwk = await crypto.subtle.exportKey('jwk', keyPair.signingPublicKey);
 
       // 存储可序列化的数据
       const data = {
         privateKeyJwk,
         publicKeyJwk,
+        signingPrivateKeyJwk,
+        signingPublicKeyJwk,
         publicKeyBytes: Array.from(keyPair.publicKeyBytes),
       };
 
@@ -196,16 +228,28 @@ export class Prekeys {
    * 初始化预密钥
    */
   async initialize(): Promise<void> {
+    console.log('[Prekeys] Initializing...');
     const signedPrekeys = await this.getSignedPrekeys();
     const oneTimePrekeys = await this.getOneTimePrekeys();
+    console.log('[Prekeys] Current status:', { signed: signedPrekeys.size, oneTime: oneTimePrekeys.size });
 
     if (signedPrekeys.size === 0) {
+      console.log('[Prekeys] Generating signed prekeys...');
       await this.generateSignedPrekeys(1);
+      console.log('[Prekeys] Signed prekeys generated');
     }
 
     if (oneTimePrekeys.size < 100) {
-      await this.generateOneTimePrekeys(100 - oneTimePrekeys.size);
+      const count = 100 - oneTimePrekeys.size;
+      console.log(`[Prekeys] Generating ${count} one-time prekeys...`);
+      await this.generateOneTimePrekeys(count);
+      console.log('[Prekeys] One-time prekeys generated');
     }
+    
+    // 验证是否保存成功
+    const verifySigned = await this.getSignedPrekeys();
+    const verifyOneTime = await this.getOneTimePrekeys();
+    console.log('[Prekeys] After initialize:', { signed: verifySigned.size, oneTime: verifyOneTime.size });
   }
 
   /**
@@ -386,11 +430,24 @@ export class Prekeys {
    * 保存签名预密钥
    */
   async saveSignedPrekeys(prekeys: Map<number, SignedPrekey>): Promise<void> {
+    console.log('[Prekeys] saveSignedPrekeys called with', prekeys.size, 'prekeys');
     const serialized: Record<string, any> = {};
     for (const [keyId, prekey] of prekeys) {
       serialized[keyId] = await this.serializeSignedPrekey(prekey);
+      console.log('[Prekeys] Serialized prekey', keyId);
     }
-    await this.storage.set('signedPrekeys', serialized);
+    console.log('[Prekeys] Saving to storage:', Object.keys(serialized).length, 'prekeys');
+    try {
+      await this.storage.set('signedPrekeys', serialized);
+      console.log('[Prekeys] Saved signed prekeys to storage');
+      
+      // 验证是否保存成功
+      const verify = await this.storage.get('signedPrekeys');
+      console.log('[Prekeys] Verify storage:', verify ? Object.keys(verify).length : 'null', 'prekeys');
+    } catch (error) {
+      console.error('[Prekeys] Failed to save signed prekeys:', error);
+      throw error;
+    }
   }
 
   /**
@@ -633,5 +690,39 @@ export class KeyManager {
     if (oneTimePrekeys.size < 20) {
       await this.prekeys.generateOneTimePrekeys(100 - oneTimePrekeys.size);
     }
+  }
+
+  /**
+   * 生成一次性预密钥
+   */
+  async generateOneTimePrekeys(count: number): Promise<void> {
+    await this.prekeys.generateOneTimePrekeys(count);
+  }
+
+  /**
+   * 生成签名预密钥
+   */
+  async generateSignedPrekeys(count: number): Promise<void> {
+    await this.prekeys.generateSignedPrekeys(count);
+  }
+
+  /**
+   * 获取预密钥状态
+   */
+  async getPrekeysStatus(): Promise<{
+    hasSignedPrekeys: boolean;
+    hasOneTimePrekeys: boolean;
+    signedPrekeysCount: number;
+    oneTimePrekeysCount: number;
+  }> {
+    const signedPrekeys = await this.getSignedPrekeys();
+    const oneTimePrekeys = await this.getOneTimePrekeys();
+    
+    return {
+      hasSignedPrekeys: signedPrekeys.length > 0,
+      hasOneTimePrekeys: oneTimePrekeys.length > 0,
+      signedPrekeysCount: signedPrekeys.length,
+      oneTimePrekeysCount: oneTimePrekeys.length,
+    };
   }
 }

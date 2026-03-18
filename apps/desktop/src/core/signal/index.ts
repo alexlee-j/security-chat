@@ -7,9 +7,11 @@ import { generateSecureRandomString } from '../crypto';
 
 // 类型定义
 export interface IdentityKeyPair {
-  privateKey: CryptoKey;
-  publicKey: CryptoKey;
+  privateKey: CryptoKey;  // ECDH 私钥，用于密钥交换
+  publicKey: CryptoKey;   // ECDH 公钥
   publicKeyBytes: Uint8Array;
+  signingPrivateKey: CryptoKey;  // ECDSA 私钥，用于签名
+  signingPublicKey: CryptoKey;   // ECDSA 公钥，用于验证签名
 }
 
 export interface SignedPrekey {
@@ -74,19 +76,36 @@ export class X3DH {
    * 生成身份密钥对
    */
   static async generateIdentityKeyPair(): Promise<IdentityKeyPair> {
-    const keyPair = await crypto.subtle.generateKey(
+    // ECDH 密钥对用于密钥交换
+    const ecdhKeyPair = await crypto.subtle.generateKey(
       { name: 'ECDH', namedCurve: 'P-256' },
       true,
       ['deriveBits', 'deriveKey']
     );
 
-    const publicKeyBytes = await crypto.subtle.exportKey('raw', keyPair.publicKey);
+    // ECDSA 密钥对用于签名
+    const signingKeyPair = await this.generateSigningKeyPair();
+
+    const publicKeyBytes = await crypto.subtle.exportKey('raw', ecdhKeyPair.publicKey);
 
     return {
-      privateKey: keyPair.privateKey,
-      publicKey: keyPair.publicKey,
+      privateKey: ecdhKeyPair.privateKey,
+      publicKey: ecdhKeyPair.publicKey,
       publicKeyBytes: new Uint8Array(publicKeyBytes),
+      signingPrivateKey: signingKeyPair.privateKey,
+      signingPublicKey: signingKeyPair.publicKey,
     };
+  }
+
+  /**
+   * 生成用于签名的 ECDSA 密钥对（内部使用）
+   */
+  private static async generateSigningKeyPair(): Promise<CryptoKeyPair> {
+    return await crypto.subtle.generateKey(
+      { name: 'ECDSA', namedCurve: 'P-256' },
+      true,
+      ['sign', 'verify']
+    );
   }
 
   /**
@@ -99,14 +118,18 @@ export class X3DH {
       ['deriveBits', 'deriveKey']
     );
 
-    // 生成签名（这里简化实现，实际应该使用身份密钥签名）
-    const signature = new Uint8Array(32);
-    crypto.getRandomValues(signature);
+    // 使用身份签名私钥对签名预密钥公钥进行签名
+    const publicKeyBytes = await crypto.subtle.exportKey('raw', keyPair.publicKey);
+    const signature = await crypto.subtle.sign(
+      { name: 'ECDSA', hash: 'SHA-256' },
+      identityKeyPair.signingPrivateKey,
+      publicKeyBytes
+    );
 
     return {
       keyId,
       keyPair,
-      signature,
+      signature: new Uint8Array(signature),
     };
   }
 
