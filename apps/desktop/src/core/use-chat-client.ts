@@ -940,6 +940,28 @@ export function useChatClient(): {
     setError('');
     // 清除加密密钥
     clearEncryptionKey();
+    
+    // 清除认证相关的 localStorage，但保留 Signal 密钥和会话
+    const signalKeys: Record<string, string> = {};
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      // 保留所有 Signal 相关的密钥和会话
+      if (key && (
+        key.includes('security-chat-identity') || 
+        key.includes('security-chat-signed') || 
+        key.includes('security-chat-oneTime') ||
+        key.includes('security-chat-session') ||
+        key.includes('security-chat-registrationId')
+      )) {
+        signalKeys[key] = localStorage.getItem(key)!;
+      }
+    }
+    localStorage.clear();
+    // 恢复 Signal 密钥
+    Object.keys(signalKeys).forEach(key => {
+      localStorage.setItem(key, signalKeys[key]);
+    });
+    
     setConversations([]);
     setActiveConversationId('');
     setMessages([]);
