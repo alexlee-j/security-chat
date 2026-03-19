@@ -185,24 +185,40 @@ export class X3DH {
 
   /**
    * 接受会话（接收方）
+   * @param initialMessage - 初始加密消息，包含发送方的 baseKey（临时公钥）
+   * @param identityKeyPair - 接收方的身份密钥对
    */
   static async acceptSession(initialMessage: EncryptedMessage, identityKeyPair: IdentityKeyPair): Promise<SessionState> {
-    // 计算共享密钥（简化实现）
+    console.log('[X3DH] acceptSession called:', {
+      baseKeyLength: initialMessage.baseKey?.length,
+      identityKeyLength: initialMessage.identityKey?.length,
+      messageNumber: initialMessage.messageNumber,
+    });
+
+    // 验证 baseKey 是否有效
+    if (!initialMessage.baseKey || !(initialMessage.baseKey instanceof Uint8Array) || initialMessage.baseKey.length === 0) {
+      console.error('[X3DH] Invalid baseKey in initialMessage:', initialMessage.baseKey);
+      throw new Error('初始消息中的 baseKey 无效');
+    }
+
+    // 计算共享密钥：使用接收方的身份私钥和发送方的临时公钥（baseKey）
     const initialSecret = await this.calculateSharedSecret(identityKeyPair.privateKey, initialMessage.baseKey);
+    console.log('[X3DH] Shared secret calculated, length:', initialSecret.length);
 
     // 派生根密钥和链密钥
     const rootKey = await this.deriveKey(initialSecret, 'root_key');
     const chainKey = await this.deriveKey(initialSecret, 'chain_key');
+    console.log('[X3DH] Root key and chain key derived');
 
     return {
       remoteIdentityKey: initialMessage.identityKey,
       sendingChain: null,
       receivingChain: {
         key: chainKey,
-        index: 0,
+        index: initialMessage.messageNumber || 0,
       },
       rootKey,
-      previousChainLength: 0,
+      previousChainLength: initialMessage.previousChainLength || 0,
     };
   }
 
@@ -303,10 +319,26 @@ export class DoubleRatchet {
 
   /**
    * 接收消息密钥
+   * @param receivingChain - 接收链状态
+   * @param messageNumber - 消息编号
+   * @returns 消息密钥
+   * @description 对于接收方，需要根据消息编号推进链密钥
    */
-  static async receiveMessageKey(receivingChain: { key: Uint8Array; index: number }, messageNumber: number): Promise<Uint8Array> {
+  static async receiveMessageKey(
+    receivingChain: { key: Uint8Array; index: number },
+    messageNumber: number
+  ): Promise<Uint8Array> {
+    // 推进链密钥到正确的消息索引
+    let chainKey = receivingChain.key;
+    const currentIndex = receivingChain.index;
+    
+    // 如果消息编号大于当前索引，需要推进链
+    for (let i = currentIndex; i < messageNumber; i++) {
+      chainKey = await this.nextChainKey(chainKey);
+    }
+    
     // 使用 KDF 派生消息密钥
-    return this.deriveMessageKey(receivingChain.key);
+    return this.deriveMessageKey(chainKey);
   }
 
   /**
@@ -623,40 +655,46 @@ export class SignalProtocol {
   }
 
   /**
+  /**
    * 解密消息
    */
   async decryptMessage(session: SessionState, encryptedMessage: EncryptedMessage): Promise<string> {
-    const messageKey = await DoubleRatchet.receiveMessageKey(session.receivingChain!, encryptedMessage.messageNumber);
+    console.log('[Signal] decryptMessage called:', {
+      messageNumber: encryptedMessage.messageNumber,
+      receivingChainIndex: session.receivingChain?.index,
+      baseKeyLength: encryptedMessage.baseKey?.length,
+      ciphertextLength: encryptedMessage.ciphertext?.length,
+    });
+
+    // 验证必要参数
+    if (!session.receivingChain) {
+      throw new Error('接收链为空，会话未正确初始化');
+    }
+    if (!encryptedMessage.baseKey || encryptedMessage.baseKey.length === 0) {
+      throw new Error('加密消息缺少 baseKey');
+    }
+    if (!encryptedMessage.ciphertext || encryptedMessage.ciphertext.length === 0) {
+      throw new Error('加密消息缺少密文');
+    }
+
+    // 获取消息密钥
+    const messageKey = await DoubleRatchet.receiveMessageKey(session.receivingChain, encryptedMessage.messageNumber);
+    console.log('[Signal] Message key derived');
 
     // 解密消息
     const plaintextBytes = await this.decrypt(encryptedMessage.ciphertext, messageKey);
     const plaintext = new TextDecoder().decode(plaintextBytes);
+    console.log('[Signal] Message decrypted successfully');
 
-    // 更新会话状态
-    if (encryptedMessage.dhPublicKey) {
-      // 生成新的DH密钥对
-      const newDHKeyPair = await crypto.subtle.generateKey(
-        { name: 'ECDH', namedCurve: 'P-256' },
-        true,
-        ['deriveBits', 'deriveKey']
-      );
-
-      // 更新根密钥
-      session.rootKey = await DoubleRatchet.dhRatchet(
-        session.rootKey,
-        newDHKeyPair,
-        encryptedMessage.dhPublicKey
-      );
-    }
-
+    // 更新会话状态：推进接收链
     if (session.receivingChain) {
       session.receivingChain.key = await DoubleRatchet.nextChainKey(session.receivingChain.key);
-      session.receivingChain.index++;
+      session.receivingChain.index = encryptedMessage.messageNumber + 1;
+      console.log('[Signal] Receiving chain updated, new index:', session.receivingChain.index);
     }
 
     return plaintext;
   }
-
   /**
    * 生成密钥指纹
    */

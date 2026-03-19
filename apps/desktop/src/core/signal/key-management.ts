@@ -517,6 +517,7 @@ export class SessionStore {
       } : null,
       rootKey: this.uint8ArrayToBase64(session.rootKey),
       previousChainLength: session.previousChainLength,
+      ephemeralPublicKey: session.ephemeralPublicKey ? this.uint8ArrayToBase64(session.ephemeralPublicKey) : undefined,
     };
   }
 
@@ -536,6 +537,7 @@ export class SessionStore {
       } : null,
       rootKey: this.base64ToUint8Array(data.rootKey),
       previousChainLength: data.previousChainLength,
+      ephemeralPublicKey: data.ephemeralPublicKey ? this.base64ToUint8Array(data.ephemeralPublicKey) : undefined,
     };
   }
 
