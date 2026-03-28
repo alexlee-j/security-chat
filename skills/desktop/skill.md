@@ -1,332 +1,438 @@
-# 前端桌面应用技能
+# 前端桌面应用技能 (Electron + Signal 官方库)
+
+**版本**: v2.0 (Electron + Signal 官方库)  
+**更新日期**: 2026-03-28
+
+---
 
 ## 核心技术栈
 
+### Electron
+- **版本**: ^30.0.0
+- **类型**: 桌面应用框架
+- **描述**: 使用 Chromium 和 Node.js 构建跨平台桌面应用
+- **应用**: Electron 主进程、Signal 官方库集成、IPC 通信
+
+### @signalapp/libsignal-client
+- **版本**: ^0.90.0
+- **类型**: Signal 协议官方库
+- **描述**: 提供端到端加密功能，实现 X3DH + Double Ratchet 协议
+- **应用**: 消息加密/解密、会话管理、密钥管理
+
 ### React
-- **版本**：^18.3.1
-- **类型**：前端框架
-- **描述**：用于构建用户界面的JavaScript库，采用组件化开发模式
-- **应用**：整个桌面应用的UI构建，包括登录界面、聊天界面、好友面板等
+- **版本**: ^18.3.1
+- **类型**: 前端框架
+- **描述**: 用于构建用户界面的 JavaScript 库，采用组件化开发模式
+- **应用**: Electron 渲染进程 UI 构建
 
 ### TypeScript
-- **类型**：编程语言
-- **描述**：JavaScript的超集，添加了静态类型检查
-- **应用**：提高代码可维护性和可靠性，减少运行时错误
+- **类型**: 编程语言
+- **描述**: JavaScript 的超集，添加了静态类型检查
+- **应用**: 提高代码可维护性和可靠性
 
 ### Vite
-- **类型**：构建工具
-- **描述**：现代化的前端构建工具，提供快速的开发体验
-- **应用**：项目构建、开发服务器、代码优化
+- **类型**: 构建工具
+- **描述**: 现代化的前端构建工具，提供快速的开发体验
+- **应用**: 渲染进程构建、开发服务器、代码优化
 
 ### Socket.io-client
-- **版本**：^4.8.1
-- **类型**：实时通信
-- **描述**：Socket.IO的客户端库，用于与服务器建立WebSocket连接
-- **应用**：实现实时消息接收、用户在线状态同步
+- **版本**: ^4.8.1
+- **类型**: 实时通信
+- **描述**: Socket.IO 的客户端库，用于与服务器建立 WebSocket 连接
+- **应用**: 实时消息接收、用户在线状态同步
 
-### CSS
-- **类型**：样式语言
-- **描述**：用于描述网页样式的语言
-- **应用**：界面美化、响应式设计
+---
 
-## 项目结构
+## Electron 架构
+
+### 进程架构
+
+```
+┌─────────────────────────────────────┐
+│   Main Process (Node.js)            │
+│   - Signal Bridge (官方库)          │
+│   - IPC 处理器                      │
+│   - 应用生命周期管理                 │
+└─────────────────────────────────────┘
+                ↕ IPC
+┌─────────────────────────────────────┐
+│   Renderer Process (React)          │
+│   - UI 渲染                         │
+│   - 用户交互                        │
+│   - 调用 Signal API (通过 IPC)       │
+└─────────────────────────────────────┘
+```
+
+### 项目结构
 
 ```
 desktop/
-├── public/              # 静态资源
-│   └── favicon.svg      # 网站图标
-├── src/                 # 源代码
-│   ├── core/            # 核心功能
-│   │   ├── api.ts       # API调用封装
-│   │   ├── types.ts     # 类型定义
-│   │   └── use-chat-client.ts # 聊天客户端Hook
-│   ├── features/        # 功能模块
-│   │   ├── auth/        # 认证模块
-│   │   │   └── login-screen.tsx # 登录界面
-│   │   ├── chat/        # 聊天模块
-│   │   │   ├── chat-panel.tsx # 聊天面板
-│   │   │   └── conversation-sidebar.tsx # 会话侧边栏
-│   │   └── friend/      # 好友模块
-│   │       └── friend-panel.tsx # 好友面板
-│   ├── App.tsx          # 应用根组件
-│   ├── api.ts           # API配置
-│   ├── main.tsx         # 应用入口
-│   └── styles.css       # 全局样式
-├── .env.example         # 环境变量示例
-├── index.html           # HTML模板
-├── package.json         # 项目配置
-├── tsconfig.json        # TypeScript配置
-├── tsconfig.tsbuildinfo # TypeScript构建信息
-└── vite.config.ts       # Vite配置
+├── electron/
+│   ├── main.ts              # 主进程入口
+│   ├── preload.ts           # 预加载脚本
+│   └── signal-bridge.ts     # Signal 官方库桥接
+├── src/
+│   ├── core/
+│   │   ├── signal/          # Signal 服务 (IPC 调用)
+│   │   ├── api.ts           # API 调用封装
+│   │   └── types.ts         # 类型定义
+│   ├── features/
+│   │   ├── auth/            # 认证模块
+│   │   ├── chat/            # 聊天模块
+│   │   └── friend/          # 好友模块
+│   ├── App.tsx              # 应用根组件
+│   └── main.tsx             # 渲染进程入口
+├── package.json
+├── vite.config.ts
+└── electron-builder.config.js
 ```
 
-## 核心功能
+---
 
-### 认证系统
-- 登录界面
-- 验证码登录
-- 会话管理
-- 自动重连
+## Electron 开发技能
 
-### 聊天系统
-- 消息发送与接收
-- 消息状态显示（已发送、已送达、已读）
-- 阅后即焚消息支持
-- 消息历史加载
-- Typing状态显示
+### 主进程开发
 
-### 会话管理
-- 会话列表展示
-- 会话切换
-- 会话详情
-- 会话设置
+```typescript
+// electron/main.ts
+import { app, BrowserWindow, ipcMain } from 'electron';
+import path from 'path';
+import { SignalBridge } from './signal-bridge';
 
-### 好友系统
-- 好友列表展示
-- 好友搜索
-- 好友请求管理
-- 黑名单管理
+let mainWindow: BrowserWindow | null = null;
+const signalBridge = new SignalBridge();
 
-### 媒体处理
-- 图片消息预览
-- 文件消息处理
-- 媒体文件上传
+function createWindow() {
+  mainWindow = new BrowserWindow({
+    width: 1200,
+    height: 800,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
 
-### 实时通信
-- WebSocket连接管理
-- 心跳检测
-- 重连机制
-- 事件监听
+  if (process.env.NODE_ENV === 'development') {
+    mainWindow.loadURL('http://localhost:4173');
+    mainWindow.webContents.openDevTools();
+  } else {
+    mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
+  }
+}
 
-## 组件设计
+app.whenReady().then(async () => {
+  await signalBridge.initialize();
+  registerIpcHandlers();
+  createWindow();
+});
+```
 
-### 登录界面
-- 账号密码登录
-- 验证码登录
-- 错误提示
-- 加载状态
+### 预加载脚本
 
-### 聊天面板
-- 消息列表
-- 消息输入框
-- 发送按钮
-- 附件选择
-- 表情选择
-- 阅后即焚设置
+```typescript
+// electron/preload.ts
+import { contextBridge, ipcRenderer } from 'electron';
 
-### 会话侧边栏
-- 会话列表
-- 会话搜索
-- 会话排序
-- 未读消息提示
+contextBridge.exposeInMainWorld('signalAPI', {
+  encryptMessage: (recipient: string, plaintext: string) =>
+    ipcRenderer.invoke('signal:encrypt', recipient, plaintext),
+  decryptMessage: (ciphertext: Uint8Array) =>
+    ipcRenderer.invoke('signal:decrypt', ciphertext),
+  initSession: (bundle: any) =>
+    ipcRenderer.invoke('signal:init-session', bundle),
+});
+```
 
-### 好友面板
-- 好友列表
-- 好友分组
-- 添加好友
-- 好友请求
-- 黑名单
+### IPC 通信
 
-## 状态管理
+```typescript
+// electron/main.ts
+function registerIpcHandlers() {
+  ipcMain.handle('signal:encrypt', async (event, recipient, plaintext) => {
+    return signalBridge.encryptMessage(recipient, plaintext);
+  });
+  
+  ipcMain.handle('signal:decrypt', async (event, ciphertext) => {
+    return signalBridge.decryptMessage(ciphertext);
+  });
+}
+```
 
-### 本地状态
-- 组件内部状态
-- React useState Hook
-- React useReducer Hook
+### 渲染进程调用
 
-### 全局状态
-- 上下文（Context）API
-- 认证状态管理
-- 用户信息管理
-- 会话状态管理
+```typescript
+// src/core/signal/electron-signal-service.ts
+declare global {
+  interface Window {
+    signalAPI: {
+      encryptMessage: (recipient: string, plaintext: string) => Promise<Uint8Array>;
+      decryptMessage: (ciphertext: Uint8Array) => Promise<string>;
+    };
+  }
+}
 
-## 网络请求
+const ciphertext = await window.signalAPI.encryptMessage(recipient, plaintext);
+const plaintext = await window.signalAPI.decryptMessage(ciphertext);
+```
 
-### API调用
-- 封装HTTP请求
-- 错误处理
-- 响应拦截
-- 请求重试
+---
 
-### WebSocket
-- 连接建立与管理
-- 事件监听与触发
-- 消息序列化与反序列化
-- 断线重连
+## Signal 官方库集成
 
-## 性能优化
+### 安装
 
-### 组件优化
-- React.memo
-- useCallback
-- useMemo
-- 虚拟列表
+```bash
+pnpm add @signalapp/libsignal-client
+```
 
-### 网络优化
-- 减少网络请求
-- 缓存请求结果
-- 批量请求
-- 延迟加载
+### 核心 API
 
-### 渲染优化
-- 避免不必要的渲染
-- 优化渲染顺序
-- 使用CSS动画
-- 图片懒加载
+```typescript
+import {
+  generateIdentityKeyPair,
+  generateSignedPreKey,
+  PreKeyRecord,
+  SignedPreKeyRecord,
+  ProtocolAddress,
+  processPreKeyBundle,
+  sealedSenderEncryptMessage,
+  sealedSenderDecryptMessage,
+  SessionRecord,
+} from '@signalapp/libsignal-client';
+```
+
+### Signal 桥接实现
+
+```typescript
+// electron/signal-bridge.ts
+export class SignalBridge {
+  private identityKeyPair: any = null;
+  private sessionStore: Map<string, any> = new Map();
+
+  async initialize(): Promise<void> {
+    this.identityKeyPair = await generateIdentityKeyPair();
+    // 生成预密钥等...
+  }
+
+  async encryptMessage(recipient: string, plaintext: string): Promise<Uint8Array> {
+    const address = new ProtocolAddress(recipient, 1);
+    const session = this.sessionStore.get(recipient);
+    
+    if (!session) {
+      throw new Error('No session found for recipient');
+    }
+
+    return sealedSenderEncryptMessage(
+      Buffer.from(plaintext, 'utf-8'),
+      session,
+      // ... 其他参数
+    );
+  }
+
+  async decryptMessage(ciphertext: Uint8Array): Promise<string> {
+    const plaintext = await sealedSenderDecryptMessage(
+      ciphertext,
+      // ... 其他参数
+    );
+    return new TextDecoder().decode(plaintext);
+  }
+}
+```
+
+---
+
+## 打包发布
+
+### electron-builder 配置
+
+```javascript
+// electron-builder.config.js
+export default {
+  appId: 'com.security.chat',
+  productName: 'Security Chat',
+  files: ['dist/**/*', 'electron/**/*'],
+  mac: { target: ['dmg', 'zip'] },
+  win: { target: ['nsis', 'portable'] },
+  linux: { target: ['AppImage', 'deb'] },
+};
+```
+
+### 打包命令
+
+```bash
+# macOS
+pnpm run electron:build:mac
+
+# Windows
+pnpm run electron:build:win
+
+# Linux
+pnpm run electron:build:linux
+```
+
+---
 
 ## 安全特性
 
-### 数据加密
-- 本地数据加密
-- 消息加密
-- 密钥安全存储
+### 端到端加密
 
-### 认证安全
-- Token安全管理
-- 自动登出
-- 防止XSS攻击
-- 防止CSRF攻击
+- **协议**: X3DH + Double Ratchet (Signal 官方)
+- **密钥交换**: ECDH P-256 (4 次 DH 计算)
+- **消息加密**: AES-256-GCM
+- **签名**: ECDSA P-256
+- **密钥派生**: HKDF (HMAC-SHA256)
 
-### 隐私保护
-- 敏感信息处理
-- 权限管理
-- 数据脱敏
+### 密钥存储
 
-## 响应式设计
+- **Electron 主进程**: 加密后存储
+- **macOS**: Keychain
+- **Windows**: Credential Vault
+- **Linux**: libsecret
 
-### 布局适配
-- 不同屏幕尺寸适配
-- 窗口大小变化处理
-- 弹性布局
-- 网格布局
+### IPC 安全
 
-### 交互适配
-- 鼠标交互
-- 键盘快捷键
-- 触摸操作
-- 焦点管理
+- `contextIsolation: true` - 隔离上下文
+- `nodeIntegration: false` - 禁用 Node 集成
+- 使用预加载脚本暴露有限 API
 
-## 测试策略
+---
 
-### 单元测试
-- 组件测试
-- 工具函数测试
-- 状态管理测试
+## 开发流程
 
-### 集成测试
-- 功能模块测试
-- API调用测试
-- 组件集成测试
+### 环境搭建
 
-### 端到端测试
-- 完整业务流程测试
-- 用户场景测试
-- 性能测试
+```bash
+# 安装依赖
+pnpm install
 
-## 部署与发布
+# 启动后端
+pnpm start:backend:dev
 
-### 构建优化
-- 代码分割
-- 懒加载
-- 资源压缩
-- 缓存策略
+# 启动 Electron 开发
+pnpm run electron:dev
+```
 
-### 部署流程
-- CI/CD配置
-- 自动化测试
-- 版本管理
-- 发布策略
+### 调试
 
-## 监控与错误处理
+1. **主进程调试**: 使用 VS Code 附加到 Electron 进程
+2. **渲染进程调试**: DevTools (F12)
+3. **IPC 调试**: 使用 `ipcMain.on` 记录事件
 
-### 错误监控
-- 全局错误捕获
-- 网络错误处理
-- 第三方服务错误处理
+### 测试
 
-### 性能监控
-- 首屏加载时间
-- 组件渲染时间
-- 网络请求时间
-- 内存使用情况
+```bash
+# 单元测试
+pnpm test
 
-### 用户行为分析
-- 页面访问统计
-- 功能使用频率
-- 用户路径分析
-- 错误发生场景
+# E2E 测试 (Playwright)
+pnpm test:e2e
+```
 
-## 技术文档
+---
 
-### 架构文档
-- 系统架构设计
-- 模块划分
-- 数据流设计
+## 性能优化
 
-### 组件文档
-- 组件API
-- 组件使用示例
-- 组件状态管理
+### 主进程优化
 
-### API文档
-- 前端API调用
-- WebSocket事件
-- 数据结构
+- 避免阻塞主线程
+- 使用 Worker 处理密集计算
+- 合理管理 BrowserWindow
 
-### 样式文档
-- 设计系统
-- 颜色方案
-- 字体规范
-- 组件样式
+### 渲染进程优化
+
+- React.memo 优化组件
+- 虚拟列表优化长列表
+- 图片懒加载
+
+### IPC 优化
+
+- 批量发送 IPC 消息
+- 避免频繁 IPC 调用
+- 使用共享内存传输大数据
+
+---
+
+## 常见问题
+
+### 1. Electron 启动失败
+
+```bash
+# 检查 Node.js 版本
+node -v  # 需要 >= 18
+
+# 重新安装依赖
+rm -rf node_modules
+pnpm install
+```
+
+### 2. Signal 库加载失败
+
+```bash
+# 重建原生模块
+pnpm rebuild @signalapp/libsignal-client
+```
+
+### 3. 打包后应用无法打开
+
+**macOS**:
+```bash
+# 移除隔离属性
+xattr -cr /Applications/Security\ Chat.app
+```
+
+**Windows**:
+- 检查杀毒软件拦截
+- 使用代码签名证书
+
+---
 
 ## 学习资源
 
 ### 官方文档
-- React：https://react.dev/learn
-- TypeScript：https://www.typescriptlang.org/docs/
-- Vite：https://vitejs.dev/guide/
-- Socket.io-client：https://socket.io/docs/v4/client-api/
+
+- [Electron](https://www.electronjs.org/docs)
+- [Signal](https://signal.org/docs/)
+- [libsignal-client](https://github.com/signalapp/libsignal)
+- [electron-builder](https://www.electron.build/)
 
 ### 实战教程
-- React实战
-- TypeScript高级特性
-- Vite性能优化
-- 实时通信应用开发
+
+- Electron 主进程开发
+- Signal 协议原理与实现
+- IPC 通信最佳实践
+- Electron 应用打包发布
+
+---
 
 ## 最佳实践
 
 ### 代码规范
-- ESLint配置
-- Prettier格式化
-- 命名规范
-- 注释规范
+
+- TypeScript 严格模式
+- ESLint + Prettier
+- 语义化提交
 
 ### 组件设计
-- 组件职责单一
-- 组件复用性
-- 组件可测试性
-- 组件文档
+
+- 职责单一
+- 可复用性
+- 可测试性
 
 ### 状态管理
+
 - 状态分层
 - 状态持久化
 - 状态更新优化
-- 状态调试
-
-### 网络请求
-- 请求封装
-- 错误处理
-- 缓存策略
-- 重试机制
-
-### 性能优化
-- 渲染优化
-- 网络优化
-- 打包优化
-- 运行时优化
 
 ### 安全实践
+
 - 数据加密
 - 认证安全
 - 防止攻击
 - 隐私保护
+
+---
+
+**文档版本**: v2.0  
+**最后更新**: 2026-03-28

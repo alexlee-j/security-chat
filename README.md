@@ -40,7 +40,10 @@ Security Chat 是一个全平台安全通讯应用，专注于提供端到端加
 
 ### 前端
 
-- **桌面应用**：React ^18.3.1 + TypeScript + Vite
+- **桌面应用**：**Electron** + React ^18.3.1 + TypeScript + Vite
+  - **Signal 协议库**：`@signalapp/libsignal-client` (官方库 v0.90)
+  - **打包工具**：electron-builder
+  - **支持平台**：macOS / Windows / Linux
 - **移动应用**：React Native (Expo) ~51.0.39
 - **实时通信**：Socket.io-client ^4.8.1
 
@@ -96,7 +99,17 @@ pnpm start:backend
 #### 桌面应用
 
 ```bash
-pnpm start:desktop
+# 开发模式 (Electron)
+pnpm run electron:dev
+
+# 构建 macOS 应用
+pnpm run electron:build:mac
+
+# 构建 Windows 应用
+pnpm run electron:build:win
+
+# 仅构建前端
+pnpm build:desktop
 ```
 
 #### 移动应用
@@ -225,11 +238,14 @@ pnpm start:mobile
 
 ## 安全特性
 
-### 端到端加密
+### 端到端加密 (Signal 官方协议)
 
-- 消息使用 AES-256-GCM 加密
-- 服务端存储加密后的消息内容
-- 服务端不存储私钥和会话密钥
+- **协议实现**：X3DH + Double Ratchet (Signal 官方库)
+- **密钥交换**：ECDH P-256 (4 次 DH 计算)
+- **消息加密**：AES-256-GCM
+- **签名算法**：ECDSA P-256
+- **密钥派生**：HKDF (HMAC-SHA256)
+- **服务端**：仅存储加密后的消息内容，不存储私钥和会话密钥
 
 ### 传输安全
 
