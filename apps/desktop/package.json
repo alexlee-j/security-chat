@@ -1,25 +1,36 @@
 {
   "name": "@security-chat/desktop",
   "version": "0.1.0",
-  "private": true,
-  "type": "module",
+  "description": "Security Chat - 端到端加密的安全聊天应用",
+  "author": "Security Chat Team",
+  "main": "dist-electron/main.cjs",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:4173 && electron .\"",
+    "electron:build": "npm run build && electron-builder",
+    "electron:build:mac": "npm run electron:build -- --mac",
+    "electron:build:win": "npm run electron:build -- --win",
+    "electron:build:linux": "npm run electron:build -- --linux"
   },
   "dependencies": {
-    "@signalapp/libsignal-client": "^0.90.0",
     "axios": "^1.11.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "socket.io-client": "^4.8.1"
   },
   "devDependencies": {
+    "@types/node": "^20.11.0",
     "@types/react": "^18.3.24",
     "@types/react-dom": "^18.3.7",
     "@vitejs/plugin-react": "^4.7.0",
+    "concurrently": "^8.2.2",
+    "electron": "^30.0.0",
+    "electron-builder": "^24.13.3",
+    "tsx": "^4.21.0",
     "typescript": "^5.9.2",
-    "vite": "^5.4.19"
+    "vite": "^5.4.19",
+    "wait-on": "^7.2.0"
   }
 }
