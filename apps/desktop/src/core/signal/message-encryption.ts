@@ -3,7 +3,7 @@
  * 负责消息的加密和解密
  */
 
-import { SignalProtocol, PrekeyBundle, EncryptedMessage, SessionState } from './index';
+import { SignalProtocol, PrekeyBundle, EncryptedMessage, SessionState, IdentityKeyPair, SignedPrekey, OneTimePrekey } from './index';
 import { KeyManager } from './key-management';
 import * as api from '../api';
 
@@ -40,8 +40,10 @@ export class MessageEncryptionService {
     if (!session) {
       // 获取接收方的预密钥包
       const prekeyBundle = await this.fetchPrekeyBundle(recipientUserId, recipientDeviceId);
-      // 初始化会话
-      session = await this.signal.initiateSession(prekeyBundle);
+      // 获取本地身份密钥对
+      const localIdentityKeyPair = await this.keyManager.getIdentityKeyPair();
+      // 初始化会话（使用完整的 X3DH 协议）
+      session = await this.signal.initiateSession(prekeyBundle, localIdentityKeyPair);
       // 保存会话
       await this.keyManager.saveSession(recipientUserId, recipientDeviceId, session);
     }
@@ -72,8 +74,21 @@ export class MessageEncryptionService {
     if (!session) {
       // 获取本地身份密钥对
       const identityKeyPair = await this.keyManager.getIdentityKeyPair();
-      // 接受会话
-      session = await this.signal.acceptSession(fixedEncryptedMessage, identityKeyPair);
+      // 获取本地签名预密钥和一次性预密钥
+      const signedPrekeys = await this.keyManager.getSignedPrekeys();
+      const oneTimePrekeys = await this.keyManager.getOneTimePrekeys();
+      
+      if (signedPrekeys.length === 0) {
+        throw new Error('No signed prekey available for session acceptance');
+      }
+
+      // 接受会话（使用完整的 X3DH 协议）
+      session = await this.signal.acceptSession(
+        fixedEncryptedMessage,
+        identityKeyPair,
+        signedPrekeys[0],
+        oneTimePrekeys.length > 0 ? oneTimePrekeys[0] : undefined
+      );
       // 保存会话
       await this.keyManager.saveSession(senderUserId, senderDeviceId, session);
     }

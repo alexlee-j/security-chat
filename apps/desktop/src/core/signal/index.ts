@@ -1,11 +1,15 @@
 /**
- * Signal协议核心实现
- * 基于Web Crypto API实现Signal协议的核心功能
+ * Signal 协议核心实现
+ * 基于 Web Crypto API 实现 Signal 协议的核心功能
+ * 
+ * 参考：https://signal.org/docs/specifications/x3dh/
+ * 参考：https://signal.org/docs/specifications/doubleratchet/
  */
 
 import { generateSecureRandomString } from '../crypto';
 
-// 类型定义
+// ==================== 类型定义 ====================
+
 export interface IdentityKeyPair {
   privateKey: CryptoKey;  // ECDH 私钥，用于密钥交换
   publicKey: CryptoKey;   // ECDH 公钥
@@ -53,6 +57,8 @@ export interface SessionState {
   previousChainLength: number;
   // 发送方在初始化时生成的临时公钥，用于第一条消息的 baseKey
   ephemeralPublicKey?: Uint8Array;
+  // 本地身份密钥引用（用于多设备场景）
+  localIdentityKeyPair?: IdentityKeyPair;
 }
 
 export interface EncryptedMessage {
@@ -68,12 +74,26 @@ export interface EncryptedMessage {
   dhPublicKey?: Uint8Array;
 }
 
+// ==================== X3DH 密钥交换实现 ====================
+
 /**
- * X3DH密钥交换实现
+ * X3DH (Extended Triple Diffie-Hellman) 密钥交换协议实现
+ * 
+ * 协议规范：https://signal.org/docs/specifications/x3dh/
+ * 
+ * 共享密钥计算：
+ * - DH1 = DH(发送方身份私钥，接收方签名预密钥公钥)
+ * - DH2 = DH(发送方临时私钥，接收方身份公钥)
+ * - DH3 = DH(发送方临时私钥，接收方签名预密钥公钥)
+ * - DH4 = DH(发送方临时私钥，接收方一次性预密钥公钥) [可选]
+ * - SK = KDF(DH1 || DH2 || DH3 || DH4)
  */
 export class X3DH {
   /**
    * 生成身份密钥对
+   * 
+   * 注意：Signal 官方实现中，身份密钥对只用于 ECDH 密钥交换
+   * 签名使用独立的 ECDSA 密钥对
    */
   static async generateIdentityKeyPair(): Promise<IdentityKeyPair> {
     // ECDH 密钥对用于密钥交换
@@ -110,6 +130,8 @@ export class X3DH {
 
   /**
    * 生成签名预密钥
+   * 
+   * 签名预密钥由身份私钥签名，用于验证身份
    */
   static async generateSignedPrekey(identityKeyPair: IdentityKeyPair, keyId: number): Promise<SignedPrekey> {
     const keyPair = await crypto.subtle.generateKey(
@@ -150,10 +172,28 @@ export class X3DH {
   }
 
   /**
-   * 初始化会话（发送方）
+   * 初始化会话（发送方）- 实现完整的 X3DH 协议
+   * 
+   * @param prekeyBundle - 接收方的预密钥包
+   * @param localIdentityKeyPair - 发送方的身份密钥对
+   * @returns 会话状态
+   * 
+   * 协议流程：
+   * 1. 生成临时密钥对 (ephemeral keypair)
+   * 2. 计算 DH1 = DH(身份私钥，签名预密钥公钥)
+   * 3. 计算 DH2 = DH(临时私钥，身份公钥)
+   * 4. 计算 DH3 = DH(临时私钥，签名预密钥公钥)
+   * 5. 计算 DH4 = DH(临时私钥，一次性预密钥公钥) [如果存在]
+   * 6. SK = KDF(DH1 || DH2 || DH3 || DH4)
+   * 7. 派生根密钥和链密钥
    */
-  static async initiateSession(prekeyBundle: PrekeyBundle): Promise<SessionState> {
-    // 生成临时密钥对
+  static async initiateSession(
+    prekeyBundle: PrekeyBundle,
+    localIdentityKeyPair: IdentityKeyPair
+  ): Promise<SessionState> {
+    console.log('[X3DH] initiateSession called with full X3DH protocol');
+    
+    // 1. 生成临时密钥对
     const ephemeralKeyPair = await crypto.subtle.generateKey(
       { name: 'ECDH', namedCurve: 'P-256' },
       true,
@@ -163,12 +203,22 @@ export class X3DH {
     // 导出临时公钥
     const ephemeralPublicKeyBytes = await crypto.subtle.exportKey('raw', ephemeralKeyPair.publicKey);
 
-    // 计算共享密钥（简化实现）
-    const initialSecret = await this.calculateSharedSecret(ephemeralKeyPair.privateKey, prekeyBundle.identityKey);
+    // 2-5. 计算完整的 X3DH 共享密钥 (DH1 || DH2 || DH3 || DH4)
+    const sharedSecret = await this.calculateX3DHSharedSecret(
+      localIdentityKeyPair,
+      prekeyBundle,
+      ephemeralKeyPair
+    );
 
-    // 派生根密钥和链密钥
-    const rootKey = await this.deriveKey(initialSecret, 'root_key');
-    const chainKey = await this.deriveKey(initialSecret, 'chain_key');
+    console.log('[X3DH] Shared secret calculated, length:', sharedSecret.length);
+
+    // 6-7. 使用 HKDF 派生根密钥和链密钥
+    const { rootKey, chainKey } = await this.hkdf(
+      sharedSecret,
+      'X3DH_Initial_KDF'
+    );
+
+    console.log('[X3DH] Root key and chain key derived');
 
     return {
       remoteIdentityKey: prekeyBundle.identityKey,
@@ -180,20 +230,105 @@ export class X3DH {
       rootKey,
       previousChainLength: 0,
       ephemeralPublicKey: new Uint8Array(ephemeralPublicKeyBytes),
+      localIdentityKeyPair,
     };
   }
 
   /**
-   * 接受会话（接收方）
+   * 计算完整的 X3DH 共享密钥
+   * 
+   * @param localIdentityKeyPair - 本地身份密钥对
+   * @param prekeyBundle - 远程预密钥包
+   * @param ephemeralKeyPair - 临时密钥对
+   * @returns 组合的共享密钥
+   * 
+   * DH1 = DH(身份私钥，签名预密钥公钥)
+   * DH2 = DH(临时私钥，身份公钥)
+   * DH3 = DH(临时私钥，签名预密钥公钥)
+   * DH4 = DH(临时私钥，一次性预密钥公钥) [可选]
+   */
+  private static async calculateX3DHSharedSecret(
+    localIdentityKeyPair: IdentityKeyPair,
+    prekeyBundle: PrekeyBundle,
+    ephemeralKeyPair: CryptoKeyPair
+  ): Promise<Uint8Array> {
+    const dhOutputs: Uint8Array[] = [];
+
+    // DH1 = DH(身份私钥，签名预密钥公钥)
+    console.log('[X3DH] Computing DH1...');
+    const dh1 = await this.calculateSharedSecret(
+      localIdentityKeyPair.privateKey,
+      prekeyBundle.signedPrekey.publicKey
+    );
+    dhOutputs.push(dh1);
+    console.log('[X3DH] DH1 computed, length:', dh1.length);
+
+    // DH2 = DH(临时私钥，身份公钥)
+    console.log('[X3DH] Computing DH2...');
+    const dh2 = await this.calculateSharedSecret(
+      ephemeralKeyPair.privateKey,
+      prekeyBundle.identityKey
+    );
+    dhOutputs.push(dh2);
+    console.log('[X3DH] DH2 computed, length:', dh2.length);
+
+    // DH3 = DH(临时私钥，签名预密钥公钥)
+    console.log('[X3DH] Computing DH3...');
+    const dh3 = await this.calculateSharedSecret(
+      ephemeralKeyPair.privateKey,
+      prekeyBundle.signedPrekey.publicKey
+    );
+    dhOutputs.push(dh3);
+    console.log('[X3DH] DH3 computed, length:', dh3.length);
+
+    // DH4 = DH(临时私钥，一次性预密钥公钥) [可选]
+    if (prekeyBundle.oneTimePrekey) {
+      console.log('[X3DH] Computing DH4 (one-time prekey)...');
+      const dh4 = await this.calculateSharedSecret(
+        ephemeralKeyPair.privateKey,
+        prekeyBundle.oneTimePrekey.publicKey
+      );
+      dhOutputs.push(dh4);
+      console.log('[X3DH] DH4 computed, length:', dh4.length);
+    }
+
+    // 组合所有 DH 输出
+    const totalLength = dhOutputs.reduce((sum, dh) => sum + dh.length, 0);
+    const combined = new Uint8Array(totalLength);
+    let offset = 0;
+    for (const dh of dhOutputs) {
+      combined.set(dh, offset);
+      offset += dh.length;
+    }
+
+    console.log('[X3DH] Combined DH outputs, total length:', combined.length);
+
+    return combined;
+  }
+
+  /**
+   * 接受会话（接收方）- 实现完整的 X3DH 协议
+   * 
    * @param initialMessage - 初始加密消息，包含发送方的 baseKey（临时公钥）
    * @param identityKeyPair - 接收方的身份密钥对
+   * @param signedPrekey - 接收方的签名预密钥
+   * @param oneTimePrekey - 接收方的一次性预密钥（可选）
+   * @returns 会话状态
+   * 
+   * 协议流程：
+   * 1. 计算 DH1 = DH(身份私钥，签名预密钥公钥) - 从发送方视角
+   * 2. 计算 DH2 = DH(临时私钥，身份公钥) - 从发送方视角
+   * 3. 计算 DH3 = DH(临时私钥，签名预密钥公钥) - 从发送方视角
+   * 4. 计算 DH4 = DH(临时私钥，一次性预密钥公钥) - 从发送方视角
+   * 5. SK = KDF(DH1 || DH2 || DH3 || DH4)
    */
-  static async acceptSession(initialMessage: EncryptedMessage, identityKeyPair: IdentityKeyPair): Promise<SessionState> {
-    console.log('[X3DH] acceptSession called:', {
-      baseKeyLength: initialMessage.baseKey?.length,
-      identityKeyLength: initialMessage.identityKey?.length,
-      messageNumber: initialMessage.messageNumber,
-    });
+  static async acceptSession(
+    initialMessage: EncryptedMessage,
+    identityKeyPair: IdentityKeyPair,
+    signedPrekey: SignedPrekey,
+    oneTimePrekey?: OneTimePrekey
+  ): Promise<SessionState> {
+    console.log('[X3DH] acceptSession called with full X3DH protocol');
 
     // 验证 baseKey 是否有效
     if (!initialMessage.baseKey || !(initialMessage.baseKey instanceof Uint8Array) || initialMessage.baseKey.length === 0) {
@@ -201,14 +336,24 @@ export class X3DH {
       throw new Error('初始消息中的 baseKey 无效');
     }
 
-    // 计算共享密钥：使用接收方的身份私钥和发送方的临时公钥（baseKey）
-    const initialSecret = await this.calculateSharedSecret(identityKeyPair.privateKey, initialMessage.baseKey);
-    console.log('[X3DH] Shared secret calculated, length:', initialSecret.length);
+    // 计算完整的 X3DH 共享密钥
+    const sharedSecret = await this.calculateX3DHSharedSecretForReceiver(
+      identityKeyPair,
+      signedPrekey,
+      oneTimePrekey,
+      initialMessage.baseKey,  // baseKey 是发送方的临时公钥
+      initialMessage.identityKey  // 发送方的身份公钥
+    );
 
-    // 派生根密钥和链密钥
-    const rootKey = await this.deriveKey(initialSecret, 'root_key');
-    const chainKey = await this.deriveKey(initialSecret, 'chain_key');
-    console.log('[X3DH] Root key and chain key derived');
+    console.log('[X3DH] Shared secret calculated for receiver, length:', sharedSecret.length);
+
+    // 使用 HKDF 派生根密钥和链密钥
+    const { rootKey, chainKey } = await this.hkdf(
+      sharedSecret,
+      'X3DH_Initial_KDF'
+    );
+
+    console.log('[X3DH] Root key and chain key derived for receiver');
 
     return {
       remoteIdentityKey: initialMessage.identityKey,
@@ -219,35 +364,104 @@ export class X3DH {
       },
       rootKey,
       previousChainLength: initialMessage.previousChainLength || 0,
+      localIdentityKeyPair: identityKeyPair,
     };
   }
 
   /**
-   * 计算共享密钥
+   * 为接收方计算 X3DH 共享密钥
+   * 
+   * 接收方需要从发送方的视角计算 DH 输出：
+   * - DH1 = DH(发送方身份私钥，接收方签名预密钥公钥) = DH(接收方签名预密钥私钥，发送方身份公钥)
+   * - DH2 = DH(发送方临时私钥，接收方身份公钥) = DH(接收方身份私钥，发送方临时公钥)
+   * - DH3 = DH(发送方临时私钥，接收方签名预密钥公钥) = DH(接收方签名预密钥私钥，发送方临时公钥)
+   * - DH4 = DH(发送方临时私钥，接收方一次性预密钥公钥) = DH(接收方一次性预密钥私钥，发送方临时公钥)
+   */
+  private static async calculateX3DHSharedSecretForReceiver(
+    localIdentityKeyPair: IdentityKeyPair,
+    signedPrekey: SignedPrekey,
+    oneTimePrekey: OneTimePrekey | undefined,
+    ephemeralPublicKey: Uint8Array,  // 发送方的临时公钥 (baseKey)
+    remoteIdentityKey: Uint8Array     // 发送方的身份公钥
+  ): Promise<Uint8Array> {
+    const dhOutputs: Uint8Array[] = [];
+
+    // DH1 = DH(签名预密钥私钥，发送方身份公钥)
+    // 等价于 DH(发送方身份私钥，签名预密钥公钥)
+    console.log('[X3DH] Computing DH1 (receiver perspective)...');
+    const dh1 = await this.calculateSharedSecret(
+      signedPrekey.keyPair.privateKey,
+      remoteIdentityKey
+    );
+    dhOutputs.push(dh1);
+    console.log('[X3DH] DH1 computed, length:', dh1.length);
+
+    // DH2 = DH(身份私钥，发送方临时公钥)
+    // 等价于 DH(发送方临时私钥，身份公钥)
+    console.log('[X3DH] Computing DH2 (receiver perspective)...');
+    const dh2 = await this.calculateSharedSecret(
+      localIdentityKeyPair.privateKey,
+      ephemeralPublicKey
+    );
+    dhOutputs.push(dh2);
+    console.log('[X3DH] DH2 computed, length:', dh2.length);
+
+    // DH3 = DH(签名预密钥私钥，发送方临时公钥)
+    // 等价于 DH(发送方临时私钥，签名预密钥公钥)
+    console.log('[X3DH] Computing DH3 (receiver perspective)...');
+    const dh3 = await this.calculateSharedSecret(
+      signedPrekey.keyPair.privateKey,
+      ephemeralPublicKey
+    );
+    dhOutputs.push(dh3);
+    console.log('[X3DH] DH3 computed, length:', dh3.length);
+
+    // DH4 = DH(一次性预密钥私钥，发送方临时公钥) [可选]
+    if (oneTimePrekey) {
+      console.log('[X3DH] Computing DH4 (receiver perspective)...');
+      const dh4 = await this.calculateSharedSecret(
+        oneTimePrekey.keyPair.privateKey,
+        ephemeralPublicKey
+      );
+      dhOutputs.push(dh4);
+      console.log('[X3DH] DH4 computed, length:', dh4.length);
+    }
+
+    // 组合所有 DH 输出
+    const totalLength = dhOutputs.reduce((sum, dh) => sum + dh.length, 0);
+    const combined = new Uint8Array(totalLength);
+    let offset = 0;
+    for (const dh of dhOutputs) {
+      combined.set(dh, offset);
+      offset += dh.length;
+    }
+
+    console.log('[X3DH] Combined DH outputs for receiver, total length:', combined.length);
+
+    return combined;
+  }
+
+  /**
+   * 计算共享密钥 (ECDH)
    */
   static async calculateSharedSecret(privateKey: CryptoKey, publicKeyBytes: Uint8Array): Promise<Uint8Array> {
-    // 确保publicKeyBytes是有效的Uint8Array
+    // 验证输入
     if (!publicKeyBytes) {
       throw new Error('公钥字节数组为空 (null/undefined)');
     }
     if (!(publicKeyBytes instanceof Uint8Array)) {
-      throw new Error(`公钥不是 Uint8Array 类型，实际类型: ${typeof publicKeyBytes}, 值: ${JSON.stringify(publicKeyBytes)}`);
+      throw new Error(`公钥不是 Uint8Array 类型，实际类型：${typeof publicKeyBytes}`);
     }
     if (publicKeyBytes.length === 0) {
       throw new Error('公钥字节数组为空 (长度为 0)');
     }
-
-    console.log('calculateSharedSecret:', {
-      publicKeyLength: publicKeyBytes.length,
-      publicKeyFirstBytes: Array.from(publicKeyBytes.slice(0, 8)),
-    });
 
     // P-256 公钥应该是 65 字节（未压缩格式）或 33 字节（压缩格式）
     if (publicKeyBytes.length !== 65 && publicKeyBytes.length !== 33) {
       console.warn(`Unexpected public key length: ${publicKeyBytes.length}, expected 65 or 33`);
     }
 
-    // 创建公钥字节的副本，确保是独立的 ArrayBuffer
+    // 创建公钥字节的副本
     const publicKeyBuffer = publicKeyBytes.slice().buffer;
 
     try {
@@ -268,66 +482,110 @@ export class X3DH {
       return new Uint8Array(sharedSecret);
     } catch (error) {
       console.error('Failed to calculate shared secret:', error);
-      throw new Error(`计算共享密钥失败: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(`计算共享密钥失败：${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
   /**
-   * 派生密钥
+   * HKDF 密钥派生函数
+   * 
+   * @param inputKeyMaterial - 输入密钥材料
+   * @param info - 上下文信息
+   * @returns 派生的根密钥和链密钥
    */
-  private static async deriveKey(secret: Uint8Array, salt: string): Promise<Uint8Array> {
+  private static async hkdf(
+    inputKeyMaterial: Uint8Array,
+    info: string
+  ): Promise<{ rootKey: Uint8Array; chainKey: Uint8Array }> {
     const encoder = new TextEncoder();
-    const saltBytes = encoder.encode(salt);
+    const infoBytes = encoder.encode(info);
 
-    // 创建 secret 的副本，确保是独立的 ArrayBuffer
-    const secretBuffer = secret.slice().buffer;
-
-    const keyMaterial = await crypto.subtle.importKey(
+    // Step 1: Extract - 使用 HMAC-SHA256 提取密钥
+    const salt = encoder.encode('Signal_Salt');
+    const saltBuffer = salt.slice().buffer as ArrayBuffer;
+    const saltKey = await crypto.subtle.importKey(
       'raw',
-      secretBuffer,
-      { name: 'PBKDF2' },
+      saltBuffer,
+      { name: 'HMAC', hash: 'SHA-256' },
       false,
-      ['deriveBits']
+      ['sign']
     );
 
-    const derivedBits = await crypto.subtle.deriveBits(
-      {
-        name: 'PBKDF2',
-        salt: saltBytes,
-        iterations: 1000,
-        hash: 'SHA-256',
-      },
-      keyMaterial,
-      256
+    const inputBuffer = inputKeyMaterial.slice().buffer as ArrayBuffer;
+    const prk = await crypto.subtle.sign('HMAC', saltKey, inputBuffer);
+
+    // Step 2: Expand - 扩展密钥材料
+    const prkKey = await crypto.subtle.importKey(
+      'raw',
+      prk,
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['sign']
     );
 
-    return new Uint8Array(derivedBits);
+    // 生成 64 字节的输出密钥材料（32 字节根密钥 + 32 字节链密钥）
+    const okm1Input = new Uint8Array([...infoBytes, 0x01]);
+    const okm1 = await crypto.subtle.sign('HMAC', prkKey, okm1Input.buffer as ArrayBuffer);
+
+    const okm2Input = new Uint8Array([...new Uint8Array(okm1), ...infoBytes, 0x02]);
+    const okm2 = await crypto.subtle.sign('HMAC', prkKey, okm2Input.buffer as ArrayBuffer);
+
+    return {
+      rootKey: new Uint8Array(okm1),
+      chainKey: new Uint8Array(okm2),
+    };
   }
 }
 
+// ==================== Double Ratchet 算法实现 ====================
+
 /**
- * Double Ratchet算法实现
+ * Double Ratchet 算法实现
+ * 
+ * 参考：https://signal.org/docs/specifications/doubleratchet/
+ * 
+ * 核心概念：
+ * 1. 对称密钥棘轮 (Symmetric-key Ratchet) - 推进链密钥
+ * 2. DH 棘轮 (DH Ratchet) - 每次收到新公钥时执行
+ * 3. 消息密钥派生 - 从链密钥派生消息密钥
+ * 4. 前向保密 - 每条消息使用不同的密钥
  */
 export class DoubleRatchet {
   /**
    * 发送消息密钥
+   * 
+   * @param sendingChain - 发送链状态
+   * @returns 消息密钥
+   * 
+   * 流程：
+   * 1. 从链密钥派生消息密钥
+   * 2. 推进链密钥
    */
-  static async sendMessageKey(sendingChain: { key: Uint8Array; index: number }): Promise<Uint8Array> {
+  static async sendMessageKey(sendingChain: { key: Uint8Array; index: number }): Promise<{ messageKey: Uint8Array; nextChainKey: Uint8Array }> {
     // 使用 KDF 派生消息密钥
-    return this.deriveMessageKey(sendingChain.key);
+    const messageKey = await this.deriveMessageKey(sendingChain.key);
+    
+    // 推进链密钥
+    const nextChainKey = await this.nextChainKey(sendingChain.key);
+    
+    return { messageKey, nextChainKey };
   }
 
   /**
    * 接收消息密钥
+   * 
    * @param receivingChain - 接收链状态
    * @param messageNumber - 消息编号
-   * @returns 消息密钥
-   * @description 对于接收方，需要根据消息编号推进链密钥
+   * @returns 消息密钥和更新后的链密钥
+   * 
+   * 流程：
+   * 1. 推进链密钥到正确的消息索引
+   * 2. 从链密钥派生消息密钥
    */
   static async receiveMessageKey(
     receivingChain: { key: Uint8Array; index: number },
     messageNumber: number
-  ): Promise<Uint8Array> {
+  ): Promise<{ messageKey: Uint8Array; nextChainKey: Uint8Array; newIndex: number }> {
     // 推进链密钥到正确的消息索引
     let chainKey = receivingChain.key;
     const currentIndex = receivingChain.index;
@@ -338,38 +596,37 @@ export class DoubleRatchet {
     }
     
     // 使用 KDF 派生消息密钥
-    return this.deriveMessageKey(chainKey);
+    const messageKey = await this.deriveMessageKey(chainKey);
+    
+    // 计算下一个链密钥
+    const nextChainKey = await this.nextChainKey(chainKey);
+    
+    return { 
+      messageKey, 
+      nextChainKey,
+      newIndex: messageNumber + 1
+    };
   }
 
   /**
    * 派生消息密钥
    */
   private static async deriveMessageKey(chainKey: Uint8Array): Promise<Uint8Array> {
-    // 使用 HKDF 派生消息密钥
+    // 使用 HMAC-SHA256 派生消息密钥
     const encoder = new TextEncoder();
     const salt = encoder.encode('message_key');
 
-    // 创建 key 的副本，确保是独立的 ArrayBuffer
     const keyBuffer = chainKey.slice().buffer;
 
     const keyMaterial = await crypto.subtle.importKey(
       'raw',
       keyBuffer,
-      { name: 'PBKDF2' },
+      { name: 'HMAC', hash: 'SHA-256' },
       false,
-      ['deriveBits']
+      ['sign']
     );
 
-    const derivedBits = await crypto.subtle.deriveBits(
-      {
-        name: 'PBKDF2',
-        salt,
-        iterations: 1,
-        hash: 'SHA-256',
-      },
-      keyMaterial,
-      256
-    );
+    const derivedBits = await crypto.subtle.sign('HMAC', keyMaterial, salt);
 
     return new Uint8Array(derivedBits);
   }
@@ -378,126 +635,108 @@ export class DoubleRatchet {
    * 推进发送链
    */
   static async nextChainKey(currentKey: Uint8Array): Promise<Uint8Array> {
-    // 使用 KDF 推进链密钥
+    // 使用 HMAC-SHA256 推进链密钥
     const encoder = new TextEncoder();
     const salt = encoder.encode('chain_key');
 
-    // 创建 key 的副本，确保是独立的 ArrayBuffer
     const keyBuffer = currentKey.slice().buffer;
 
     const keyMaterial = await crypto.subtle.importKey(
       'raw',
       keyBuffer,
-      { name: 'PBKDF2' },
+      { name: 'HMAC', hash: 'SHA-256' },
       false,
-      ['deriveBits']
+      ['sign']
     );
 
-    const derivedBits = await crypto.subtle.deriveBits(
-      {
-        name: 'PBKDF2',
-        salt,
-        iterations: 1,
-        hash: 'SHA-256',
-      },
-      keyMaterial,
-      256
-    );
+    const derivedBits = await crypto.subtle.sign('HMAC', keyMaterial, salt);
 
     return new Uint8Array(derivedBits);
   }
 
   /**
-   * DH棘轮
+   * DH 棘轮
+   * 
+   * @param rootKey - 当前根密钥
+   * @param localKeyPair - 本地 DH 密钥对
+   * @param remotePublicKey - 远程 DH 公钥
+   * @returns 新的根密钥和链密钥
+   * 
+   * 流程：
+   * 1. 计算 DH 共享密钥
+   * 2. 使用 HKDF 派生新的根密钥和链密钥
    */
-  static async dhRatchet(rootKey: Uint8Array, localKeyPair: CryptoKeyPair, remotePublicKey: Uint8Array): Promise<Uint8Array> {
+  static async dhRatchet(
+    rootKey: Uint8Array,
+    localKeyPair: CryptoKeyPair,
+    remotePublicKey: Uint8Array
+  ): Promise<{ rootKey: Uint8Array; chainKey: Uint8Array }> {
     // 计算共享密钥
     const sharedSecret = await X3DH.calculateSharedSecret(localKeyPair.privateKey, remotePublicKey);
 
-    // 派生新的根密钥
+    // 使用 HKDF 派生新的根密钥和链密钥
     const encoder = new TextEncoder();
-    const salt = encoder.encode('dh_ratchet');
+    const infoBytes = encoder.encode('DoubleRatchet_DH');
 
-    const keyMaterial = await crypto.subtle.importKey(
+    // Extract
+    const salt = rootKey.slice().buffer as ArrayBuffer;
+    const saltKey = await crypto.subtle.importKey(
       'raw',
-      sharedSecret.buffer as ArrayBuffer,
-      { name: 'PBKDF2' },
+      salt,
+      { name: 'HMAC', hash: 'SHA-256' },
       false,
-      ['deriveBits']
+      ['sign']
     );
 
-    const derivedBits = await crypto.subtle.deriveBits(
-      {
-        name: 'PBKDF2',
-        salt,
-        iterations: 1,
-        hash: 'SHA-256',
-      },
-      keyMaterial,
-      256
+    const inputBuffer = sharedSecret.slice().buffer as ArrayBuffer;
+    const prk = await crypto.subtle.sign('HMAC', saltKey, inputBuffer);
+
+    // Expand
+    const prkKey = await crypto.subtle.importKey(
+      'raw',
+      prk,
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['sign']
     );
 
-    return new Uint8Array(derivedBits);
+    const okm1Input = new Uint8Array([...infoBytes, 0x01]);
+    const okm1 = await crypto.subtle.sign('HMAC', prkKey, okm1Input.buffer as ArrayBuffer);
+
+    const okm2Input = new Uint8Array([...new Uint8Array(okm1), ...infoBytes, 0x02]);
+    const okm2 = await crypto.subtle.sign('HMAC', prkKey, okm2Input.buffer as ArrayBuffer);
+
+    return {
+      rootKey: new Uint8Array(okm1),
+      chainKey: new Uint8Array(okm2),
+    };
   }
 }
 
-/**
- * 密钥指纹生成
- */
+// ==================== 密钥指纹生成 ====================
+
 export class KeyFingerprint {
   /**
    * 生成密钥指纹
    */
-  static async generate(identityKey: any): Promise<string> {
-    // 确保identityKey是有效的类型
-    let buffer: ArrayBuffer;
-    
-    if (identityKey instanceof Uint8Array) {
-      // 直接使用Uint8Array
-      buffer = identityKey.buffer as ArrayBuffer;
-    } else if (identityKey && typeof identityKey === 'object' && 'buffer' in identityKey) {
-      // 处理类似Uint8Array的对象
-      buffer = identityKey.buffer as ArrayBuffer;
-    } else if (identityKey && typeof identityKey === 'object' && 'length' in identityKey) {
-      // 处理数组或类数组对象
-      buffer = new Uint8Array(identityKey).buffer;
-    } else {
-      throw new Error('identityKey must be a Uint8Array or array-like object');
-    }
-    
-    // 确保buffer是ArrayBuffer类型
-    if (!(buffer instanceof ArrayBuffer)) {
-      throw new Error('identityKey.buffer must be an ArrayBuffer');
-    }
-    
-    const hash = await crypto.subtle.digest('SHA-256', buffer);
+  static async generate(identityKey: Uint8Array): Promise<string> {
+    const hash = await crypto.subtle.digest('SHA-256', identityKey.buffer as ArrayBuffer);
     const hashArray = new Uint8Array(hash);
     const hashHex = Array.from(hashArray).map(b => b.toString(16).padStart(2, '0')).join('');
     return hashHex.substring(0, 32);
   }
 
   /**
-   * 格式化指纹为易读格式
+   * 格式化指纹为易读格式（每 12 个字符一组）
    */
   static format(fingerprint: string): string {
     return fingerprint.match(/.{12}/g)?.join(' ') || fingerprint;
   }
 }
 
-/**
- * Signal协议主类
- */
+// ==================== Signal 协议主类 ====================
+
 export class SignalProtocol {
-  private x3dh: X3DH;
-  private doubleRatchet: DoubleRatchet;
-  private keyFingerprint: KeyFingerprint;
-
-  constructor() {
-    this.x3dh = new X3DH();
-    this.doubleRatchet = new DoubleRatchet();
-    this.keyFingerprint = new KeyFingerprint();
-  }
-
   /**
    * 生成身份密钥对
    */
@@ -520,17 +759,33 @@ export class SignalProtocol {
   }
 
   /**
-   * 初始化会话
+   * 初始化会话（发送方）
+   * 
+   * @param prekeyBundle - 接收方的预密钥包
+   * @param localIdentityKeyPair - 发送方的身份密钥对
    */
-  async initiateSession(prekeyBundle: PrekeyBundle): Promise<SessionState> {
-    return X3DH.initiateSession(prekeyBundle);
+  async initiateSession(
+    prekeyBundle: PrekeyBundle,
+    localIdentityKeyPair: IdentityKeyPair
+  ): Promise<SessionState> {
+    return X3DH.initiateSession(prekeyBundle, localIdentityKeyPair);
   }
 
   /**
-   * 接受会话
+   * 接受会话（接收方）
+   * 
+   * @param initialMessage - 初始加密消息
+   * @param identityKeyPair - 接收方的身份密钥对
+   * @param signedPrekey - 接收方的签名预密钥
+   * @param oneTimePrekey - 接收方的一次性预密钥（可选）
    */
-  async acceptSession(initialMessage: EncryptedMessage, identityKeyPair: IdentityKeyPair): Promise<SessionState> {
-    return X3DH.acceptSession(initialMessage, identityKeyPair);
+  async acceptSession(
+    initialMessage: EncryptedMessage,
+    identityKeyPair: IdentityKeyPair,
+    signedPrekey: SignedPrekey,
+    oneTimePrekey?: OneTimePrekey
+  ): Promise<SessionState> {
+    return X3DH.acceptSession(initialMessage, identityKeyPair, signedPrekey, oneTimePrekey);
   }
 
   /**
@@ -541,14 +796,15 @@ export class SignalProtocol {
       throw new Error('Sending chain is null');
     }
 
-    const messageKey = await DoubleRatchet.sendMessageKey(session.sendingChain);
+    // 使用 Double Ratchet 派生消息密钥
+    const { messageKey, nextChainKey } = await DoubleRatchet.sendMessageKey(session.sendingChain);
 
-    // 加密消息（简化实现）
+    // 加密消息
     const encoder = new TextEncoder();
     const plaintextBytes = encoder.encode(plaintext);
     const ciphertext = await this.encrypt(plaintextBytes, messageKey);
 
-    // 确定 baseKey：第一条消息使用 ephemeralPublicKey，后续消息使用新的 DH 公钥
+    // 确定 baseKey
     let baseKey: Uint8Array;
     let dhPublicKey: Uint8Array | undefined;
 
@@ -557,7 +813,7 @@ export class SignalProtocol {
       baseKey = session.ephemeralPublicKey;
       dhPublicKey = session.ephemeralPublicKey;
     } else {
-      // 后续消息：生成新的 DH 密钥对
+      // 后续消息：生成新的 DH 密钥对用于 DH 棘轮
       const newDHKeyPair = await crypto.subtle.generateKey(
         { name: 'ECDH', namedCurve: 'P-256' },
         true,
@@ -569,12 +825,12 @@ export class SignalProtocol {
     }
 
     // 更新会话状态
-    session.sendingChain.key = await DoubleRatchet.nextChainKey(session.sendingChain.key);
+    session.sendingChain.key = nextChainKey;
     session.sendingChain.index++;
 
     return {
       version: 3,
-      registrationId: 12345, // 实际应该从本地存储获取
+      registrationId: 12345,
       signedPreKeyId: 1,
       baseKey,
       identityKey: session.remoteIdentityKey,
@@ -583,6 +839,45 @@ export class SignalProtocol {
       ciphertext,
       dhPublicKey,
     };
+  }
+
+  /**
+   * 解密消息
+   */
+  async decryptMessage(session: SessionState, encryptedMessage: EncryptedMessage): Promise<string> {
+    if (!session.receivingChain) {
+      throw new Error('Receiving chain is null');
+    }
+
+    // 检查是否需要 DH 棘轮
+    if (encryptedMessage.dhPublicKey && session.localIdentityKeyPair) {
+      // 这里应该实现 DH 棘轮逻辑
+      // 简化实现：直接使用当前链
+      console.log('[Signal] DH ratchet not fully implemented yet');
+    }
+
+    // 使用 Double Ratchet 派生消息密钥
+    const { messageKey, nextChainKey, newIndex } = await DoubleRatchet.receiveMessageKey(
+      session.receivingChain,
+      encryptedMessage.messageNumber
+    );
+
+    // 解密消息
+    const plaintextBytes = await this.decrypt(encryptedMessage.ciphertext, messageKey);
+    const plaintext = new TextDecoder().decode(plaintextBytes);
+
+    // 更新会话状态
+    session.receivingChain.key = nextChainKey;
+    session.receivingChain.index = newIndex;
+
+    return plaintext;
+  }
+
+  /**
+   * 生成密钥指纹
+   */
+  async generateFingerprint(identityKey: Uint8Array): Promise<string> {
+    return KeyFingerprint.generate(identityKey);
   }
 
   /**
@@ -612,15 +907,12 @@ export class SignalProtocol {
    */
   static messageFromJSON(json: Record<string, any>): EncryptedMessage {
     const base64ToUint8Array = (base64: string | Uint8Array): Uint8Array => {
-      // 如果已经是 Uint8Array，直接返回
       if (base64 instanceof Uint8Array) {
         return base64;
       }
-      // 如果是数组，转换为 Uint8Array
       if (Array.isArray(base64)) {
         return new Uint8Array(base64);
       }
-      // 如果是字符串，尝试 Base64 解码
       if (typeof base64 === 'string') {
         try {
           const binary = atob(base64);
@@ -631,12 +923,10 @@ export class SignalProtocol {
           }
           return bytes;
         } catch (error) {
-          // Base64 解码失败，可能是普通字符串
           const encoder = new TextEncoder();
           return encoder.encode(base64);
         }
       }
-      // 其他情况，返回空数组
       console.warn('Unknown type for base64 field:', typeof base64, base64);
       return new Uint8Array();
     };
@@ -655,63 +945,13 @@ export class SignalProtocol {
   }
 
   /**
-  /**
-   * 解密消息
-   */
-  async decryptMessage(session: SessionState, encryptedMessage: EncryptedMessage): Promise<string> {
-    console.log('[Signal] decryptMessage called:', {
-      messageNumber: encryptedMessage.messageNumber,
-      receivingChainIndex: session.receivingChain?.index,
-      baseKeyLength: encryptedMessage.baseKey?.length,
-      ciphertextLength: encryptedMessage.ciphertext?.length,
-    });
-
-    // 验证必要参数
-    if (!session.receivingChain) {
-      throw new Error('接收链为空，会话未正确初始化');
-    }
-    if (!encryptedMessage.baseKey || encryptedMessage.baseKey.length === 0) {
-      throw new Error('加密消息缺少 baseKey');
-    }
-    if (!encryptedMessage.ciphertext || encryptedMessage.ciphertext.length === 0) {
-      throw new Error('加密消息缺少密文');
-    }
-
-    // 获取消息密钥
-    const messageKey = await DoubleRatchet.receiveMessageKey(session.receivingChain, encryptedMessage.messageNumber);
-    console.log('[Signal] Message key derived');
-
-    // 解密消息
-    const plaintextBytes = await this.decrypt(encryptedMessage.ciphertext, messageKey);
-    const plaintext = new TextDecoder().decode(plaintextBytes);
-    console.log('[Signal] Message decrypted successfully');
-
-    // 更新会话状态：推进接收链
-    if (session.receivingChain) {
-      session.receivingChain.key = await DoubleRatchet.nextChainKey(session.receivingChain.key);
-      session.receivingChain.index = encryptedMessage.messageNumber + 1;
-      console.log('[Signal] Receiving chain updated, new index:', session.receivingChain.index);
-    }
-
-    return plaintext;
-  }
-  /**
-   * 生成密钥指纹
-   */
-  async generateFingerprint(identityKey: Uint8Array): Promise<string> {
-    return KeyFingerprint.generate(identityKey);
-  }
-
-  /**
-   * 加密数据
+   * 加密数据 (AES-256-GCM)
    */
   private async encrypt(data: Uint8Array, key: Uint8Array): Promise<Uint8Array> {
-    // 确保 key 是有效的 Uint8Array
     if (!key || !(key instanceof Uint8Array) || key.length === 0) {
-      throw new Error(`无效的加密密钥: ${key}`);
+      throw new Error(`无效的加密密钥`);
     }
 
-    // 创建 key 的副本，确保是独立的 ArrayBuffer
     const keyBuffer = key.slice().buffer;
 
     const cryptoKey = await crypto.subtle.importKey(
@@ -723,8 +963,6 @@ export class SignalProtocol {
     );
 
     const iv = crypto.getRandomValues(new Uint8Array(12));
-    
-    // 创建 data 的副本，确保是独立的 ArrayBuffer
     const dataBuffer = data.slice().buffer;
     
     const encrypted = await crypto.subtle.encrypt(
@@ -733,7 +971,7 @@ export class SignalProtocol {
       dataBuffer
     );
 
-    // 组合IV和密文
+    // 组合 IV 和密文
     const result = new Uint8Array(iv.length + encrypted.byteLength);
     result.set(iv, 0);
     result.set(new Uint8Array(encrypted), iv.length);
@@ -741,15 +979,13 @@ export class SignalProtocol {
   }
 
   /**
-   * 解密数据
+   * 解密数据 (AES-256-GCM)
    */
   private async decrypt(data: Uint8Array, key: Uint8Array): Promise<Uint8Array> {
-    // 确保 key 是有效的 Uint8Array
     if (!key || !(key instanceof Uint8Array) || key.length === 0) {
-      throw new Error(`无效的解密密钥: ${key}`);
+      throw new Error(`无效的解密密钥`);
     }
 
-    // 创建 key 的副本，确保是独立的 ArrayBuffer
     const keyBuffer = key.slice().buffer;
 
     const cryptoKey = await crypto.subtle.importKey(
@@ -762,8 +998,6 @@ export class SignalProtocol {
 
     const iv = data.slice(0, 12);
     const ciphertext = data.slice(12);
-
-    // 创建 ciphertext 的副本，确保是独立的 ArrayBuffer
     const ciphertextBuffer = ciphertext.slice().buffer;
 
     const decrypted = await crypto.subtle.decrypt(

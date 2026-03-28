@@ -76,7 +76,7 @@ export function useSignal(): { state: SignalState; actions: SignalActions } {
   }> {
     const signedPrekeys = await keyManager.getSignedPrekeys();
     const oneTimePrekeys = await keyManager.getOneTimePrekeys();
-    
+
     return {
       hasSignedPrekeys: signedPrekeys.length > 0,
       hasOneTimePrekeys: oneTimePrekeys.length > 0,
@@ -101,7 +101,7 @@ export function useSignal(): { state: SignalState; actions: SignalActions } {
       console.log('[Signal] Generating signed prekeys...');
       await keyManager.generateSignedPrekeys(1);
     }
-    
+
     if (!status.hasOneTimePrekeys || status.oneTimePrekeysCount < 100) {
       const count = status.hasOneTimePrekeys ? (100 - status.oneTimePrekeysCount) : 100;
       console.log(`[Signal] Generating ${count} one-time prekeys...`);
