@@ -40,9 +40,9 @@ Security Chat 是一个全平台安全通讯应用，专注于提供端到端加
 
 ### 前端
 
-- **桌面应用**：**Electron** + React ^18.3.1 + TypeScript + Vite
-  - **Signal 协议库**：`@signalapp/libsignal-client` (官方库 v0.90)
-  - **打包工具**：electron-builder
+- **桌面应用**：**Tauri 2.x** + React ^18.3.1 + TypeScript + Vite
+  - **Signal 协议库**：`libsignal-protocol` (官方 Rust 库 v0.90)
+  - **打包工具**：@tauri-apps/cli
   - **支持平台**：macOS / Windows / Linux
 - **移动应用**：React Native (Expo) ~51.0.39
 - **实时通信**：Socket.io-client ^4.8.1
@@ -99,14 +99,14 @@ pnpm start:backend
 #### 桌面应用
 
 ```bash
-# 开发模式 (Electron)
-pnpm run electron:dev
+# 开发模式 (Tauri)
+pnpm run tauri:dev
 
 # 构建 macOS 应用
-pnpm run electron:build:mac
+pnpm run tauri:build -- --target universal-apple-darwin
 
 # 构建 Windows 应用
-pnpm run electron:build:win
+pnpm run tauri:build -- --target x86_64-pc-windows-msvc
 
 # 仅构建前端
 pnpm build:desktop
