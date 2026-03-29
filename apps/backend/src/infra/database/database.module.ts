@@ -11,6 +11,7 @@ import { User } from '../../modules/user/entities/user.entity';
 import { Device } from '../../modules/user/entities/device.entity';
 import { OneTimePrekey } from '../../modules/user/entities/one-time-prekey.entity';
 import { Notification } from '../../modules/notification/entities/notification.entity';
+import { SignedPreKey, KyberPreKey } from '../../modules/prekey/entities/prekey.entity';
 
 @Module({
   imports: [
@@ -28,6 +29,8 @@ import { Notification } from '../../modules/notification/entities/notification.e
           User,
           Device,
           OneTimePrekey,
+          SignedPreKey,
+          KyberPreKey,
           Conversation,
           ConversationMember,
           Message,

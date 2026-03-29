@@ -1,9 +1,29 @@
 node_modules
 .pnpm-store
 .env.local
+.env.*.local
 .DS_Store
 dist
 coverage
 apps/backend/.nestjs
 apps/backend/node_modules
 tests/archive/
+
+# Tauri
+**/target/
+**/*.sig
+
+# Test results
+test-results/
+playwright-report/
+
+# Build artifacts
+**/*.tsbuildinfo
+**/*.tsbuildinfo.meta
+
+# Environment
+**/.env
+**/.env.*.local
+
+**/reference_document/
+**

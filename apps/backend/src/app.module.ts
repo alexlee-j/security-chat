@@ -14,6 +14,8 @@ import { NotificationModule } from './modules/notification/notification.module';
 import { SecurityModule } from './modules/security/security.module';
 import { UserModule } from './modules/user/user.module';
 import { MailModule } from './modules/mail/mail.module';
+import { PreKeyModule } from './modules/prekey/prekey.module';
+import { MetricsModule } from './modules/metrics/metrics.module';
 
 @Module({
   imports: [
@@ -30,6 +32,8 @@ import { MailModule } from './modules/mail/mail.module';
     NotificationModule,
     SecurityModule,
     MailModule,
+    PreKeyModule,
+    MetricsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

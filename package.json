@@ -12,11 +12,19 @@
     "smoke:backend:v1": "pnpm --filter @security-chat/backend smoke:v1",
     "test:backend:e2e:v1": "pnpm --filter @security-chat/backend test:e2e:v1",
     "test:backend:ws:v1": "pnpm --filter @security-chat/backend test:ws:v1",
+    "test:e2e": "jest --config tests/e2e/jest-e2e.json",
+    "test:e2e:watch": "jest --config tests/e2e/jest-e2e.json --watch",
+    "test:integration": "jest --config tests/e2e/jest-e2e.json tests/integration",
+    "bench:message": "tsx tests/benchmarks/message-latency.bench.ts",
+    "bench:prekey": "tsx tests/benchmarks/prekey-query.bench.ts",
+    "bench:websocket": "tsx tests/benchmarks/websocket-concurrency.bench.ts",
     "verify:backend:v1": "pnpm smoke:backend:v1 && pnpm test:backend:e2e:v1 && pnpm test:backend:ws:v1",
     "start:desktop": "pnpm --filter @security-chat/desktop dev",
     "start:mobile": "pnpm --filter @security-chat/mobile start"
   },
   "devDependencies": {
-    "electron": "^30.5.1"
+    "electron": "^30.5.1",
+    "socket.io-client": "^4.8.3",
+    "tsx": "^4.7.0"
   }
 }

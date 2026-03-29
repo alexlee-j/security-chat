@@ -89,3 +89,36 @@ export type BlockedFriendItem = {
   username: string;
   avatarUrl: string | null;
 };
+
+/**
+ * Week 2 新增类型定义 - Tauri 前端使用
+ */
+
+/** 消息类型 */
+export type Message = {
+  id: string;
+  senderId: string;
+  recipientId: string;
+  content: string;
+  timestamp: number;
+  isEncrypted: boolean;
+  status: 'sending' | 'sent' | 'delivered' | 'read' | 'error';
+  type: 'text' | 'image' | 'voice' | 'file';
+};
+
+/** 会话类型 */
+export type Conversation = {
+  id: string;
+  participantId: string;
+  participantName: string;
+  lastMessage: Message | null;
+  unreadCount: number;
+  updatedAt: number;
+};
+
+/** 聊天状态 */
+export type ChatState = {
+  messages: Message[];
+  isLoading: boolean;
+  error: string | null;
+};

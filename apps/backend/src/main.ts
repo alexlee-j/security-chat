@@ -54,7 +54,10 @@ async function bootstrap(): Promise<void> {
       next();
     },
   );
-  app.setGlobalPrefix('api/v1');
+  // 设置全局前缀，但排除 metrics 端点
+  app.setGlobalPrefix('api/v1', {
+    exclude: ['metrics'],
+  });
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,

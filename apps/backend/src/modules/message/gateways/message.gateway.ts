@@ -163,6 +163,81 @@ export class MessageGateway implements OnGatewayInit, OnGatewayConnection, OnGat
     client.emit('message.pong', { ts: Date.now(), payload });
   }
 
+  /**
+   * 发送加密消息（端到端加密）
+   * 支持 PreKeySignalMessage 和 SignalMessage 类型
+   */
+  @SubscribeMessage('message.send')
+  async handleSendMessage(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: {
+      recipientId: string;
+      encryptedMessage: {
+        messageType: number;
+        body: string;  // Base64 编码的密文
+      };
+    },
+  ): Promise<void> {
+    const senderId = String(client.data.userId);
+    const recipientId = data.recipientId;
+
+    if (!recipientId) {
+      client.emit('message.error', {
+        code: 'INVALID_RECIPIENT',
+        message: 'recipientId is required',
+      });
+      return;
+    }
+
+    if (!data.encryptedMessage || !data.encryptedMessage.messageType || !data.encryptedMessage.body) {
+      client.emit('message.error', {
+        code: 'INVALID_MESSAGE',
+        message: 'encryptedMessage with messageType and body is required',
+      });
+      return;
+    }
+
+    // 转发给接收者（实时推送）
+    const recipientRoom = this.userRoom(recipientId);
+    this.server.to(recipientRoom).emit('message.received', {
+      senderId,
+      encryptedMessage: data.encryptedMessage,
+      timestamp: Date.now(),
+    });
+
+    // 确认发送成功
+    client.emit('message.sent', {
+      status: 'sent',
+      timestamp: Date.now(),
+    });
+  }
+
+  /**
+   * 请求历史加密消息
+   */
+  @SubscribeMessage('message.receive')
+  async handleReceiveMessage(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { messageId?: string; conversationId?: string; limit?: number },
+  ): Promise<void> {
+    const userId = String(client.data.userId);
+
+    if (!data.conversationId && !data.messageId) {
+      client.emit('message.error', {
+        code: 'INVALID_REQUEST',
+        message: 'conversationId or messageId is required',
+      });
+      return;
+    }
+
+    // 客户端应从 REST API 获取历史消息
+    // 此事件主要用于确认客户端已准备好接收消息
+    client.emit('message.ready', {
+      status: 'ready',
+      timestamp: Date.now(),
+    });
+  }
+
   @SubscribeMessage('conversation.join')
   joinConversation(
     @ConnectedSocket() client: Socket,

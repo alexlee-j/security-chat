@@ -8,6 +8,9 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build",
     "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:4173 && electron .\"",
     "electron:build": "npm run build && electron-builder",
     "electron:build:mac": "npm run electron:build -- --mac",
@@ -15,12 +18,16 @@
     "electron:build:linux": "npm run electron:build -- --linux"
   },
   "dependencies": {
+    "@tauri-apps/api": "^2.10.1",
     "axios": "^1.11.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "socket.io-client": "^4.8.1"
+    "react-window": "^1.8.11",
+    "socket.io-client": "^4.8.1",
+    "wavesurfer.js": "^7.12.5"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "^2.10.1",
     "@types/node": "^20.11.0",
     "@types/react": "^18.3.24",
     "@types/react-dom": "^18.3.7",
