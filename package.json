@@ -23,7 +23,6 @@
     "start:mobile": "pnpm --filter @security-chat/mobile start"
   },
   "devDependencies": {
-    "electron": "^30.5.1",
     "socket.io-client": "^4.8.3",
     "tsx": "^4.7.0"
   }
