@@ -41,9 +41,13 @@ import { SignedPreKey, KyberPreKey } from '../../modules/prekey/entities/prekey.
         ],
         synchronize: configService.get<string>('DB_SYNC', 'true') === 'true',
         // 数据库连接池配置
-        poolSize: 10,
-        maxQueryExecutionTime: 2000,
-        connectTimeoutMS: 10000,
+        poolSize: Number(configService.get<string>('DB_POOL_SIZE', '20')),
+        maxQueryExecutionTime: Number(configService.get<string>('DB_MAX_QUERY_TIME', '2000')),
+        connectTimeoutMS: Number(configService.get<string>('DB_CONNECT_TIMEOUT', '10000')),
+        // 生产环境优化
+        idleTimeoutMillis: Number(configService.get<string>('DB_IDLE_TIMEOUT', '30000')),
+        statementTimeout: Number(configService.get<string>('DB_STATEMENT_TIMEOUT', '30000')),
+        ssl: configService.get<string>('NODE_ENV') === 'production' ? { rejectUnauthorized: false } : false,
       }),
     }),
   ],
