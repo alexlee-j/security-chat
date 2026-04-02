@@ -98,13 +98,11 @@ export function useSignal(): { state: SignalState; actions: SignalActions } {
     }
   ): Promise<void> {
     if (!status.hasSignedPrekeys) {
-      console.log('[Signal] Generating signed prekeys...');
       await keyManager.generateSignedPrekeys(1);
     }
 
     if (!status.hasOneTimePrekeys || status.oneTimePrekeysCount < 100) {
       const count = status.hasOneTimePrekeys ? (100 - status.oneTimePrekeysCount) : 100;
-      console.log(`[Signal] Generating ${count} one-time prekeys...`);
       await keyManager.generateOneTimePrekeys(count);
     }
   }
@@ -128,7 +126,6 @@ export function useSignal(): { state: SignalState; actions: SignalActions } {
       keyManagerRef.current = keyManager;
 
       // 初始化密钥管理（这会生成身份密钥对和预密钥）
-      console.log('[Signal] Initializing key manager...');
       await keyManager.initialize();
 
       // 获取注册 ID
@@ -143,17 +140,14 @@ export function useSignal(): { state: SignalState; actions: SignalActions } {
       // 检查并补充预密钥
       try {
         const prekeysStatus = await checkPrekeysStatus(keyManager);
-        console.log('[Signal] Prekeys status after initialize:', prekeysStatus);
 
         setState(prev => ({ ...prev, prekeysStatus }));
 
         if (!prekeysStatus.hasSignedPrekeys || !prekeysStatus.hasOneTimePrekeys) {
-          console.log('[Signal] Generating missing prekeys...', prekeysStatus);
           await generateAllPrekeys(keyManager, prekeysStatus);
 
           // 更新状态
           const newStatus = await checkPrekeysStatus(keyManager);
-          console.log('[Signal] Prekeys status after generation:', newStatus);
           setState(prev => ({ ...prev, prekeysStatus: newStatus }));
         }
 
@@ -161,12 +155,8 @@ export function useSignal(): { state: SignalState; actions: SignalActions } {
         // 仅在有认证令牌时才上传
         const authToken = localStorage.getItem('auth-token');
         if (authToken && authToken.trim() !== '') {
-          console.log('[Signal] Uploading prekeys to server...');
           await messageEncryptionService.uploadPrekeysWithKeyManager(keyManager);
           setState(prev => ({ ...prev, prekeysUploaded: true }));
-          console.log('[Signal] Prekeys uploaded successfully');
-        } else {
-          console.log('[Signal] No auth token found, skipping prekeys upload');
         }
       } catch (error) {
         console.error('[Signal] Failed to upload prekeys:', error);
@@ -184,7 +174,6 @@ export function useSignal(): { state: SignalState; actions: SignalActions } {
       }));
 
       initializedRef.current = true;
-      console.log('[Signal] Signal protocol initialized successfully');
     } catch (error) {
       console.error('[Signal] Failed to initialize Signal protocol:', error);
       setState(prev => ({

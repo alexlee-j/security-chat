@@ -1,7 +1,5 @@
 node_modules
 .pnpm-store
-.env.local
-.env.*.local
 .DS_Store
 dist
 coverage
@@ -21,9 +19,24 @@ playwright-report/
 **/*.tsbuildinfo
 **/*.tsbuildinfo.meta
 
-# Environment
-**/.env
-**/.env.*.local
+# Environment files - production .env files are ignored, example and development files are tracked
+# Production (with real sensitive values) - IGNORED
+.env
+apps/backend/.env
+apps/desktop/.env
+
+# Local environment files - IGNORED
+.env.local
+.env.*.local
+
+# Example and development files are tracked elsewhere in the file
 
 **/reference_document/
 **
+
+# Allow example and development files (must be after **)
+.env.example
+apps/backend/.env.example
+apps/desktop/.env.example
+apps/backend/.env.development
+apps/desktop/.env.development

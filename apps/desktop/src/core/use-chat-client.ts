@@ -269,7 +269,6 @@ export function useChatClient(): {
       if (signalState.initialized && senderId) {
         // 如果是自己发送的消息，跳过Signal解密，使用默认解密
         if (senderId === authRef.current?.userId) {
-          console.log('Skipping Signal decryption for self-sent message');
           decrypted = decodePayloadApi(payload);
         } else {
           try {
@@ -681,7 +680,6 @@ export function useChatClient(): {
         // 检查并补充预密钥
         const prekeysStatus = signalState.prekeysStatus;
         if (prekeysStatus && (!prekeysStatus.hasSignedPrekeys || !prekeysStatus.hasOneTimePrekeys || prekeysStatus.oneTimePrekeysCount < 100)) {
-          console.log('[Login] Replenishing prekeys after login...');
           await signalActions.replenishPrekeys();
         }
       } catch (signalError) {
@@ -830,7 +828,6 @@ export function useChatClient(): {
           
           // 更新本地存储中的设备ID
           await keyManager['secureStorage'].set('currentDeviceId', primaryDevice.deviceId);
-          console.log('Updated current device ID to:', primaryDevice.deviceId);
         }
       } catch (deviceError) {
         console.error('Failed to get devices after registration:', deviceError);
@@ -841,7 +838,6 @@ export function useChatClient(): {
       try {
         const { messageEncryptionService } = await import('./signal/message-encryption');
         await messageEncryptionService.uploadPrekeys();
-        console.log('Prekeys uploaded successfully after registration');
       } catch (uploadError) {
         console.error('Failed to upload prekeys after registration:', uploadError);
         // 预密钥上传失败不影响注册成功，可以后续补充
@@ -1239,7 +1235,6 @@ export function useChatClient(): {
       // 如果不是 UUID 格式，尝试搜索用户
       const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
       if (!uuidRegex.test(targetUserId)) {
-        console.log('输入的不是 UUID，尝试搜索用户:', targetUserId);
         const searchResults = await searchUsers(targetUserId, 5);
         if (searchResults.length === 0) {
           setError('未找到该用户，请检查用户名。');
@@ -1249,10 +1244,8 @@ export function useChatClient(): {
         if (searchResults.length === 1) {
           // 只有一个结果，直接使用
           targetUserId = searchResults[0].userId;
-          console.log('找到用户:', searchResults[0].username, 'ID:', targetUserId);
         } else {
           // 多个结果，显示选择列表（简化处理：使用第一个）
-          console.log('找到多个用户，使用第一个:', searchResults[0].username);
           targetUserId = searchResults[0].userId;
         }
       }
@@ -1671,28 +1664,21 @@ export function useChatClient(): {
     };
 
     const onMessageRevoked = (payload: { conversationId?: string; messageId?: string; revokedByUserId?: string; revokedAt?: string }): void => {
-      console.log('收到 message.revoked 事件:', payload);
       if (!payload.conversationId || !payload.messageId) {
-        console.log('payload 缺少必要字段，忽略事件');
         return;
       }
       // 检查当前会话是否匹配
       if (payload.conversationId !== activeConversationIdRef.current) {
-        console.log('会话ID不匹配，当前会话:', activeConversationIdRef.current, '事件会话:', payload.conversationId);
         return;
       }
       // 从消息列表中移除被撤回的消息
       setMessages((prev) => {
-        console.log('当前消息数量:', prev.length, '要删除的消息ID:', payload.messageId);
-        console.log('消息ID列表:', prev.map(m => m.id));
         const filtered = prev.filter((row) => {
           const match = row.id === payload.messageId;
           if (match) {
-            console.log('找到匹配的消息:', row.id);
           }
           return !match;
         });
-        console.log('过滤后消息数量:', filtered.length);
         return filtered;
       });
       // 触发会话更新事件
