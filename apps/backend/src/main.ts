@@ -20,33 +20,31 @@ async function bootstrap(): Promise<void> {
    * CORS 配置说明：
    * - Tauri 应用使用 tauri://localhost 协议
    * - WebSocket (socket.io) 不受 CORS 限制
-   * - 只需要允许 Tauri 应用的固定源和 Web 前端域名
+   * - 开发环境允许所有本地地址
+   * - 生产环境通过 PROD_DOMAINS 环境变量配置
    */
-  
+
   // Tauri 应用的固定源（所有平台通用）
   const tauriOrigins = [
-    'tauri://localhost',      // Tauri 2.x
-    'asset://localhost',      // Tauri 1.x (Android)
-    'app://localhost',        // Tauri 1.x (其他平台)
-    'http://tauri.localhost', // Tauri 2.x 新协议
+    'tauri://localhost',
+    'asset://localhost',
+    'app://localhost',
+    'http://tauri.localhost',
   ];
-  
+
   // 开发环境允许的源
   const devOrigins = [
-    'http://localhost:4173',      // Vite 开发服务器
-    'http://localhost',            // 本地访问
+    'http://localhost:4173',
+    'http://localhost',
     'http://127.0.0.1:4173',
     'http://127.0.0.1',
   ];
-  
-  // 生产环境允许的源（Web 前端域名）
-  const prodOrigins = [
-    'https://app.security-chat.com',
-    'https://www.security-chat.com',
-    'https://www.silencelee.cn',  // 用户生产域名
-    'https://silencelee.cn',       // 不带 www 的域名
-  ];
-  
+
+  // 生产环境允许的源（通过环境变量配置）
+  const prodOrigins = process.env.PROD_DOMAINS
+    ? process.env.PROD_DOMAINS.split(',').map(d => d.trim())
+    : [];
+
   // 正则匹配模式（用于开发环境的局域网访问）
   const localhostPattern = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
   const privateNetworkPattern = /^https?:\/\/(192\.168|10\.|172\.(1[6-9]|2[0-9]|3[0-1]))\.\d+\.\d+(:\d+)?$/;
