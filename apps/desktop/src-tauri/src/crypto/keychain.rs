@@ -16,7 +16,8 @@ use aes_gcm::{
     aead::{Aead, KeyInit},
     Aes256Gcm, Nonce,
 };
-use rand::{RngCore, TryRngCore};
+use rand::{Rng as _, TryRngCore as _};
+use rand::rngs::OsRng;
 use std::sync::{Arc, Mutex};
 use thiserror::Error;
 
@@ -80,7 +81,8 @@ impl SecureKeychain {
     /// 生成随机 master key 并存储到 macOS Keychain
     pub fn new() -> Result<Self, KeychainError> {
         let mut master_key = [0u8; 32];
-        rand::rngs::OsRng.unwrap_err().fill_bytes(&mut master_key);
+        let mut rng = OsRng.unwrap_err();
+        rng.fill(&mut master_key);
 
         // 存储 master key 到 macOS Keychain
         crate::crypto::mac_keychain::MacKeychain::store(
@@ -122,7 +124,8 @@ impl SecureKeychain {
 
         // 生成随机 12-byte nonce
         let mut nonce_bytes = [0u8; 12];
-        rand::rngs::OsRng.unwrap_err().fill_bytes(&mut nonce_bytes);
+        let mut rng = OsRng.unwrap_err();
+        rng.fill(&mut nonce_bytes);
         let nonce = Nonce::from_slice(&nonce_bytes);
 
         // 加密 (ciphertext includes auth tag)
