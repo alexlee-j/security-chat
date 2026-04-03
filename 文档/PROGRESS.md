@@ -1,3 +1,63 @@
+# AI #1 进度更新 (2026-04-03) - Week 11
+
+## Week 11 任务：密钥安全存储
+
+### 任务分配
+
+| 任务 | 优先级 | 状态 | 验收 |
+|------|--------|------|------|
+| macOS Keychain 集成 | P0 | ✅ 已完成 | 密钥安全存储 |
+| 加密存储方案 | P0 | ✅ 已完成 | 密钥加密 |
+
+**参考文档**: `文档/PHASE2_REQUIREMENTS.md` 第 2.2 节
+
+### 已完成
+
+#### 1. macOS Keychain 底层实现 ✅
+**文件**: `apps/desktop/src-tauri/src/crypto/mac_keychain.rs`
+
+**功能**:
+- `MacKeychain::store()` - 存储密钥到 macOS Keychain
+- `MacKeychain::retrieve()` - 从 macOS Keychain 检索密钥
+- `MacKeychain::delete()` - 从 macOS Keychain 删除密钥
+- `MacKeychain::exists()` - 检查密钥是否存在
+
+**技术**: 使用 `security_framework` 库，`set_generic_password` / `get_generic_password`
+
+#### 2. 加密存储方案实现 ✅
+**文件**: `apps/desktop/src-tauri/src/crypto/keychain.rs`
+
+**功能**:
+- `SecureKeychain::new()` - 创建新的 SecureKeychain，生成随机 Master Key
+- `SecureKeychain::load()` - 从 macOS Keychain 加载 Master Key
+- `SecureKeychain::store_key()` - 加密存储业务密钥
+- `SecureKeychain::retrieve_key()` - 解密检索业务密钥
+- `SecureKeychain::exists()` - 检查 Master Key 是否存在
+
+**加密**: AES-256-GCM，Master Key (32 bytes) 存储在 macOS Keychain
+
+**密钥层级**:
+```
+Level 1: Master Key (存储在 macOS Keychain) - 用于加密
+Level 2: 业务密钥 (identity_key, session_key 等) - 加密后存储
+```
+
+### 验收标准检查
+
+| 标准 | 状态 | 说明 |
+|------|------|------|
+| macOS Keychain 集成 | ✅ | security_framework 库实现 |
+| 密钥不存储明文 | ✅ | AES-256-GCM 加密 |
+| 应用重启后密钥可用 | ✅ | Master Key 持久化在 Keychain |
+
+### 提交信息
+
+**提交**: `dcfb391` feat: Week 11 macOS Keychain 集成
+**分支**: `refactor/taauri-desktop`
+**PR**: 待创建
+
+---
+
 # AI #1 进度更新 (2026-05-08 22:00)
 
 ## ✅ 部署任务完成
@@ -509,44 +569,26 @@ CREATE TABLE keychain (
 
 ## AI #4 审查状态 (2026-04-03)
 
-### PR 信息
-
-**PR**: #2 `https://github.com/alexlee-j/security-chat/pull/2`
-**分支**: `refactor/tauri-desktop`
-**状态**: OPEN
-
-### 当前变更审查
+### Week 10 审查结论
 
 | PR | 申请人 | 功能 | 状态 | 报告链接 | 备注 |
 |----|--------|------|------|----------|------|
-| #2 | AI #2 + AI #1 | 记住密码/自动登录 + SQLite | 🔄 审查中 | 待出具 | 包含全部 Week 10 工作 |
+| b2cb275 | AI #2 | 记住密码/自动登录 | ✅ 通过 | CODE_REVIEW/WEEK10/AI2-AuthStorage+AI1-SQLite.md | auth-storage.ts, login-screen.tsx, App.tsx, use-chat-client.ts |
+| ea69d54 + 6f42ba8 | AI #1 | SQLite Rust 封装 | ✅ 通过 | CODE_REVIEW/WEEK10/AI2-AuthStorage+AI1-SQLite.md | local_store.rs, commands.rs, mod.rs |
+| 93f87b8 | AI #3 | 后端配置优化 | ✅ 通过 | CODE_REVIEW/WEEK10/infrastructure-changes.md | database.module.ts, jwt-auth.guard.ts, .env.example |
 
-### Week 10 AI #1 PR 内容
+### 审查问题汇总
 
-**提交**: `ea69d54` feat: 实现 SQLite Rust 本地消息持久化存储
-
-| 文件 | 状态 |
-|------|------|
-| `apps/desktop/src-tauri/src/db/local_store.rs` | ✅ 已提交 |
-| `apps/desktop/src-tauri/src/db/commands.rs` | ✅ 已提交 |
-| `apps/desktop/src-tauri/src/db/mod.rs` | ✅ 已提交 |
-| `apps/desktop/src-tauri/src/lib.rs` | ✅ 已提交 |
-| `apps/desktop/src-tauri/Cargo.toml` | ✅ 已提交 |
-| `.gitignore` | ✅ 已提交 |
-
-### 待 AI #4 审查
-
-| 申请人 | 功能 | 状态 |
-|--------|------|------|
-| AI #1 | SQLite Rust 封装 | ⚪ 待审查 |
-| AI #2 | 记住密码/自动登录 | ⚪ 待审查 |
+| 严重程度 | 问题 | 状态 |
+|----------|------|------|
+| 🟡 中 | keychain_retrieve 按 key_type 查询 | 需确认业务逻辑 |
 
 ### 后续行动
 
-1. 🔄 **AI #4**: 审查 PR #2，出具审查报告
-2. ✅ **AI Tech Lead**: 决策合并
+1. ✅ **AI #4**: 审查完成，出具报告
+2. ✅ **AI Tech Lead**: 可决策合并
 
 ---
 
 **更新时间**: 2026-04-03
-**AI #1** rust-core 负责人
+**AI #4** code-reviewer 负责人
