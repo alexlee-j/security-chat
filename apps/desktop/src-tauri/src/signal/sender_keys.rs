@@ -16,6 +16,10 @@
 
 #![allow(dead_code)]
 
+use aes_gcm::{
+    aead::{Aead, KeyInit},
+    Aes256Gcm, Nonce,
+};
 use rand::Rng as _;
 use rand::TryRngCore as _;
 use rand::rngs::OsRng;
@@ -140,26 +144,44 @@ impl GroupSession {
         let sender_key_state = self.sender_keys.get(user_id)
             .ok_or(SenderKeyError::MemberNotFound(user_id.to_string()))?;
 
-        // Encrypt sender key with group key (simplified - in production use proper AEAD)
-        let mut encrypted = self.group_key.to_vec();
-        encrypted.extend_from_slice(&sender_key_state.key);
+        // Encrypt sender key with group key using AES-256-GCM
+        let cipher = Aes256Gcm::new_from_slice(&self.group_key)
+            .map_err(|e| SenderKeyError::EncryptionFailed(e.to_string()))?;
+
+        let mut nonce_bytes = [0u8; 12];
+        OsRng.unwrap_err().fill(&mut nonce_bytes);
+        let nonce = Nonce::from_slice(&nonce_bytes);
+
+        let ciphertext = cipher
+            .encrypt(nonce, sender_key_state.key.as_slice())
+            .map_err(|e| SenderKeyError::EncryptionFailed(e.to_string()))?;
+
+        // Format: nonce (12 bytes) || ciphertext
+        let mut encrypted = nonce_bytes.to_vec();
+        encrypted.extend(ciphertext);
         Ok(encrypted)
     }
 
     /// Add a member with their encrypted sender key
     pub fn add_member_with_key(&mut self, user_id: &str, encrypted_key: &[u8]) -> Result<(), SenderKeyError> {
-        if encrypted_key.len() < 64 {
+        if encrypted_key.len() < 12 + 16 {
+            // 12 (nonce) + 16 (auth tag minimum for 0-byte plaintext, but we have 32-byte key)
             return Err(SenderKeyError::EncryptionFailed("Invalid encrypted key".to_string()));
         }
 
-        // Decrypt sender key with group key (simplified - in production use proper AEAD)
-        let decrypted = encrypted_key.to_vec();
-        if decrypted.len() < 64 {
-            return Err(SenderKeyError::DecryptionFailed("Key too short".to_string()));
-        }
+        let cipher = Aes256Gcm::new_from_slice(&self.group_key)
+            .map_err(|e| SenderKeyError::DecryptionFailed(e.to_string()))?;
 
-        let sender_key: [u8; 32] = decrypted[32..64].try_into()
-            .map_err(|_| SenderKeyError::DecryptionFailed("Invalid key length".to_string()))?;
+        let nonce = Nonce::from_slice(&encrypted_key[..12]);
+        let ciphertext = &encrypted_key[12..];
+
+        let sender_key = cipher
+            .decrypt(nonce, ciphertext)
+            .map_err(|e| SenderKeyError::DecryptionFailed(e.to_string()))?;
+
+        let sender_key: [u8; 32] = sender_key.as_slice().try_into()
+            .map_err(|_| SenderKeyError::DecryptionFailed("Invalid sender key length".to_string()))?;
+
         let mut chain_key = [0u8; 32];
         OsRng.unwrap_err().fill(&mut chain_key);
 
@@ -253,29 +275,44 @@ impl GroupSession {
         Self::simple_decrypt(&message.ciphertext, &message_key)
     }
 
-    /// Simple symmetric encryption (simplified - use AES-GCM in production)
+    /// AES-256-GCM encryption with message key
     fn simple_encrypt(plaintext: &[u8], key: &[u8; 32]) -> Vec<u8> {
-        let mut result = Vec::with_capacity(plaintext.len() + 16);
-        // Add simple header
-        result.extend_from_slice(b"SKEY_V1");
-        // XOR encryption with key stream
-        for (i, byte) in plaintext.iter().enumerate() {
-            result.push(byte ^ key[i % 32]);
-        }
+        let cipher = Aes256Gcm::new_from_slice(key)
+            .expect("AES-256-GCM key size is correct");
+
+        // Generate random 12-byte nonce
+        let mut nonce_bytes = [0u8; 12];
+        OsRng.unwrap_err().fill(&mut nonce_bytes);
+        let nonce = Nonce::from_slice(&nonce_bytes);
+
+        // Encrypt (ciphertext includes auth tag)
+        let ciphertext = cipher
+            .encrypt(nonce, plaintext)
+            .expect("AES-GCM encryption should not fail");
+
+        // Format: nonce (12 bytes) || ciphertext
+        let mut result = nonce_bytes.to_vec();
+        result.extend(ciphertext);
         result
     }
 
-    /// Simple symmetric decryption
+    /// AES-256-GCM decryption with message key
     fn simple_decrypt(ciphertext: &[u8], key: &[u8; 32]) -> Result<Vec<u8>, SenderKeyError> {
-        if ciphertext.len() < 7 || &ciphertext[0..7] != b"SKEY_V1" {
-            return Err(SenderKeyError::DecryptionFailed("Invalid format".to_string()));
+        if ciphertext.len() < 12 {
+            return Err(SenderKeyError::DecryptionFailed("Ciphertext too short".to_string()));
         }
 
-        let mut result = Vec::with_capacity(ciphertext.len() - 7);
-        for (i, byte) in ciphertext[7..].iter().enumerate() {
-            result.push(byte ^ key[i % 32]);
-        }
-        Ok(result)
+        let cipher = Aes256Gcm::new_from_slice(key)
+            .map_err(|e| SenderKeyError::DecryptionFailed(e.to_string()))?;
+
+        // Extract nonce and ciphertext
+        let nonce = Nonce::from_slice(&ciphertext[..12]);
+        let ciphertext_data = &ciphertext[12..];
+
+        // Decrypt
+        cipher
+            .decrypt(nonce, ciphertext_data)
+            .map_err(|e| SenderKeyError::DecryptionFailed(e.to_string()))
     }
 
     /// Get group key (for distributing to new members)
