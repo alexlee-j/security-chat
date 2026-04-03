@@ -19,6 +19,7 @@ export class SignedPreKey {
   @Column()
   userId!: string;
 
+  @Index()
   @Column()
   signedPreKeyId!: number;
 
@@ -48,6 +49,7 @@ export class KyberPreKey {
   @Column()
   userId!: string;
 
+  @Index()
   @Column()
   kyberPreKeyId!: number;
 
