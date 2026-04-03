@@ -16,6 +16,7 @@ import { UserModule } from './modules/user/user.module';
 import { MailModule } from './modules/mail/mail.module';
 import { MetricsModule } from './modules/metrics/metrics.module';
 import { IdentityModule } from './modules/identity/identity.module';
+import { GroupModule } from './modules/group/group.module';
 
 @Module({
   imports: [
@@ -34,6 +35,7 @@ import { IdentityModule } from './modules/identity/identity.module';
     MailModule,
     MetricsModule,
     IdentityModule,
+    GroupModule,
   ],
   controllers: [AppController],
   providers: [AppService],
