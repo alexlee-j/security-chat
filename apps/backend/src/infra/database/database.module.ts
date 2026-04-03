@@ -12,6 +12,7 @@ import { Device } from '../../modules/user/entities/device.entity';
 import { OneTimePrekey } from '../../modules/user/entities/one-time-prekey.entity';
 import { Notification } from '../../modules/notification/entities/notification.entity';
 import { SignedPreKey, KyberPreKey } from '../../modules/prekey/entities/prekey.entity';
+import { IdentityKey } from '../../modules/identity/identity.entity';
 
 @Module({
   imports: [
@@ -38,6 +39,7 @@ import { SignedPreKey, KyberPreKey } from '../../modules/prekey/entities/prekey.
           BurnEvent,
           Friendship,
           Notification,
+          IdentityKey,
         ],
         // ⚠️ 生产环境必须使用 migrations，synchronize 仅用于开发
         synchronize: configService.get<string>('NODE_ENV') !== 'production' && configService.get<string>('DB_SYNC', 'false') === 'true',
