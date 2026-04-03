@@ -122,3 +122,56 @@ export type ChatState = {
   isLoading: boolean;
   error: string | null;
 };
+
+// ==================== 群聊相关类型 (Week 12) ====================
+
+/** 群组类型 */
+export type GroupType = 1 | 2; // 1: 私密群, 2: 公开群
+
+/** 群组成员角色 */
+export type GroupMemberRole = 1 | 2; // 1: 管理员, 2: 成员
+
+/** 群组信息 */
+export type GroupInfo = {
+  id: string;
+  name: string;
+  avatarUrl: string | null;
+  type: GroupType;
+  creatorId: string;
+  createdAt: number;
+  updatedAt: number;
+  memberCount?: number;
+};
+
+/** 群组成员信息 */
+export type GroupMember = {
+  userId: string;
+  username: string;
+  avatarUrl: string | null;
+  role: GroupMemberRole;
+  joinedAt: number;
+};
+
+/** 创建群组请求 */
+export type CreateGroupRequest = {
+  name: string;
+  type: GroupType;
+  memberIds: string[];
+};
+
+/** 群组列表项 */
+export type GroupListItem = {
+  id: string;
+  name: string;
+  avatarUrl: string | null;
+  type: GroupType;
+  memberCount: number;
+  unreadCount: number;
+  lastMessage?: {
+    senderId: string;
+    senderName: string;
+    messageType: number;
+    encryptedPayload: string;
+    createdAt: string;
+  } | null;
+};

@@ -523,3 +523,104 @@ export async function uploadPrekeys(data: {
   const res = await http.post<ApiEnvelope<{ inserted: number; deviceId: string }>>('/user/keys/upload', data);
   return res.data.data;
 }
+
+// ==================== 群聊 API (Week 12) ====================
+
+/**
+ * 创建群组
+ */
+export async function createGroup(data: {
+  name: string;
+  type: 1 | 2;
+  memberIds: string[];
+}): Promise<{ groupId: string }> {
+  const res = await http.post<ApiEnvelope<{ groupId: string }>>('/group/create', data);
+  return res.data.data;
+}
+
+/**
+ * 获取群组信息
+ */
+export async function getGroup(groupId: string): Promise<{
+  id: string;
+  name: string;
+  avatarUrl: string | null;
+  type: number;
+  creatorId: string;
+  createdAt: number;
+  updatedAt: number;
+}> {
+  const res = await http.get<ApiEnvelope<{
+    id: string;
+    name: string;
+    avatarUrl: string | null;
+    type: number;
+    creatorId: string;
+    createdAt: number;
+    updatedAt: number;
+  }>>(`/group/${groupId}`);
+  return res.data.data;
+}
+
+/**
+ * 获取群组成员列表
+ */
+export async function getGroupMembers(groupId: string): Promise<Array<{
+  userId: string;
+  username: string;
+  avatarUrl: string | null;
+  role: number;
+  joinedAt: number;
+}>> {
+  const res = await http.get<ApiEnvelope<Array<{
+    userId: string;
+    username: string;
+    avatarUrl: string | null;
+    role: number;
+    joinedAt: number;
+}>>>(`/group/${groupId}/members`);
+  return res.data.data;
+}
+
+/**
+ * 添加群成员
+ */
+export async function addGroupMember(groupId: string, userId: string): Promise<void> {
+  await http.post<ApiEnvelope<null>>(`/group/${groupId}/members`, { userId });
+}
+
+/**
+ * 移除群成员
+ */
+export async function removeGroupMember(groupId: string, userId: string): Promise<void> {
+  await http.delete<ApiEnvelope<null>>(`/group/${groupId}/members/${userId}`);
+}
+
+/**
+ * 离开群组
+ */
+export async function leaveGroup(groupId: string): Promise<void> {
+  await http.post<ApiEnvelope<null>>(`/group/${groupId}/leave`);
+}
+
+/**
+ * 获取群组列表
+ */
+export async function getGroupList(): Promise<Array<{
+  id: string;
+  name: string;
+  avatarUrl: string | null;
+  type: number;
+  memberCount: number;
+  unreadCount: number;
+}>> {
+  const res = await http.get<ApiEnvelope<Array<{
+    id: string;
+    name: string;
+    avatarUrl: string | null;
+    type: number;
+    memberCount: number;
+    unreadCount: number;
+  }>>>('/group/list');
+  return res.data.data;
+}
