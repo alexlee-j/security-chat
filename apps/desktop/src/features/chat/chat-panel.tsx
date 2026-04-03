@@ -250,6 +250,10 @@ export function ChatPanel(props: Props): JSX.Element {
   const [forwardLoading, setForwardLoading] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info'; visible: boolean } | null>(null);
   const [confirmDialog, setConfirmDialog] = useState<{ open: boolean; messageId: string; message?: MessageItem } | null>(null);
+  // 阅后即焚倒计时状态
+  const [burnCountdowns, setBurnCountdowns] = useState<Record<string, number>>({});
+  // 正在销毁的消息ID
+  const [burningMessageIds, setBurningMessageIds] = useState<Set<string>>(new Set());
   const messageListRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
@@ -423,6 +427,74 @@ export function ChatPanel(props: Props): JSX.Element {
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [hasActiveConversation]);
+
+  // 阅后即焚倒计时计时器
+  useEffect(() => {
+    // 初始化需要倒计时的消息
+    const burnMessages = visibleMessages.filter((row) => row.isBurn && row.burnDuration && row.readAt);
+    const initialCountdowns: Record<string, number> = {};
+
+    burnMessages.forEach((row) => {
+      const readTime = row.readAt ? new Date(row.readAt).getTime() : 0;
+      const burnDuration = (row.burnDuration ?? 0) * 1000;
+      const remaining = Math.max(0, Math.floor((readTime + burnDuration - Date.now()) / 1000));
+      initialCountdowns[row.id] = remaining;
+    });
+
+    setBurnCountdowns(initialCountdowns);
+  }, [visibleMessages]);
+
+  // 倒计时更新
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setBurnCountdowns((prev) => {
+        const next: Record<string, number> = {};
+        let hasActive = false;
+
+        Object.entries(prev).forEach(([id, remaining]) => {
+          if (remaining > 0) {
+            const newRemaining = remaining - 1;
+            next[id] = newRemaining;
+            if (newRemaining > 0) {
+              hasActive = true;
+            } else {
+              // 时间到，触发销毁
+              setBurningMessageIds((prev) => new Set(prev).add(id));
+              void handleBurnComplete(id);
+            }
+          }
+        });
+
+        if (!hasActive) {
+          clearInterval(interval);
+        }
+        return next;
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [visibleMessages]);
+
+  async function handleBurnComplete(messageId: string): Promise<void> {
+    // 等待动画完成
+    setTimeout(async () => {
+      try {
+        await props.onTriggerBurn(messageId);
+      } catch (error) {
+        console.error('[ChatPanel] Burn message failed:', error);
+      }
+      setBurningMessageIds((prev) => {
+        const next = new Set(prev);
+        next.delete(messageId);
+        return next;
+      });
+      setBurnCountdowns((prev) => {
+        const next = { ...prev };
+        delete next[messageId];
+        return next;
+      });
+    }, 800); // 动画时长
+  }
 
   async function prepareAudioSource(row: MessageItem, payload: PayloadData): Promise<void> {
     if (audioSourceMap[row.id]) {
@@ -662,6 +734,11 @@ export function ChatPanel(props: Props): JSX.Element {
       closeContextMenu();
       return;
     }
+    if (message.isRevoked) {
+      showToast('消息已撤回', 'info');
+      closeContextMenu();
+      return;
+    }
     // 显示确认对话框
     setConfirmDialog({
       open: true,
@@ -796,14 +873,18 @@ export function ChatPanel(props: Props): JSX.Element {
             {visibleMessages.map((row) => {
               const decoded = props.decodePayload(row.encryptedPayload);
               const payload = parsePayload(decoded);
+              const isBurning = burningMessageIds.has(row.id);
+              const isRevoked = row.isRevoked;
+              const burnCountdown = burnCountdowns[row.id];
+              const showBurnTimer = row.isBurn && burnCountdown !== undefined && burnCountdown > 0 && !isBurning;
               return (
                 <article
                   key={row.id}
                   data-msg-id={row.id}
-                  className={`${row.senderId === props.currentUserId ? 'message self' : 'message'}${focusedMessageId === row.id ? ' focused' : ''}`}
+                  className={`${row.senderId === props.currentUserId ? 'message self' : 'message'}${focusedMessageId === row.id ? ' focused' : ''}${isBurning ? ' message-burning' : ''}${isRevoked ? ' message-revoked' : ''}`}
                   onContextMenu={(e) => openContextMenu(e, row)}
                 >
-                  <div className="message-content" style={{ marginBottom: row.isBurn ? '6px' : '0' }}>
+                  <div className="message-content" style={{ marginBottom: row.isBurn || isRevoked ? '6px' : '0' }}>
                     {payload.replyTo ? (
                       <div
                         className="message-reply"
@@ -831,7 +912,14 @@ export function ChatPanel(props: Props): JSX.Element {
                         </div>
                       </div>
                     ) : null}
-                    {row.messageType === 1 ? (
+                    {isRevoked ? (
+                      <div className="message-revoked-content">
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z" fill="currentColor"/>
+                        </svg>
+                        <span>消息已撤回</span>
+                      </div>
+                    ) : row.messageType === 1 ? (
                       renderHighlightedText(payload.text ?? '', searchKeyword)
                     ) : row.messageType === 2 ? (
                       <div className="message-image-wrapper">
@@ -879,8 +967,15 @@ export function ChatPanel(props: Props): JSX.Element {
 
                   <small className="message-meta">
                     <span>{formatTime(row.createdAt)}</span>
-                    <span>{row.readAt ? '已读' : row.deliveredAt ? '已送达' : '已发送'}</span>
-                    {row.isBurn ? (
+                    <span>{isRevoked ? '已撤回' : row.readAt ? '已读' : row.deliveredAt ? '已送达' : '已发送'}</span>
+                    {showBurnTimer ? (
+                      <span className="message-burn-countdown">
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" fill="currentColor"/>
+                        </svg>
+                        {burnCountdown}s
+                      </span>
+                    ) : row.isBurn && !isRevoked ? (
                       <button type="button" className="message-burn-btn" onClick={() => void props.onTriggerBurn(row.id)}>
                         焚毁
                       </button>
@@ -1099,38 +1194,47 @@ export function ChatPanel(props: Props): JSX.Element {
         style={{ left: `${contextMenu.x}px`, top: `${contextMenu.y}px` }}
         onClick={(e) => e.stopPropagation()}
       >
-        <button type="button" onClick={() => copyMessage(contextMenu.message.id)}>
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z" fill="currentColor"/>
-          </svg>
-          复制
-        </button>
-        <button type="button" onClick={() => replyMessage(contextMenu.message.id)}>
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z" fill="currentColor"/>
-          </svg>
-          引用
-        </button>
-        <button type="button" onClick={() => forwardMessage(contextMenu.message.id)}>
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92s2.92-1.31 2.92-2.92-1.31-2.92-2.92-2.92z" fill="currentColor"/>
-          </svg>
-          转发
-        </button>
-        {[2, 4].includes(contextMenu.message.messageType) ? (
-          <button type="button" onClick={() => downloadMedia(contextMenu.message)}>
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z" fill="currentColor"/>
-            </svg>
-            下载
-          </button>
+        {!contextMenu.message.isRevoked ? (
+          <>
+            <button type="button" onClick={() => copyMessage(contextMenu.message.id)}>
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z" fill="currentColor"/>
+              </svg>
+              复制
+            </button>
+            <button type="button" onClick={() => replyMessage(contextMenu.message.id)}>
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z" fill="currentColor"/>
+              </svg>
+              引用
+            </button>
+            <button type="button" onClick={() => forwardMessage(contextMenu.message.id)}>
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92s2.92-1.31 2.92-2.92-1.31-2.92-2.92-2.92z" fill="currentColor"/>
+              </svg>
+              转发
+            </button>
+            {[2, 4].includes(contextMenu.message.messageType) ? (
+              <button type="button" onClick={() => downloadMedia(contextMenu.message)}>
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z" fill="currentColor"/>
+                </svg>
+                下载
+              </button>
+            ) : null}
+            <div className="message-context-menu-divider" />
+          </>
         ) : null}
-        <div className="message-context-menu-divider" />
-        <button type="button" className="message-context-menu-danger" onClick={() => deleteMessage(contextMenu.message.id)}>
+        <button
+          type="button"
+          className={`message-context-menu-danger ${contextMenu.message.isRevoked ? 'disabled' : ''}`}
+          onClick={() => deleteMessage(contextMenu.message.id)}
+          disabled={contextMenu.message.isRevoked}
+        >
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" fill="currentColor"/>
           </svg>
-          删除
+          {contextMenu.message.isRevoked ? '已撤回' : '删除'}
         </button>
       </div>
     ) : null}

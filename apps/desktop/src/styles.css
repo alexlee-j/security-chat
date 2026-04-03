@@ -1537,6 +1537,87 @@ button:disabled {
   outline-offset: 2px;
 }
 
+/* 撤回消息样式 */
+.message-revoked {
+  opacity: 0.6;
+}
+
+.message-revoked .message-content {
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.message-revoked-content {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.message-revoked-content svg {
+  width: 16px;
+  height: 16px;
+  opacity: 0.6;
+}
+
+/* 阅后即焚倒计时样式 */
+.message-burn-countdown {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--burn-color, #ff4757);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.message-burn-countdown svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* 消息销毁动画 */
+@keyframes messageBurnAnimation {
+  0% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.5;
+    transform: scale(0.95);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+}
+
+.message-burning {
+  animation: messageBurnAnimation 0.8s ease-out forwards;
+  pointer-events: none;
+}
+
+.message-burning .message-content {
+  color: var(--burn-color, #ff4757);
+  opacity: 0.6;
+}
+
+/* 焚毁按钮样式 */
+.message-burn-btn {
+  background: rgba(255, 71, 87, 0.1);
+  color: var(--burn-color, #ff4757);
+  border: none;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.message-burn-btn:hover {
+  background: rgba(255, 71, 87, 0.2);
+}
+
 .message-content {
   line-height: 1.5;
   font-size: 15px;

@@ -45,6 +45,7 @@ export type MessageItem = {
   mediaAssetId: string | null;
   messageIndex: string;
   isBurn: boolean;
+  isRevoked?: boolean; // 消息是否已被撤回
   burnDuration: number | null;
   deliveredAt: string | null;
   readAt: string | null;
