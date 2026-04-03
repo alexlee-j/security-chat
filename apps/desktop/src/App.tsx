@@ -9,12 +9,14 @@
  * 更新说明：2026-03-14 添加 Cmd/Ctrl+K 快捷键快速聚焦搜索框功能
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { LoginScreen } from './features/auth/login-screen';
 import { ChatPanel } from './features/chat/chat-panel';
 import { ConversationSidebar } from './features/chat/conversation-sidebar';
 import { FriendPanel } from './features/friend/friend-panel';
 import { useChatClient } from './core/use-chat-client';
+import { getStoredCredentials, getRememberPassword, canAutoLogin } from './core/auth-storage';
+import { login as loginApi, setAuthToken } from './core/api';
 
 /**
  * 应用根组件
@@ -25,6 +27,67 @@ export function App(): JSX.Element {
   const { state, actions, activeConversation, decodePayload } = useChatClient();
   // 当前工作区：'chat' 聊天界面 | 'friend' 好友界面
   const [workspace, setWorkspace] = useState<'chat' | 'friend'>('chat');
+  // 用于跟踪是否已经尝试过自动登录
+  const autoLoginAttemptedRef = useRef(false);
+  // 使用 ref 保存 actions 以避免闭包问题
+  const actionsRef = useRef(actions);
+  actionsRef.current = actions;
+
+  // 更新 actionsRef 当 actions 变化时
+  useEffect(() => {
+    actionsRef.current = actions;
+  }, [actions]);
+
+  /**
+   * 启动时检查自动登录和记住密码状态
+   */
+  useEffect(() => {
+    async function checkAuthState(): Promise<void> {
+      // 如果已有认证状态，或已经尝试过自动登录，无需再次检查
+      if (state.auth || autoLoginAttemptedRef.current) {
+        return;
+      }
+      autoLoginAttemptedRef.current = true;
+
+      // 检查是否可以自动登录
+      if (await canAutoLogin()) {
+        const credentials = await getStoredCredentials();
+        if (credentials?.account && credentials?.encryptedPassword) {
+          // 自动填充凭证并设置选项
+          actionsRef.current.setAccount(credentials.account);
+          actionsRef.current.setPassword(credentials.encryptedPassword);
+          actionsRef.current.setRememberPassword(true);
+          actionsRef.current.setAutoLogin(true);
+
+          // 直接调用 login API 进行自动登录
+          try {
+            const result = await loginApi(credentials.account, credentials.encryptedPassword);
+            setAuthToken(result.accessToken);
+            actionsRef.current.setAuth({ token: result.accessToken, userId: result.userId });
+          } catch (error) {
+            console.error('[App] Auto login failed:', error);
+            // 自动登录失败，清除凭证
+            actionsRef.current.setRememberPassword(false);
+            actionsRef.current.setAutoLogin(false);
+          }
+          return;
+        }
+      }
+
+      // 检查是否记住密码
+      const rememberPassword = await getRememberPassword();
+      if (rememberPassword) {
+        const credentials = await getStoredCredentials();
+        if (credentials?.account && credentials?.encryptedPassword) {
+          actionsRef.current.setAccount(credentials.account);
+          actionsRef.current.setPassword(credentials.encryptedPassword);
+          actionsRef.current.setRememberPassword(true);
+        }
+      }
+    }
+
+    void checkAuthState();
+  }, [state.auth]);
 
   /**
    * 全局快捷键监听：Cmd/Ctrl + K 快速聚焦搜索框
@@ -63,11 +126,15 @@ export function App(): JSX.Element {
           authSubmitting={state.authSubmitting}
           sendingLoginCode={state.sendingLoginCode}
           loginCodeCooldown={state.loginCodeCooldown}
+          rememberPassword={state.rememberPassword}
+          autoLogin={state.autoLogin}
           onModeChange={actions.setAuthMode}
           onAccountChange={actions.setAccount}
           onRegisterEmailChange={actions.setRegisterEmail}
           onLoginCodeChange={actions.setLoginCode}
           onPasswordChange={actions.setPassword}
+          onRememberPasswordChange={actions.setRememberPassword}
+          onAutoLoginChange={actions.setAutoLogin}
           onLogin={actions.onLogin}
           onRegister={actions.onRegister}
           onSendLoginCode={actions.onSendLoginCode}

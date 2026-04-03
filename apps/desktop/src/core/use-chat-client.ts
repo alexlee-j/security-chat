@@ -56,6 +56,18 @@ import {
 } from './types';
 import { useSignal } from './use-signal';
 import { isSignalProtocolError, isExpectedSignalError } from './signal/errors';
+import {
+  storeCredentials,
+  getStoredCredentials,
+  clearCredentials,
+  setRememberPassword,
+  getRememberPassword,
+  setAutoLogin,
+  getAutoLogin,
+  clearAutoLogin,
+  clearAllAuthData,
+  canAutoLogin,
+} from './auth-storage';
 
 const MESSAGE_CURSOR_STORAGE_KEY = 'security-chat.desktop.message-cursors.v1';
 const MESSAGE_DRAFT_STORAGE_KEY = 'security-chat.desktop.message-drafts.v1';
@@ -100,6 +112,10 @@ export type ChatClientState = {
   authSubmitting: boolean;
   sendingLoginCode: boolean;
   loginCodeCooldown: number;
+  /** 是否记住密码 */
+  rememberPassword: boolean;
+  /** 是否自动登录 */
+  autoLogin: boolean;
   error: string;
   /** Toast 提示状态 */
   toast: { message: string; type: 'success' | 'error' | 'info'; visible: boolean } | null;
@@ -137,6 +153,9 @@ export type ChatClientActions = {
   setRegisterEmail: (value: string) => void;
   setLoginCode: (value: string) => void;
   setPassword: (value: string) => void;
+  setRememberPassword: (value: boolean) => void;
+  setAutoLogin: (value: boolean) => void;
+  setAuth: (auth: AuthState | null) => void;
   setMessageText: (value: string) => void;
   setMessageType: (value: 1 | 2 | 3 | 4) => void;
   setMediaUrl: (value: string) => void;
@@ -198,6 +217,8 @@ export function useChatClient(): {
   const [authSubmitting, setAuthSubmitting] = useState(false);
   const [sendingLoginCode, setSendingLoginCode] = useState(false);
   const [loginCodeCooldown, setLoginCodeCooldown] = useState(0);
+  const [rememberPassword, setRememberPasswordState] = useState(false);
+  const [autoLogin, setAutoLoginState] = useState(false);
   const [error, setError] = useState('');
   
   // ==================== Toast 提示状态 ====================
@@ -672,11 +693,26 @@ export function useChatClient(): {
       const result = await login(account, password);
       setAuthToken(result.accessToken);
       setAuth({ token: result.accessToken, userId: result.userId });
-      
+
+      // 根据选项保存凭证
+      if (rememberPassword) {
+        await storeCredentials(account, password);
+        await setRememberPassword(true);
+      } else {
+        await clearCredentials();
+        await setRememberPassword(false);
+      }
+
+      if (autoLogin) {
+        await setAutoLogin({ enabled: true, expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000 });
+      } else {
+        await clearAutoLogin();
+      }
+
       // 登录后初始化 Signal 协议并检查预密钥
       try {
         await signalActions.initialize();
-        
+
         // 检查并补充预密钥
         const prekeysStatus = signalState.prekeysStatus;
         if (prekeysStatus && (!prekeysStatus.hasSignedPrekeys || !prekeysStatus.hasOneTimePrekeys || prekeysStatus.oneTimePrekeysCount < 100)) {
@@ -686,7 +722,7 @@ export function useChatClient(): {
         console.error('[Login] Failed to initialize Signal protocol:', signalError);
         // Signal 初始化失败不影响登录
       }
-      
+
       await Promise.all([loadConversations(), loadFriendData()]);
     } catch {
       showToast('登录失败，请检查账号密码或后端服务状态', 'error');
@@ -933,6 +969,8 @@ export function useChatClient(): {
     setSendingLoginCode(false);
     setLoginCodeCooldown(0);
     setPassword('');
+    setRememberPasswordState(false);
+    setAutoLoginState(false);
     setError('');
     // 清除加密密钥
     clearEncryptionKey();
@@ -987,6 +1025,9 @@ export function useChatClient(): {
     setPinnedConversationIds([]);
     setMutedConversationIds([]);
     saveConversationPrefSnapshot({ pinned: [], muted: [] });
+
+    // 清除记住密码和自动登录凭证
+    await clearAllAuthData();
   }
 
   // 验证码倒计时效果
@@ -1440,6 +1481,37 @@ export function useChatClient(): {
     pendingMediaAssetIdRef.current = null;
   }
 
+  /**
+   * 记住密码选项变化处理
+   * 取消记住密码时，自动取消自动登录
+   */
+  function handleRememberPasswordChange(value: boolean): void {
+    setRememberPasswordState(value);
+    if (!value) {
+      // 取消记住密码时，强制取消自动登录
+      setAutoLoginState(false);
+    }
+  }
+
+  /**
+   * 自动登录选项变化处理
+   * 勾选自动登录时，自动勾选记住密码
+   */
+  function handleAutoLoginChange(value: boolean): void {
+    setAutoLoginState(value);
+    if (value) {
+      // 勾选自动登录时，自动勾选记住密码
+      setRememberPasswordState(true);
+    }
+  }
+
+  /**
+   * 设置认证状态（用于自动登录）
+   */
+  function handleSetAuth(newAuth: AuthState | null): void {
+    setAuth(newAuth);
+  }
+
   useEffect(() => {
     authRef.current = auth;
   }, [auth]);
@@ -1754,6 +1826,8 @@ export function useChatClient(): {
       authSubmitting,
       sendingLoginCode,
       loginCodeCooldown,
+      rememberPassword,
+      autoLogin,
       error,
       toast,
       conversations,
@@ -1788,6 +1862,9 @@ export function useChatClient(): {
       setRegisterEmail,
       setLoginCode,
       setPassword,
+      setRememberPassword: handleRememberPasswordChange,
+      setAutoLogin: handleAutoLoginChange,
+      setAuth: handleSetAuth,
       setMessageText,
       setMessageType: handleMessageTypeChange,
       setMediaUrl: handleMediaUrlChange,

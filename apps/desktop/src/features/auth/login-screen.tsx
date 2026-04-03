@@ -10,11 +10,17 @@ type Props = {
   authSubmitting: boolean;
   sendingLoginCode: boolean;
   loginCodeCooldown: number;
+  /** 是否记住密码 */
+  rememberPassword: boolean;
+  /** 是否自动登录 */
+  autoLogin: boolean;
   onModeChange: (value: 'login' | 'register' | 'code') => void;
   onAccountChange: (value: string) => void;
   onRegisterEmailChange: (value: string) => void;
   onLoginCodeChange: (value: string) => void;
   onPasswordChange: (value: string) => void;
+  onRememberPasswordChange: (value: boolean) => void;
+  onAutoLoginChange: (value: boolean) => void;
   onLogin: (event: FormEvent<HTMLFormElement>) => Promise<void>;
   onRegister: (event: FormEvent<HTMLFormElement>) => Promise<void>;
   onSendLoginCode: () => Promise<void>;
@@ -72,6 +78,24 @@ export function LoginScreen(props: Props): JSX.Element {
                   className="auth-input"
                   maxLength={64}
                 />
+              </div>
+              <div className="auth-form-group auth-checkbox-group">
+                <label className="auth-checkbox">
+                  <input
+                    type="checkbox"
+                    checked={props.rememberPassword}
+                    onChange={(e) => props.onRememberPasswordChange(e.target.checked)}
+                  />
+                  <span className="auth-checkbox-label">记住密码</span>
+                </label>
+                <label className="auth-checkbox">
+                  <input
+                    type="checkbox"
+                    checked={props.autoLogin}
+                    onChange={(e) => props.onAutoLoginChange(e.target.checked)}
+                  />
+                  <span className="auth-checkbox-label">自动登录</span>
+                </label>
               </div>
               <button type="submit" className="auth-button primary" disabled={props.authSubmitting}>
                 {props.authSubmitting ? (
