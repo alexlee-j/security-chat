@@ -4,6 +4,7 @@ import {
   Post,
   Body,
   Param,
+  Query,
   ParseUUIDPipe,
   UseGuards,
   NotFoundException,
@@ -146,7 +147,7 @@ export class IdentityController {
   async verify(
     @CurrentUser() user: RequestUser,
     @Param('deviceId', new ParseUUIDPipe()) deviceId: string,
-    @Body('fingerprint') fingerprint: string,
+    @Query('fingerprint') fingerprint: string,
   ): Promise<{ valid: boolean }> {
     const valid = await this.identityService.verify(user.userId, deviceId, fingerprint);
     return { valid };
