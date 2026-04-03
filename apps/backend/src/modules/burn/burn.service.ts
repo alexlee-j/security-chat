@@ -2,9 +2,11 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { Repository } from 'typeorm';
+import { unlink } from 'node:fs/promises';
 import { ConversationService } from '../conversation/conversation.service';
 import { MessageGateway } from '../message/gateways/message.gateway';
 import { Message } from '../message/entities/message.entity';
+import { MediaAsset } from '../media/entities/media-asset.entity';
 import { BurnEvent } from './entities/burn-event.entity';
 
 @Injectable()
@@ -14,6 +16,8 @@ export class BurnService {
     private readonly burnEventRepository: Repository<BurnEvent>,
     @InjectRepository(Message)
     private readonly messageRepository: Repository<Message>,
+    @InjectRepository(MediaAsset)
+    private readonly mediaAssetRepository: Repository<MediaAsset>,
     private readonly dataSource: DataSource,
     private readonly conversationService: ConversationService,
     private readonly messageGateway: MessageGateway,
@@ -61,6 +65,21 @@ export class BurnService {
         };
       }
       throw new BadRequestException('Failed to trigger burn');
+    }
+
+    // Delete associated media file if exists
+    if (message.mediaAssetId) {
+      const mediaAsset = await this.mediaAssetRepository.findOne({
+        where: { id: message.mediaAssetId },
+      });
+      if (mediaAsset) {
+        try {
+          await unlink(mediaAsset.storagePath);
+        } catch {
+          // File may already be deleted, continue
+        }
+        await this.mediaAssetRepository.delete({ id: message.mediaAssetId });
+      }
     }
 
     await this.messageRepository.delete({ id: messageId });

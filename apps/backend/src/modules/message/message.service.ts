@@ -1,11 +1,13 @@
 import { BadRequestException, Inject, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, Repository } from 'typeorm';
+import { unlink } from 'node:fs/promises';
 import { ConversationService } from '../conversation/conversation.service';
 import { Conversation } from '../conversation/entities/conversation.entity';
 import { MediaAsset } from '../media/entities/media-asset.entity';
 import { Message } from './entities/message.entity';
 import { DraftMessage } from './entities/draft-message.entity';
+import { RevokeEvent } from './entities/revoke-event.entity';
 import { SendMessageDto } from './dto/send-message.dto';
 import { QueryMessagesDto } from './dto/query-messages.dto';
 import { AckDeliveredDto } from './dto/ack-delivered.dto';
@@ -61,6 +63,10 @@ export class MessageService implements OnModuleInit, OnModuleDestroy {
     private readonly messageRepository: Repository<Message>,
     @InjectRepository(DraftMessage)
     private readonly draftRepository: Repository<DraftMessage>,
+    @InjectRepository(RevokeEvent)
+    private readonly revokeEventRepository: Repository<RevokeEvent>,
+    @InjectRepository(MediaAsset)
+    private readonly mediaAssetRepository: Repository<MediaAsset>,
     private readonly dataSource: DataSource,
     private readonly conversationService: ConversationService,
     private readonly messageGateway: MessageGateway,
@@ -71,10 +77,9 @@ export class MessageService implements OnModuleInit, OnModuleDestroy {
   onModuleInit(): void {
     // Proactively clean expired burn messages so clients receive burn.triggered
     // without requiring a conversation refresh.
-    // Optimized: Reduced interval from 1s to 10s to reduce database load
     this.burnSweepTimer = setInterval(() => {
       void this.sweepExpiredBurnMessages();
-    }, 10000);
+    }, 1000);
   }
 
   onModuleDestroy(): void {
@@ -459,40 +464,80 @@ export class MessageService implements OnModuleInit, OnModuleDestroy {
       params.push(conversationId);
     }
 
-    const rows = await this.dataSource.query(
+    // First, fetch expired messages with their media asset IDs for cleanup
+    const expiredMessages = await this.dataSource.query(
       `
-      WITH expired AS (
-        SELECT m.id, m.conversation_id
-        FROM messages m
-        WHERE m.is_burn = true
-          AND (
-            (
-              m.read_at IS NOT NULL
-              AND m.burn_duration IS NOT NULL
-              AND m.read_at + (m.burn_duration || ' seconds')::interval <= CURRENT_TIMESTAMP
-            )
-            OR (
-              m.read_at IS NULL
-              AND m.created_at <= CURRENT_TIMESTAMP - interval '24 hours'
-            )
+      SELECT m.id::text AS id, m.conversation_id::text AS conversation_id, m.media_asset_id::text AS media_asset_id
+      FROM messages m
+      WHERE m.is_burn = true
+        AND (
+          (
+            m.read_at IS NOT NULL
+            AND m.burn_duration IS NOT NULL
+            AND m.read_at + (m.burn_duration || ' seconds')::interval <= CURRENT_TIMESTAMP
           )
-          ${conversationFilter}
-        FOR UPDATE SKIP LOCKED
-      )
-      DELETE FROM messages t
-      USING expired e
-      WHERE t.id = e.id
-      RETURNING e.id::text AS id, e.conversation_id::text AS conversation_id;
+          OR (
+            m.read_at IS NULL
+            AND m.created_at <= CURRENT_TIMESTAMP - interval '24 hours'
+          )
+        )
+        ${conversationFilter}
+      FOR UPDATE SKIP LOCKED;
       `,
       params,
     );
 
-    return (rows as ExpiredBurnRowRaw[])
+    if (expiredMessages.length === 0) {
+      return [];
+    }
+
+    // Delete associated media files
+    const mediaAssetIds = expiredMessages
+      .map((row: { media_asset_id?: string }) => row.media_asset_id)
+      .filter(Boolean);
+    if (mediaAssetIds.length > 0) {
+      await this.cleanupMediaAssets(mediaAssetIds as string[]);
+    }
+
+    // Delete messages
+    const messageIds = expiredMessages.map((row: { id?: string }) => row.id).filter(Boolean);
+    if (messageIds.length > 0) {
+      await this.dataSource.query(
+        `DELETE FROM messages WHERE id = ANY($1::uuid[]);`,
+        [messageIds],
+      );
+    }
+
+    return (expiredMessages as ExpiredBurnRowRaw[])
       .map((row) => ({
         id: row.id,
         conversationId: row.conversation_id ?? row.conversationId ?? row.conversationid ?? '',
       }))
       .filter((row) => row.id && row.conversationId);
+  }
+
+  private async cleanupMediaAssets(mediaAssetIds: string[]): Promise<void> {
+    if (mediaAssetIds.length === 0) {
+      return;
+    }
+
+    // Fetch media assets to get storage paths
+    const mediaAssets = await this.mediaAssetRepository
+      .createQueryBuilder()
+      .where('id = ANY(:ids)', { ids: mediaAssetIds })
+      .getMany();
+
+    // Delete files from storage
+    for (const asset of mediaAssets) {
+      try {
+        await unlink(asset.storagePath);
+      } catch {
+        // File may already be deleted, continue
+      }
+    }
+
+    // Delete media asset records
+    await this.mediaAssetRepository.delete(mediaAssetIds);
   }
 
   private async assertAndBindMediaAsset(
@@ -651,7 +696,7 @@ export class MessageService implements OnModuleInit, OnModuleDestroy {
   async revokeMessage(userId: string, dto: AckRevokeDto): Promise<{ revokedCount: number }> {
     const message = await this.messageRepository.findOne({
       where: { id: dto.messageId },
-      select: ['id', 'conversationId', 'senderId', 'messageIndex', 'isRevoked'],
+      select: ['id', 'conversationId', 'senderId', 'messageIndex', 'isRevoked', 'createdAt'],
     });
     if (!message) {
       throw new NotFoundException('Message not found');
@@ -667,6 +712,13 @@ export class MessageService implements OnModuleInit, OnModuleDestroy {
       return { revokedCount: 0 };
     }
 
+    // 5-minute revoke time limit
+    const createdAt = message.createdAt instanceof Date ? message.createdAt : new Date(message.createdAt);
+    const fiveMinutesLater = new Date(createdAt.getTime() + 5 * 60 * 1000);
+    if (Date.now() > fiveMinutesLater.getTime()) {
+      throw new BadRequestException('Revoke time limit exceeded (5 minutes)');
+    }
+
     const result = await this.messageRepository
       .createQueryBuilder()
       .update(Message)
@@ -680,6 +732,18 @@ export class MessageService implements OnModuleInit, OnModuleDestroy {
 
     const revokedCount = result.affected ?? 0;
     if (revokedCount > 0) {
+      // Log revoke event
+      try {
+        await this.revokeEventRepository.save(
+          this.revokeEventRepository.create({
+            messageId: message.id,
+            conversationId: message.conversationId,
+            revokedBy: userId,
+          }),
+        );
+      } catch {
+        // Ignore duplicate key errors (concurrent revoke requests)
+      }
       // 异步处理WebSocket事件，避免阻塞主流程
       void this.handleRevokeEvent(message, userId);
     }

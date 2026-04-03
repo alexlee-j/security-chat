@@ -5,6 +5,8 @@ import { ConversationMember } from '../../modules/conversation/entities/conversa
 import { Conversation } from '../../modules/conversation/entities/conversation.entity';
 import { BurnEvent } from '../../modules/burn/entities/burn-event.entity';
 import { Message } from '../../modules/message/entities/message.entity';
+import { RevokeEvent } from '../../modules/message/entities/revoke-event.entity';
+import { DraftMessage } from '../../modules/message/entities/draft-message.entity';
 import { MediaAsset } from '../../modules/media/entities/media-asset.entity';
 import { Friendship } from '../../modules/friend/entities/friendship.entity';
 import { User } from '../../modules/user/entities/user.entity';
@@ -38,6 +40,8 @@ import { SenderKey } from '../../modules/group/entities/sender-key.entity';
           Conversation,
           ConversationMember,
           Message,
+          DraftMessage,
+          RevokeEvent,
           MediaAsset,
           BurnEvent,
           Friendship,
