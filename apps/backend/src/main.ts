@@ -4,6 +4,7 @@ import { NestFactory } from '@nestjs/core';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 import { AppModule } from './app.module';
+import type { Request, Response, NextFunction } from 'express';
 
 async function bootstrap(): Promise<void> {
   // 生产环境日志配置
@@ -49,33 +50,36 @@ async function bootstrap(): Promise<void> {
   const localhostPattern = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
   const privateNetworkPattern = /^https?:\/\/(192\.168|10\.|172\.(1[6-9]|2[0-9]|3[0-1]))\.\d+\.\d+(:\d+)?$/;
   
-  app.enableCors({
-    origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
-      // 开发环境：允许所有本地和私有网络地址
-      if (process.env.NODE_ENV === 'development') {
-        if (!origin || 
-            localhostPattern.test(origin) || 
-            privateNetworkPattern.test(origin) ||
-            tauriOrigins.includes(origin) ||
-            devOrigins.includes(origin)) {
+  // 开发环境允许所有源（方便调试）
+  if (process.env.NODE_ENV === 'development') {
+    // 添加显式的 CORS 中间件来处理 OPTIONS 预检请求
+    // 注意：不使用 app.enableCors()，因为它会干扰自定义中间件
+    app.use((req: Request, res: Response, next: NextFunction) => {
+      res.setHeader('Access-Control-Allow-Origin', req.headers.origin || 'http://localhost');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+      if (req.method === 'OPTIONS') {
+        res.sendStatus(200);
+        return;
+      }
+      next();
+    });
+  } else {
+    // 生产环境使用严格的 CORS 配置
+    app.enableCors({
+      origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+        // 允许 Tauri 应用和配置的 Web 域名
+        if (!origin || tauriOrigins.includes(origin) || prodOrigins.includes(origin)) {
           callback(null, true);
           return;
         }
-      }
-      
-      // 生产环境：只允许 Tauri 应用和配置的 Web 域名
-      if (origin && (tauriOrigins.includes(origin) || prodOrigins.includes(origin))) {
-        callback(null, true);
-        return;
-      }
-      
-      // 其他来源拒绝
-      callback(null, false);
-    },
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
-  });
+        callback(null, false);
+      },
+      credentials: true,
+      methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+      allowedHeaders: ['Content-Type', 'Authorization'],
+    });
+  }
   app.use((req: { traceId?: string }, res: { setHeader: (name: string, value: string) => void }, next: () => void) => {
     const traceId = randomUUID();
     req.traceId = traceId;

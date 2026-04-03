@@ -1,0 +1,167 @@
+# Security Chat 生产环境 Docker Compose 配置
+# 适用于 AMD64/x86_64 架构服务器
+# 使用: docker-compose -f docker-compose.prod.yml up -d
+
+services:
+  # 后端 API 服务
+  api:
+    build:
+      context: ./apps/backend
+      dockerfile: Dockerfile.prod
+    platform: linux/amd64
+    container_name: security-chat-api
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      # 数据库配置（使用 Docker 网络服务名）
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=${DB_USER:-security_chat_user}
+      - DB_PASSWORD=${DB_PASSWORD:-security_chat_pass}
+      - DB_NAME=${DB_NAME:-security_chat}
+      - DB_SYNC=false
+      - DB_RUN_MIGRATIONS=true
+      # Redis 配置
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-redis_password}
+      # JWT 配置
+      - JWT_SECRET=${JWT_SECRET}
+      - JWT_EXPIRES_IN=7d
+      # 日志配置
+      - LOG_LEVEL=${LOG_LEVEL:-warn}
+      - LOG_HTTP=${LOG_HTTP:-1}
+      # CORS 配置
+      - PROD_DOMAINS=${PROD_DOMAINS:-https://www.silencelee.cn,https://silencelee.cn}
+      # MinIO 配置
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=${MINIO_ROOT_USER:-minioadmin}
+      - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD:-minioadmin}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    networks:
+      - security_chat_net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/api/v1/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 256M
+
+  # PostgreSQL 数据库
+  postgres:
+    image: public.ecr.aws/docker/library/postgres:16-alpine
+    platform: linux/amd64
+    container_name: security-chat-postgres
+    environment:
+      - POSTGRES_USER=${DB_USER:-security_chat_user}
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-security_chat_pass}
+      - POSTGRES_DB=${DB_NAME:-security_chat}
+      - TZ=Asia/Shanghai
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
+    networks:
+      - security_chat_net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-security_chat_user} -d ${DB_NAME:-security_chat}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  # Redis 缓存
+  redis:
+    image: public.ecr.aws/docker/library/redis:7-alpine
+    platform: linux/amd64
+    container_name: security-chat-redis
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-redis_password}
+    volumes:
+      - redis_data:/data
+    networks:
+      - security_chat_net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-redis_password}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  # MinIO 对象存储（媒体文件）
+  minio:
+    image: quay.io/minio/minio:latest
+    platform: linux/amd64
+    container_name: security-chat-minio
+    command: server /data --console-address ":9001"
+    environment:
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minioadmin}
+      - TZ=Asia/Shanghai
+    volumes:
+      - minio_data:/data
+    networks:
+      - security_chat_net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  # Nginx 反向代理
+  nginx:
+    image: public.ecr.aws/docker/library/nginx:alpine
+    platform: linux/amd64
+    container_name: security-chat-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/logs:/var/log/nginx
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - api
+    networks:
+      - security_chat_net
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  minio_data:
+    driver: local
+
+networks:
+  security_chat_net:
+    driver: bridge
