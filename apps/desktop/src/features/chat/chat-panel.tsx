@@ -242,6 +242,9 @@ export function ChatPanel(props: Props): JSX.Element {
   const [imagePreviewOpen, setImagePreviewOpen] = useState(false);
   const [imagePreviewSrc, setImagePreviewSrc] = useState('');
   const [imageSourceMap, setImageSourceMap] = useState<Record<string, string>>({});
+  // 图片懒加载 - 追踪哪些图片应该在视口内加载
+  const [visibleImageIds, setVisibleImageIds] = useState<Set<string>>(new Set());
+  const imageObserverRef = useRef<IntersectionObserver | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; message: MessageItem } | null>(null);
   const [forwardDialogOpen, setForwardDialogOpen] = useState(false);
   const [forwardMessageId, setForwardMessageId] = useState('');
@@ -254,6 +257,8 @@ export function ChatPanel(props: Props): JSX.Element {
   const [burnCountdowns, setBurnCountdowns] = useState<Record<string, number>>({});
   // 正在销毁的消息ID
   const [burningMessageIds, setBurningMessageIds] = useState<Set<string>>(new Set());
+  // 增量加载状态
+  const [displayedMessageCount, setDisplayedMessageCount] = useState(50);
   const messageListRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
@@ -306,6 +311,20 @@ export function ChatPanel(props: Props): JSX.Element {
     });
   }, [props.messages, searchKeyword, props.decodePayload]);
 
+  // 增量加载 - 只显示一部分消息
+  const displayedMessages = useMemo(() => {
+    if (searchKeyword.trim()) {
+      // 搜索模式下显示所有匹配结果
+      return visibleMessages;
+    }
+    // 增量加载模式：新消息在底部，只显示最后 displayedMessageCount 条
+    const messages = visibleMessages;
+    if (messages.length <= displayedMessageCount) {
+      return messages;
+    }
+    return messages.slice(messages.length - displayedMessageCount);
+  }, [visibleMessages, displayedMessageCount, searchKeyword]);
+
   function clearComposer(): void {
     props.onMessageTextChange('');
     props.onMediaUrlChange('');
@@ -329,6 +348,15 @@ export function ChatPanel(props: Props): JSX.Element {
     }
     const distanceToBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
     stickToBottomRef.current = distanceToBottom <= 80;
+
+    // 增量加载：当滚动到顶部附近且有更多历史消息时，加载更多
+    if (container.scrollTop <= 100 && props.hasMoreHistory && !searchKeyword.trim()) {
+      const totalMessages = visibleMessages.length;
+      if (totalMessages >= displayedMessageCount) {
+        // 已经显示了足够多的消息，可以继续增量加载
+        setDisplayedMessageCount((prev) => prev + 30);
+      }
+    }
   }
 
   function appendEmoji(emoji: string): void {
@@ -372,6 +400,8 @@ export function ChatPanel(props: Props): JSX.Element {
     setImageSourceMap({});
     setImagePreviewOpen(false);
     setImagePreviewSrc('');
+    setVisibleImageIds(new Set());
+    setDisplayedMessageCount(50);
     stickToBottomRef.current = true;
     window.requestAnimationFrame(() => {
       scrollToBottom();
@@ -388,10 +418,50 @@ export function ChatPanel(props: Props): JSX.Element {
     messageListRef.current.scrollTop = messageListRef.current.scrollHeight;
   }, [visibleMessages.length, props.typingHint, props.activeConversationId]);
 
-  // 自动加载图片消息
+  // 设置图片懒加载 - Intersection Observer
+  useEffect(() => {
+    if (!messageListRef.current) {
+      return;
+    }
+
+    // 创建 Intersection Observer
+    imageObserverRef.current = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          const messageId = (entry.target as HTMLElement).dataset.msgId;
+          if (!messageId) return;
+
+          if (entry.isIntersecting) {
+            setVisibleImageIds((prev) => new Set(prev).add(messageId));
+          }
+        });
+      },
+      {
+        root: messageListRef.current,
+        rootMargin: '100px', // 提前 100px 开始加载
+        threshold: 0.01,
+      }
+    );
+
+    // 观察所有图片消息元素
+    const imageElements = messageListRef.current.querySelectorAll('[data-msg-type="2"]');
+    imageElements.forEach((el) => {
+      imageObserverRef.current?.observe(el);
+    });
+
+    return () => {
+      imageObserverRef.current?.disconnect();
+    };
+  }, [visibleMessages]);
+
+  // 懒加载图片 - 只加载可见区域的图片
   useEffect(() => {
     visibleMessages.forEach((row) => {
       if (row.messageType !== 2) {
+        return;
+      }
+      // 检查图片是否可见
+      if (!visibleImageIds.has(row.id)) {
         return;
       }
       if (imageSourceMap[row.id]) {
@@ -400,7 +470,7 @@ export function ChatPanel(props: Props): JSX.Element {
       const payload = parsePayload(props.decodePayload(row.encryptedPayload));
       void prepareImageSource(row, payload);
     });
-  }, [visibleMessages]);
+  }, [visibleMessages, visibleImageIds]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent | globalThis.KeyboardEvent): void => {
@@ -861,16 +931,22 @@ export function ChatPanel(props: Props): JSX.Element {
           <div className="empty-state">还没有消息，发一条试试看。</div>
         ) : (
           <>
-            {props.hasMoreHistory ? (
+            {props.hasMoreHistory && visibleMessages.length >= displayedMessageCount ? (
               <div className="history-loader">
                 <button type="button" onClick={() => void props.onLoadOlderMessages()} disabled={props.loadingMoreHistory}>
                   {props.loadingMoreHistory ? '加载中...' : '加载更早消息'}
                 </button>
               </div>
+            ) : props.hasMoreHistory ? (
+              <div className="history-loader">
+                <button type="button" onClick={() => void props.onLoadOlderMessages()} disabled={props.loadingMoreHistory}>
+                  {props.loadingMoreHistory ? '加载中...' : '查看更早消息'}
+                </button>
+              </div>
             ) : (
               <div className="history-end subtle">没有更早消息了</div>
             )}
-            {visibleMessages.map((row) => {
+            {displayedMessages.map((row) => {
               const decoded = props.decodePayload(row.encryptedPayload);
               const payload = parsePayload(decoded);
               const isBurning = burningMessageIds.has(row.id);
@@ -881,6 +957,7 @@ export function ChatPanel(props: Props): JSX.Element {
                 <article
                   key={row.id}
                   data-msg-id={row.id}
+                  data-msg-type={row.messageType}
                   className={`${row.senderId === props.currentUserId ? 'message self' : 'message'}${focusedMessageId === row.id ? ' focused' : ''}${isBurning ? ' message-burning' : ''}${isRevoked ? ' message-revoked' : ''}`}
                   onContextMenu={(e) => openContextMenu(e, row)}
                 >
