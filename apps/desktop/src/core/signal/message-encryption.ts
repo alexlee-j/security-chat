@@ -119,8 +119,6 @@ export class MessageEncryptionService {
    * 将对象转换为 Uint8Array
    */
   private objectToUint8Array(obj: any): Uint8Array {
-    console.log('objectToUint8Array input:', obj, 'type:', typeof obj, 'instanceof Uint8Array:', obj instanceof Uint8Array);
-
     if (obj instanceof Uint8Array) {
       return obj;
     }
@@ -158,12 +156,6 @@ export class MessageEncryptionService {
       // 验证密钥长度
       const identityKey = this.base64ToUint8Array(data.identityKey);
       const signedPrekeyPublic = this.base64ToUint8Array(data.signedPrekey.publicKey);
-
-      console.log('Prekey bundle received:', {
-        identityKeyLength: identityKey.length,
-        signedPrekeyLength: signedPrekeyPublic.length,
-        registrationId: data.registrationId,
-      });
 
       // P-256 公钥应该是 65 字节（未压缩格式）或 33 字节（压缩格式）
       if (identityKey.length !== 65 && identityKey.length !== 33) {
@@ -250,11 +242,6 @@ export class MessageEncryptionService {
 
       // 调用 API 上传预密钥
       await api.uploadPrekeys(data);
-
-      console.log('Prekeys uploaded successfully:', {
-        signedPrekeyId: signedPrekeys[0].keyId,
-        oneTimePrekeysCount: oneTimePrekeys.length,
-      });
     } catch (error) {
       console.error('Error uploading prekeys:', error);
       throw new Error('Failed to upload prekeys');

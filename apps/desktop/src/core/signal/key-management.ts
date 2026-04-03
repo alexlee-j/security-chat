@@ -45,9 +45,7 @@ export class LocalSecureStorage implements SecureStorage {
     try {
       const stringValue = JSON.stringify(value);
       const fullKey = this.prefix + key;
-      console.log('[LocalStorage] Setting', fullKey, 'with', stringValue.length, 'bytes');
       localStorage.setItem(fullKey, stringValue);
-      console.log('[LocalStorage] Verify:', localStorage.getItem(fullKey) ? 'saved' : 'NOT saved');
     } catch (error) {
       console.error('Error setting to storage:', error);
     }
@@ -228,28 +226,21 @@ export class Prekeys {
    * 初始化预密钥
    */
   async initialize(): Promise<void> {
-    console.log('[Prekeys] Initializing...');
     const signedPrekeys = await this.getSignedPrekeys();
     const oneTimePrekeys = await this.getOneTimePrekeys();
-    console.log('[Prekeys] Current status:', { signed: signedPrekeys.size, oneTime: oneTimePrekeys.size });
 
     if (signedPrekeys.size === 0) {
-      console.log('[Prekeys] Generating signed prekeys...');
       await this.generateSignedPrekeys(1);
-      console.log('[Prekeys] Signed prekeys generated');
     }
 
     if (oneTimePrekeys.size < 100) {
       const count = 100 - oneTimePrekeys.size;
-      console.log(`[Prekeys] Generating ${count} one-time prekeys...`);
       await this.generateOneTimePrekeys(count);
-      console.log('[Prekeys] One-time prekeys generated');
     }
     
     // 验证是否保存成功
     const verifySigned = await this.getSignedPrekeys();
     const verifyOneTime = await this.getOneTimePrekeys();
-    console.log('[Prekeys] After initialize:', { signed: verifySigned.size, oneTime: verifyOneTime.size });
   }
 
   /**
@@ -430,20 +421,15 @@ export class Prekeys {
    * 保存签名预密钥
    */
   async saveSignedPrekeys(prekeys: Map<number, SignedPrekey>): Promise<void> {
-    console.log('[Prekeys] saveSignedPrekeys called with', prekeys.size, 'prekeys');
     const serialized: Record<string, any> = {};
     for (const [keyId, prekey] of prekeys) {
       serialized[keyId] = await this.serializeSignedPrekey(prekey);
-      console.log('[Prekeys] Serialized prekey', keyId);
     }
-    console.log('[Prekeys] Saving to storage:', Object.keys(serialized).length, 'prekeys');
     try {
       await this.storage.set('signedPrekeys', serialized);
-      console.log('[Prekeys] Saved signed prekeys to storage');
       
       // 验证是否保存成功
       const verify = await this.storage.get('signedPrekeys');
-      console.log('[Prekeys] Verify storage:', verify ? Object.keys(verify).length : 'null', 'prekeys');
     } catch (error) {
       console.error('[Prekeys] Failed to save signed prekeys:', error);
       throw error;

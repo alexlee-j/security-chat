@@ -191,7 +191,6 @@ export class X3DH {
     prekeyBundle: PrekeyBundle,
     localIdentityKeyPair: IdentityKeyPair
   ): Promise<SessionState> {
-    console.log('[X3DH] initiateSession called with full X3DH protocol');
     
     // 1. 生成临时密钥对
     const ephemeralKeyPair = await crypto.subtle.generateKey(
@@ -210,7 +209,6 @@ export class X3DH {
       ephemeralKeyPair
     );
 
-    console.log('[X3DH] Shared secret calculated, length:', sharedSecret.length);
 
     // 6-7. 使用 HKDF 派生根密钥和链密钥
     const { rootKey, chainKey } = await this.hkdf(
@@ -218,7 +216,6 @@ export class X3DH {
       'X3DH_Initial_KDF'
     );
 
-    console.log('[X3DH] Root key and chain key derived');
 
     return {
       remoteIdentityKey: prekeyBundle.identityKey,
@@ -255,41 +252,33 @@ export class X3DH {
     const dhOutputs: Uint8Array[] = [];
 
     // DH1 = DH(身份私钥，签名预密钥公钥)
-    console.log('[X3DH] Computing DH1...');
     const dh1 = await this.calculateSharedSecret(
       localIdentityKeyPair.privateKey,
       prekeyBundle.signedPrekey.publicKey
     );
     dhOutputs.push(dh1);
-    console.log('[X3DH] DH1 computed, length:', dh1.length);
 
     // DH2 = DH(临时私钥，身份公钥)
-    console.log('[X3DH] Computing DH2...');
     const dh2 = await this.calculateSharedSecret(
       ephemeralKeyPair.privateKey,
       prekeyBundle.identityKey
     );
     dhOutputs.push(dh2);
-    console.log('[X3DH] DH2 computed, length:', dh2.length);
 
     // DH3 = DH(临时私钥，签名预密钥公钥)
-    console.log('[X3DH] Computing DH3...');
     const dh3 = await this.calculateSharedSecret(
       ephemeralKeyPair.privateKey,
       prekeyBundle.signedPrekey.publicKey
     );
     dhOutputs.push(dh3);
-    console.log('[X3DH] DH3 computed, length:', dh3.length);
 
     // DH4 = DH(临时私钥，一次性预密钥公钥) [可选]
     if (prekeyBundle.oneTimePrekey) {
-      console.log('[X3DH] Computing DH4 (one-time prekey)...');
       const dh4 = await this.calculateSharedSecret(
         ephemeralKeyPair.privateKey,
         prekeyBundle.oneTimePrekey.publicKey
       );
       dhOutputs.push(dh4);
-      console.log('[X3DH] DH4 computed, length:', dh4.length);
     }
 
     // 组合所有 DH 输出
@@ -301,7 +290,6 @@ export class X3DH {
       offset += dh.length;
     }
 
-    console.log('[X3DH] Combined DH outputs, total length:', combined.length);
 
     return combined;
   }
@@ -328,7 +316,6 @@ export class X3DH {
     signedPrekey: SignedPrekey,
     oneTimePrekey?: OneTimePrekey
   ): Promise<SessionState> {
-    console.log('[X3DH] acceptSession called with full X3DH protocol');
 
     // 验证 baseKey 是否有效
     if (!initialMessage.baseKey || !(initialMessage.baseKey instanceof Uint8Array) || initialMessage.baseKey.length === 0) {
@@ -345,7 +332,6 @@ export class X3DH {
       initialMessage.identityKey  // 发送方的身份公钥
     );
 
-    console.log('[X3DH] Shared secret calculated for receiver, length:', sharedSecret.length);
 
     // 使用 HKDF 派生根密钥和链密钥
     const { rootKey, chainKey } = await this.hkdf(
@@ -353,7 +339,6 @@ export class X3DH {
       'X3DH_Initial_KDF'
     );
 
-    console.log('[X3DH] Root key and chain key derived for receiver');
 
     return {
       remoteIdentityKey: initialMessage.identityKey,
@@ -388,43 +373,35 @@ export class X3DH {
 
     // DH1 = DH(签名预密钥私钥，发送方身份公钥)
     // 等价于 DH(发送方身份私钥，签名预密钥公钥)
-    console.log('[X3DH] Computing DH1 (receiver perspective)...');
     const dh1 = await this.calculateSharedSecret(
       signedPrekey.keyPair.privateKey,
       remoteIdentityKey
     );
     dhOutputs.push(dh1);
-    console.log('[X3DH] DH1 computed, length:', dh1.length);
 
     // DH2 = DH(身份私钥，发送方临时公钥)
     // 等价于 DH(发送方临时私钥，身份公钥)
-    console.log('[X3DH] Computing DH2 (receiver perspective)...');
     const dh2 = await this.calculateSharedSecret(
       localIdentityKeyPair.privateKey,
       ephemeralPublicKey
     );
     dhOutputs.push(dh2);
-    console.log('[X3DH] DH2 computed, length:', dh2.length);
 
     // DH3 = DH(签名预密钥私钥，发送方临时公钥)
     // 等价于 DH(发送方临时私钥，签名预密钥公钥)
-    console.log('[X3DH] Computing DH3 (receiver perspective)...');
     const dh3 = await this.calculateSharedSecret(
       signedPrekey.keyPair.privateKey,
       ephemeralPublicKey
     );
     dhOutputs.push(dh3);
-    console.log('[X3DH] DH3 computed, length:', dh3.length);
 
     // DH4 = DH(一次性预密钥私钥，发送方临时公钥) [可选]
     if (oneTimePrekey) {
-      console.log('[X3DH] Computing DH4 (receiver perspective)...');
       const dh4 = await this.calculateSharedSecret(
         oneTimePrekey.keyPair.privateKey,
         ephemeralPublicKey
       );
       dhOutputs.push(dh4);
-      console.log('[X3DH] DH4 computed, length:', dh4.length);
     }
 
     // 组合所有 DH 输出
@@ -436,7 +413,6 @@ export class X3DH {
       offset += dh.length;
     }
 
-    console.log('[X3DH] Combined DH outputs for receiver, total length:', combined.length);
 
     return combined;
   }
@@ -853,7 +829,6 @@ export class SignalProtocol {
     if (encryptedMessage.dhPublicKey && session.localIdentityKeyPair) {
       // 这里应该实现 DH 棘轮逻辑
       // 简化实现：直接使用当前链
-      console.log('[Signal] DH ratchet not fully implemented yet');
     }
 
     // 使用 Double Ratchet 派生消息密钥
