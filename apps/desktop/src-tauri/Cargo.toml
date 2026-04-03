@@ -1,0 +1,66 @@
+[package]
+name = "security-chat"
+version = "0.1.0"
+description = "Security Chat - End-to-End Encrypted Messaging"
+authors = ["Security Chat Team"]
+license = "AGPL-3.0-only"
+repository = "https://github.com/security-chat/security-chat"
+edition = "2024"
+rust-version = "1.85"
+
+[build-dependencies]
+tauri-build = { version = "2.5.6", features = [] }
+
+[dependencies]
+# Tauri 2.x 核心
+tauri = { version = "2.10.3", features = ["tray-icon", "image-ico", "image-png", "devtools"] }
+tauri-plugin-log = "2"
+tauri-plugin-shell = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
+
+# Signal 官方协议库 (从 GitHub 引用)
+# 使用最新的稳定版本 v0.90.0
+libsignal-protocol = { git = "https://github.com/signalapp/libsignal", tag = "v0.90.0", package = "libsignal-protocol", features = ["kyber768"] }
+signal-crypto = { git = "https://github.com/signalapp/libsignal", tag = "v0.90.0", package = "signal-crypto" }
+libsignal-core = { git = "https://github.com/signalapp/libsignal", tag = "v0.90.0", package = "libsignal-core" }
+
+# 序列化
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+prost = "0.14"
+
+# 异步运行时
+tokio = { version = "1.0", features = ["full"] }
+
+# 数据库 (本地存储)
+sqlx = { version = "0.8", features = ["sqlite", "runtime-tokio"] }
+
+# SQLite (用于本地消息存储)
+rusqlite = { version = "0.32", features = ["bundled"] }
+
+# 工具
+thiserror = "2"
+uuid = { version = "1.0", features = ["v4"] }
+chrono = { version = "0.4", features = ["serde"] }
+base64 = "0.21"
+zeroize = { version = "1.8", features = ["derive"] }
+rand = "0.9"  # 官方使用 0.9
+rand_core = "0.9"
+async-trait = "0.1"
+futures = "0.3"
+dirs = "5"
+
+# macOS 安全存储 (Keychain)
+[target.'cfg(target_os = "macos")'.dependencies]
+security-framework = "2.11"
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "s"
