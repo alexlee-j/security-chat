@@ -3,10 +3,12 @@
 //! A secure messaging application with end-to-end encryption using the Signal protocol.
 //! R2-1, R2-2 修复：使用内存存储，统一命令命名
 //! Week 10: 添加 SQLite 本地消息持久化
+//! Week 11: 添加 macOS Keychain 集成
 
 mod signal;
 mod api;
 mod db;
+mod crypto;
 
 use api::commands::{
     AppState,
