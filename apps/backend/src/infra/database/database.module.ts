@@ -39,7 +39,11 @@ import { SignedPreKey, KyberPreKey } from '../../modules/prekey/entities/prekey.
           Friendship,
           Notification,
         ],
-        synchronize: configService.get<string>('DB_SYNC', 'true') === 'true',
+        // ⚠️ 生产环境必须使用 migrations，synchronize 仅用于开发
+        synchronize: configService.get<string>('NODE_ENV') !== 'production' && configService.get<string>('DB_SYNC', 'false') === 'true',
+        // 开发模式不使用 migrations，避免 ESM/TS 加载问题
+        migrations: configService.get<string>('NODE_ENV') === 'production' ? ['src/migrations/*.ts'] : [],
+        migrationsRun: configService.get<string>('DB_RUN_MIGRATIONS', 'false') === 'true',
         // 数据库连接池配置
         poolSize: Number(configService.get<string>('DB_POOL_SIZE', '20')),
         maxQueryExecutionTime: Number(configService.get<string>('DB_MAX_QUERY_TIME', '2000')),
