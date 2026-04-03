@@ -1,42 +1,38 @@
+# Dependencies
 node_modules
 .pnpm-store
-.DS_Store
+apps/backend/node_modules
+apps/backend/.nestjs
+
+# Build outputs
 dist
 coverage
-apps/backend/.nestjs
-apps/backend/node_modules
-tests/archive/
-
-# Tauri
-**/target/
-**/*.sig
-
-# Test results
 test-results/
 playwright-report/
-
-# Build artifacts
+**/target/
+**/*.sig
 **/*.tsbuildinfo
 **/*.tsbuildinfo.meta
 
-# Environment files - production .env files are ignored, example and development files are tracked
-# Production (with real sensitive values) - IGNORED
+# IDE
+.claude/
+.vscode/
+.idea/
+
+# Environment files - sensitive values
 .env
+.env.local
+.env.*.local
+.env.production
 apps/backend/.env
 apps/desktop/.env
 
-# Local environment files - IGNORED
-.env.local
-.env.*.local
+# Documentation (local only)
+文档/
 
-# Example and development files are tracked elsewhere in the file
+# Archives and temp
+tests/archive/
+.DS_Store
 
+# Local reference documents
 **/reference_document/
-**
-
-# Allow example and development files (must be after **)
-.env.example
-apps/backend/.env.example
-apps/desktop/.env.example
-apps/backend/.env.development
-apps/desktop/.env.development

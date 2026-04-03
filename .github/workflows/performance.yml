@@ -1,0 +1,124 @@
+name: Performance Tests
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '0 2 * * *'  # 每天 2 AM UTC 运行
+  workflow_dispatch:
+    inputs:
+      iterations:
+        description: '测试迭代次数'
+        required: false
+        default: '100'
+
+env:
+  NODE_VERSION: '18'
+
+jobs:
+  performance:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:14
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: security-chat-test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+      redis:
+        image: redis:7
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 8
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Build backend
+        run: pnpm build:backend
+
+      - name: Start backend
+        run: |
+          cd apps/backend
+          pnpm start &
+          sleep 10
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/security-chat-test
+          REDIS_URL: redis://localhost:6379
+          JWT_SECRET: test-secret-key-performance
+          DB_HOST: localhost
+          DB_PORT: '5432'
+          DB_USER: postgres
+          DB_PASSWORD: postgres
+          DB_NAME: security-chat-test
+          DB_SYNC: 'true'
+
+      - name: Generate test JWT token
+        run: |
+          # 创建简单的 JWT token 用于测试
+          echo "TEST_TOKEN=$(node -e "
+            const header = Buffer.from(JSON.stringify({alg:'HS256',typ:'JWT'})).toString('base64url');
+            const payload = Buffer.from(JSON.stringify({sub:'test-user',type:'access',iat:Math.floor(Date.now()/1000)})).toString('base64url');
+            const signature = Buffer.from('test-signature').toString('base64url');
+            console.log(header + '.' + payload + '.' + signature);
+          ")" >> $GITHUB_ENV
+
+      - name: Run message latency test
+        run: |
+          pnpm bench:message
+        env:
+          SERVER_URL: http://localhost:3000
+          BENCH_ITERATIONS: ${{ github.event.inputs.iterations || '100' }}
+          SENDER_TOKEN: ${{ env.TEST_TOKEN }}
+          RECEIVER_TOKEN: ${{ env.TEST_TOKEN }}
+
+      - name: Run PreKey query test
+        run: |
+          pnpm bench:prekey
+        env:
+          SERVER_URL: http://localhost:3000
+          BENCH_ITERATIONS: ${{ github.event.inputs.iterations || '1000' }}
+          AUTH_TOKEN: ${{ env.TEST_TOKEN }}
+
+      - name: Run WebSocket concurrency test
+        run: |
+          pnpm bench:websocket
+        env:
+          SERVER_URL: http://localhost:3000
+          BENCH_CLIENTS: '50'
+          BENCH_MESSAGES: '10'
+          BENCH_TOKEN: ${{ env.TEST_TOKEN }}
+
+      - name: Upload performance results
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: performance-results
+          path: |
+            tests/benchmarks/results/*.json
+            tests/benchmarks/results/*.md

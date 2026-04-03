@@ -1,0 +1,64 @@
+# Prometheus 告警规则
+groups:
+  - name: security_chat_alerts
+    interval: 30s
+    rules:
+      # 服务宕机告警
+      - alert: BackendDown
+        expr: up{job="backend"} == 0
+        for: 1m
+        annotations:
+          summary: "后端服务宕机"
+          description: "后端服务已超过 1 分钟无法访问"
+        labels:
+          severity: critical
+
+      # 高延迟告警
+      - alert: HighMessageLatency
+        expr: histogram_quantile(0.95, rate(message_latency_seconds_bucket[5m])) > 0.1
+        for: 5m
+        annotations:
+          summary: "消息延迟过高"
+          description: "P95 消息延迟超过 100ms"
+        labels:
+          severity: warning
+
+      # 高错误率告警
+      - alert: HighErrorRate
+        expr: rate(http_requests_total{status=~"5.."}[5m]) / rate(http_requests_total[5m]) > 0.05
+        for: 5m
+        annotations:
+          summary: "错误率过高"
+          description: "HTTP 5xx 错误率超过 5%"
+        labels:
+          severity: critical
+
+      # 数据库连接池耗尽
+      - alert: DatabaseConnectionPoolExhausted
+        expr: db_pool_connections_available < 2
+        for: 2m
+        annotations:
+          summary: "数据库连接池即将耗尽"
+          description: "可用数据库连接数少于 2 个"
+        labels:
+          severity: warning
+
+      # Redis 内存过高
+      - alert: RedisHighMemory
+        expr: redis_memory_used_bytes / redis_memory_max_bytes > 0.9
+        for: 5m
+        annotations:
+          summary: "Redis 内存使用过高"
+          description: "Redis 内存使用率超过 90%"
+        labels:
+          severity: warning
+
+      # WebSocket 连接数异常
+      - alert: WebSocketConnectionsDrop
+        expr: delta(websocket_connections_active[5m]) < -10
+        for: 2m
+        annotations:
+          summary: "WebSocket 连接数异常下降"
+          description: "5 分钟内 WebSocket 连接数下降超过 10 个"
+        labels:
+          severity: warning

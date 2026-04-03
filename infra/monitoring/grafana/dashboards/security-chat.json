@@ -1,0 +1,144 @@
+{
+  "dashboard": {
+    "title": "Security Chat 监控面板",
+    "tags": ["security-chat", "backend"],
+    "timezone": "Asia/Shanghai",
+    "panels": [
+      {
+        "id": 1,
+        "title": "服务状态",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "up{job=\"backend\"}",
+            "legendFormat": "后端服务"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "mappings": [
+              {"type": "value", "options": {"0": {"text": "宕机", "color": "red"}, "1": {"text": "运行", "color": "green"}}}
+            ]
+          }
+        },
+        "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0}
+      },
+      {
+        "id": 2,
+        "title": "消息延迟 P95",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(message_latency_seconds_bucket[5m]))",
+            "legendFormat": "P95 延迟"
+          }
+        ],
+        "thresholds": [
+          {"value": 0.05, "color": "yellow"},
+          {"value": 0.1, "color": "red"}
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 6, "y": 0}
+      },
+      {
+        "id": 3,
+        "title": "QPS",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "rate(http_requests_total[1m])",
+            "legendFormat": "请求/秒"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 6, "x": 18, "y": 0}
+      },
+      {
+        "id": 4,
+        "title": "WebSocket 连接数",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "websocket_connections_active",
+            "legendFormat": "活跃连接"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8}
+      },
+      {
+        "id": 5,
+        "title": "PreKey 查询延迟",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(prekey_query_latency_seconds_bucket[5m]))",
+            "legendFormat": "P95 延迟"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8}
+      },
+      {
+        "id": 6,
+        "title": "错误率",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "rate(http_requests_total{status=~\"5..\"}[5m]) / rate(http_requests_total[5m]) * 100",
+            "legendFormat": "5xx 错误率 %"
+          }
+        ],
+        "thresholds": [
+          {"value": 1, "color": "yellow"},
+          {"value": 5, "color": "red"}
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16}
+      },
+      {
+        "id": 7,
+        "title": "数据库连接池",
+        "type": "gauge",
+        "targets": [
+          {
+            "expr": "db_pool_connections_available",
+            "legendFormat": "可用连接"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "min": 0,
+            "max": 100,
+            "thresholds": [
+              {"value": 0, "color": "red"},
+              {"value": 10, "color": "yellow"},
+              {"value": 50, "color": "green"}
+            ]
+          }
+        },
+        "gridPos": {"h": 8, "w": 6, "x": 12, "y": 16}
+      },
+      {
+        "id": 8,
+        "title": "Redis 内存使用",
+        "type": "gauge",
+        "targets": [
+          {
+            "expr": "redis_memory_used_bytes / redis_memory_max_bytes * 100",
+            "legendFormat": "内存使用率 %"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "min": 0,
+            "max": 100,
+            "thresholds": [
+              {"value": 0, "color": "green"},
+              {"value": 80, "color": "yellow"},
+              {"value": 90, "color": "red"}
+            ]
+          }
+        },
+        "gridPos": {"h": 8, "w": 6, "x": 18, "y": 16}
+      }
+    ],
+    "refresh": "30s",
+    "version": 1
+  }
+}

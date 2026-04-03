@@ -186,12 +186,16 @@ export function useSignal(): { state: SignalState; actions: SignalActions } {
 
   /**
    * 加密消息
+   * 如果预密钥不足，会自动补充
    */
   const encryptMessage = async (recipientUserId: string, recipientDeviceId: string, plaintext: string): Promise<string> => {
     try {
       if (!state.initialized) {
         await initialize();
       }
+
+      // 检查并补充预密钥（如果不足）
+      await messageEncryptionService.checkAndReplenishPrekeys();
 
       const encryptedMessage = await messageEncryptionService.encryptMessage(
         recipientUserId,

@@ -1,0 +1,49 @@
+global:
+  smtp_smarthost: 'smtp.example.com:587'
+  smtp_from: 'alertmanager@security-chat.io'
+  resolve_timeout: 5m
+
+route:
+  group_by: ['alertname', 'severity']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  receiver: 'default-receiver'
+  routes:
+    - match:
+        severity: critical
+      receiver: 'critical-receiver'
+      group_wait: 10s
+      repeat_interval: 1h
+    - match:
+        severity: warning
+      receiver: 'warning-receiver'
+      repeat_interval: 6h
+
+receivers:
+  - name: 'default-receiver'
+    email_configs:
+      - to: 'team@security-chat.io'
+        send_resolved: true
+
+  - name: 'critical-receiver'
+    email_configs:
+      - to: 'oncall@security-chat.io'
+        send_resolved: true
+
+  - name: 'warning-receiver'
+    email_configs:
+      - to: 'team@security-chat.io'
+        send_resolved: true
+
+inhibit_rules:
+  - source_match:
+      alertname: 'BackendDown'
+    target_match:
+      severity: 'warning'
+    equal: ['instance']
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['alertname', 'instance']

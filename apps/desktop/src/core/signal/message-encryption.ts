@@ -328,11 +328,34 @@ export class MessageEncryptionService {
   }
 
   /**
+   * 检查并补充预密钥（如果不足）
+   * 返回是否进行了补充
+   */
+  async checkAndReplenishPrekeys(): Promise<boolean> {
+    const status = await this.keyManager.getPrekeysStatus();
+
+    // 如果签名预密钥或一次性预密钥不足，触发补充
+    if (!status.hasSignedPrekeys || !status.hasOneTimePrekeys || status.oneTimePrekeysCount < 20) {
+      console.log('[MessageEncryption] Prekeys low, replenishing...', status);
+      await this.replenishPrekeys();
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
    * 补充预密钥
    */
   async replenishPrekeys(): Promise<void> {
-    await this.keyManager.replenishPrekeys();
-    await this.uploadPrekeys();
+    try {
+      await this.keyManager.replenishPrekeys();
+      await this.uploadPrekeys();
+      console.log('[MessageEncryption] Prekeys replenished successfully');
+    } catch (error) {
+      console.error('[MessageEncryption] Failed to replenish prekeys:', error);
+      throw error;
+    }
   }
 
   /**

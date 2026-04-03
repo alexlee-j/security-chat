@@ -1,0 +1,60 @@
+version: '3.8'
+
+services:
+  # 后端 API
+  api:
+    image: security-chat-backend:test
+    container_name: security-chat-api
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=test
+      - PORT=3000
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=test_user
+      - DB_PASSWORD=test_password
+      - DB_NAME=test_db
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=test_redis_password
+      - JWT_SECRET=test_jwt_secret_key_for_local_testing_12345
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - test_net
+    restart: unless-stopped
+
+  # PostgreSQL
+  postgres:
+    image: postgres:16-alpine
+    container_name: security-chat-postgres
+    environment:
+      - POSTGRES_USER=test_user
+      - POSTGRES_PASSWORD=test_password
+      - POSTGRES_DB=test_db
+    volumes:
+      - postgres_test_data:/var/lib/postgresql/data
+    networks:
+      - test_net
+    restart: unless-stopped
+
+  # Redis
+  redis:
+    image: redis:7-alpine
+    container_name: security-chat-redis
+    command: redis-server --requirepass test_redis_password
+    volumes:
+      - redis_test_data:/data
+    networks:
+      - test_net
+    restart: unless-stopped
+
+volumes:
+  postgres_test_data:
+  redis_test_data:
+
+networks:
+  test_net:
+    driver: bridge

@@ -22,9 +22,9 @@ import {
 } from './types';
 
 /** API基础URL，可通过环境变量配置 */
-const API_BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:3000/api/v1';
+const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000/api/v1';
 /** WebSocket基础URL */
-export const wsBaseUrl = import.meta.env.VITE_WS_BASE ?? 'http://localhost:3000/ws';
+export const wsBaseUrl = import.meta.env.VITE_WS_URL ?? 'http://localhost:3000/ws';
 
 /** axios实例，统一配置baseURL和超时 */
 const http = axios.create({ 
