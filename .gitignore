@@ -22,9 +22,12 @@ playwright-report/
 # Environment files - sensitive values
 .env
 .env.local
+.env.development
 .env.*.local
 .env.production
 apps/backend/.env
+apps/backend/.env.development
+apps/backend/.env.production
 apps/desktop/.env
 
 # Documentation (local only)

@@ -709,6 +709,19 @@ export function useChatClient(): {
         await clearAutoLogin();
       }
 
+      // 登录后获取设备列表并更新本地设备ID（与注册流程一致）
+      try {
+        const devices = await import('./api').then(api => api.getDevices());
+        if (devices && devices.length > 0) {
+          const primaryDevice = devices[0];
+          // 使用公共方法设置设备ID
+          const keyManager = new (await import('./signal/key-management')).KeyManager();
+          await keyManager.setDeviceId(primaryDevice.deviceId);
+        }
+      } catch (deviceError) {
+        console.error('[Login] Failed to get devices:', deviceError);
+      }
+
       // 登录后初始化 Signal 协议并检查预密钥
       try {
         await signalActions.initialize();
@@ -767,6 +780,19 @@ export function useChatClient(): {
       const result = await loginWithCode({ account: account.trim(), code: loginCode.trim() });
       setAuthToken(result.accessToken);
       setAuth({ token: result.accessToken, userId: result.userId });
+
+      // 登录后获取设备列表并更新本地设备ID（与注册流程一致）
+      try {
+        const devices = await import('./api').then(api => api.getDevices());
+        if (devices && devices.length > 0) {
+          const primaryDevice = devices[0];
+          const keyManager = new (await import('./signal/key-management')).KeyManager();
+          await keyManager.setDeviceId(primaryDevice.deviceId);
+        }
+      } catch (deviceError) {
+        console.error('[LoginWithCode] Failed to get devices:', deviceError);
+      }
+
       await Promise.all([loadConversations(), loadFriendData()]);
     } catch {
       showToast('登录失败，请检查验证码或后端服务状态', 'error');

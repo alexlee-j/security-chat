@@ -671,6 +671,20 @@ export class KeyManager {
   }
 
   /**
+   * 设置当前设备ID
+   */
+  async setDeviceId(deviceId: string): Promise<void> {
+    await this.secureStorage.set('currentDeviceId', deviceId);
+  }
+
+  /**
+   * 获取当前设备ID
+   */
+  async getDeviceId(): Promise<string | null> {
+    return await this.secureStorage.get('currentDeviceId');
+  }
+
+  /**
    * 补充预密钥
    */
   async replenishPrekeys(): Promise<void> {

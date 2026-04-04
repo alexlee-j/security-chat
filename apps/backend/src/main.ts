@@ -4,10 +4,56 @@ import { NestFactory } from '@nestjs/core';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 import { AppModule } from './app.module';
-import type { Request, Response, NextFunction } from 'express';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as cors from 'cors';
+
+// 手动加载环境变量（必须在其他代码之前）
+function loadEnv(): void {
+  const logger = new Logger('LoadEnv');
+  try {
+    // 加载项目根目录的 .env 文件
+    const envPath = path.resolve(process.cwd(), '../../.env');
+    if (fs.existsSync(envPath)) {
+      const content = fs.readFileSync(envPath, 'utf-8');
+      let loadedCount = 0;
+      content.split('\n').forEach(line => {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('#')) return;
+        const [key, ...parts] = trimmed.split('=');
+        if (key && parts.length > 0) {
+          process.env[key.trim()] = parts.join('=').trim();
+          loadedCount++;
+        }
+      });
+      logger.log(`Loaded ${loadedCount} env vars from .env`);
+    }
+
+    // 也尝试加载 .env.development
+    const devEnvPath = path.resolve(process.cwd(), '../../.env.development');
+    if (fs.existsSync(devEnvPath)) {
+      const content = fs.readFileSync(devEnvPath, 'utf-8');
+      let loadedCount = 0;
+      content.split('\n').forEach(line => {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('#')) return;
+        const [key, ...parts] = trimmed.split('=');
+        if (key && parts.length > 0) {
+          process.env[key.trim()] = parts.join('=').trim();
+          loadedCount++;
+        }
+      });
+      logger.log(`Loaded ${loadedCount} env vars from .env.development`);
+    }
+  } catch (error) {
+    logger.error('Failed to load env file:', error);
+  }
+}
+
+loadEnv();
 
 async function bootstrap(): Promise<void> {
-  // 生产环境日志配置
+  // 生产环境日志配置（需要在 loadEnv 之后）
   const isProduction = process.env.NODE_ENV === 'production';
   const logLevel = process.env.LOG_LEVEL ?? (isProduction ? 'warn' : 'debug');
   
@@ -22,7 +68,7 @@ async function bootstrap(): Promise<void> {
    * - Tauri 应用使用 tauri://localhost 协议
    * - WebSocket (socket.io) 不受 CORS 限制
    * - 开发环境允许所有本地地址
-   * - 生产环境通过 PROD_DOMAINS 环境变量配置
+   * - 生产环境通过 CORS_ALLOWED_ORIGINS 环境变量配置
    */
 
   // Tauri 应用的固定源（所有平台通用）
@@ -33,53 +79,58 @@ async function bootstrap(): Promise<void> {
     'http://tauri.localhost',
   ];
 
-  // 开发环境允许的源
-  const devOrigins = [
-    'http://localhost:4173',
-    'http://localhost',
-    'http://127.0.0.1:4173',
-    'http://127.0.0.1',
-  ];
-
-  // 生产环境允许的源（通过环境变量配置）
-  const prodOrigins = process.env.PROD_DOMAINS
-    ? process.env.PROD_DOMAINS.split(',').map(d => d.trim())
+  // 生产环境允许的源（通过环境变量配置，逗号分隔）
+  const prodOrigins = process.env.CORS_ALLOWED_ORIGINS
+    ? process.env.CORS_ALLOWED_ORIGINS.split(',').map(d => d.trim())
     : [];
 
   // 正则匹配模式（用于开发环境的局域网访问）
   const localhostPattern = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
   const privateNetworkPattern = /^https?:\/\/(192\.168|10\.|172\.(1[6-9]|2[0-9]|3[0-1]))\.\d+\.\d+(:\d+)?$/;
-  
-  // 开发环境允许所有源（方便调试）
-  if (process.env.NODE_ENV === 'development') {
-    // 添加显式的 CORS 中间件来处理 OPTIONS 预检请求
-    // 注意：不使用 app.enableCors()，因为它会干扰自定义中间件
-    app.use((req: Request, res: Response, next: NextFunction) => {
-      res.setHeader('Access-Control-Allow-Origin', req.headers.origin || 'http://localhost');
-      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-      if (req.method === 'OPTIONS') {
-        res.sendStatus(200);
-        return;
-      }
-      next();
-    });
-  } else {
-    // 生产环境使用严格的 CORS 配置
-    app.enableCors({
-      origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
-        // 允许 Tauri 应用和配置的 Web 域名
-        if (!origin || tauriOrigins.includes(origin) || prodOrigins.includes(origin)) {
+
+  // CORS 配置
+  app.enableCors({
+    origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+      // 开发环境允许所有源（包括 localhost 和局域网 IP）
+      if (process.env.NODE_ENV !== 'production') {
+        // 允许没有 origin 的请求（如 Postman、curl）
+        if (!origin) {
           callback(null, true);
           return;
         }
-        callback(null, false);
-      },
-      credentials: true,
-      methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-      allowedHeaders: ['Content-Type', 'Authorization'],
-    });
-  }
+        // 开发环境允许 localhost 和局域网
+        if (localhostPattern.test(origin) || privateNetworkPattern.test(origin)) {
+          callback(null, true);
+          return;
+        }
+        callback(null, true); // 开发环境允许所有
+        return;
+      }
+
+      // 生产环境：严格检查
+      // 允许没有 origin 的请求
+      if (!origin) {
+        callback(null, true);
+        return;
+      }
+      // 允许 Tauri 应用
+      if (tauriOrigins.includes(origin)) {
+        callback(null, true);
+        return;
+      }
+      // 允许配置的域名
+      if (prodOrigins.includes(origin)) {
+        callback(null, true);
+        return;
+      }
+      callback(new Error('CORS policy violation'), false);
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+  });
+
+  // Trace ID 中间件
   app.use((req: { traceId?: string }, res: { setHeader: (name: string, value: string) => void }, next: () => void) => {
     const traceId = randomUUID();
     req.traceId = traceId;

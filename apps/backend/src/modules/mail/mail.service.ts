@@ -8,13 +8,18 @@ export class MailService {
   private readonly logger = new Logger(MailService.name);
 
   constructor(private readonly configService: ConfigService) {
+    const smtpHost = this.configService.get<string>('SMTP_HOST');
+    const smtpPort = this.configService.get<string>('SMTP_PORT') || '587';
+    const smtpUser = this.configService.get<string>('SMTP_USER') || process.env.SMTP_USER;
+    const smtpPass = this.configService.get<string>('SMTP_PASS') || process.env.SMTP_PASS;
+
     const smtpConfig = {
-      host: this.configService.get<string>('SMTP_HOST'),
-      port: parseInt(this.configService.get<string>('SMTP_PORT') || '587'),
+      host: smtpHost,
+      port: parseInt(smtpPort),
       secure: false, // 使用587端口时，需要设置为false
       auth: {
-        user: this.configService.get<string>('SMTP_USER'),
-        pass: this.configService.get<string>('SMTP_PASS'),
+        user: smtpUser,
+        pass: smtpPass,
       },
     };
 
