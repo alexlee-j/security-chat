@@ -14,33 +14,33 @@
    ========================================================================== */
 
 /* ==========================================================================
-   CSS 变量定义 - Telegram 风格配色系统
+   CSS 变量定义 - Security Chat 风格配色系统
    ========================================================================== */
 :root {
-  /* 主色调 - Telegram 蓝 */
-  --brand-primary: #3390ec;
-  --brand-hover: #2b7fd4;
-  --brand-light: #e6f3ff;
-  --brand-dark: #1973c2;
+  /* 主色调 - Security Chat 青 */
+  --brand-primary: #0CB4C4;
+  --brand-hover: #0a9aa8;
+  --brand-light: #e6fafb;
+  --brand-dark: #0894a0;
 
   /* 背景色系统 */
   --bg-primary: #87aadd;
   --bg-secondary: #aabfe6;
-  --bg-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  --bg-gradient: linear-gradient(135deg, #0CB4C4 0%, #0894a0 100%);
   --bg-surface: #ffffff;
   --bg-surface-soft: #f4f4f5;
   --bg-message-in: #ffffff;
   --bg-message-out: #eeffde;
   --bg-message-hover: rgba(0, 0, 0, 0.02);
-  
+
   /* 导航栏深色主题 */
   --rail-bg: #212d3a;
   --rail-border: #2d3a47;
   --rail-text: #ffffff;
   --rail-text-secondary: #8b9bb4;
   --rail-hover: rgba(255, 255, 255, 0.08);
-  --rail-active: rgba(51, 144, 236, 0.15);
-  --rail-active-indicator: #3390ec;
+  --rail-active: rgba(12, 180, 196, 0.15);
+  --rail-active-indicator: #0CB4C4;
   
   /* 文本色系统 */
   --text-primary: #000000;
@@ -99,6 +99,49 @@
   --avatar-gradient-3: linear-gradient(135deg, #dda0dd 0%, #ba55d3 100%);
   --avatar-gradient-4: linear-gradient(135deg, #ffa07a 0%, #ff6347 100%);
   --avatar-gradient-5: linear-gradient(135deg, #98fb98 0%, #3cb371 100%);
+}
+
+/* ==========================================================================
+   深色模式配色变量
+   ========================================================================== */
+@media (prefers-color-scheme: dark) {
+  :root {
+    /* 主色调 - 深色模式下保持一致 */
+    --brand-primary: #0CB4C4;
+    --brand-hover: #0eb8cc;
+    --brand-light: #1a3a3e;
+    --brand-dark: #0894a0;
+
+    /* 背景色系统 - 深色 */
+    --bg-primary: #1E1E2E;
+    --bg-secondary: #252536;
+    --bg-gradient: linear-gradient(135deg, #1E1E2E 0%, #1a1a2e 100%);
+    --bg-surface: #2A2A3C;
+    --bg-surface-soft: #252536;
+    --bg-message-in: #2A2A3C;
+    --bg-message-out: #1e3a3e;
+    --bg-message-hover: rgba(255, 255, 255, 0.04);
+
+    /* 导航栏深色主题 - 更深的配色 */
+    --rail-bg: #181820;
+    --rail-border: #2A2A3C;
+    --rail-text: #E4E4E7;
+    --rail-text-secondary: #A1A1AA;
+    --rail-hover: rgba(255, 255, 255, 0.06);
+    --rail-active: rgba(12, 180, 196, 0.12);
+    --rail-active-indicator: #0CB4C4;
+
+    /* 文本色系统 - 深色 */
+    --text-primary: #E4E4E7;
+    --text-secondary: #A1A1AA;
+    --text-muted: #71717A;
+    --text-inverse: #181820;
+
+    /* 边框和分割线 - 深色 */
+    --border-light: #3F3F46;
+    --border-softer: #27272A;
+    --border-divider: rgba(255, 255, 255, 0.08);
+  }
 }
 
 /* ==========================================================================
@@ -367,20 +410,20 @@ button:disabled {
   width: 48px;
   height: 48px;
   border-radius: var(--radius-lg);
-  background: linear-gradient(135deg, #3390ec 0%, #1973c2 100%);
+  background: linear-gradient(135deg, var(--brand-primary) 0%, var(--brand-dark) 100%);
   color: var(--text-inverse);
   font-weight: 700;
   font-size: 16px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 4px 12px rgba(51, 144, 236, 0.35);
+  box-shadow: 0 4px 12px rgba(12, 180, 196, 0.35);
   transition: all var(--transition-normal);
 }
 
 .rail-brand:hover .rail-logo {
   transform: scale(1.05);
-  box-shadow: 0 6px 16px rgba(51, 144, 236, 0.45);
+  box-shadow: 0 6px 16px rgba(12, 180, 196, 0.45);
 }
 
 .rail-brand .kicker {
@@ -524,35 +567,33 @@ button:disabled {
    会话侧边栏
    ========================================================================== */
 .sidebar {
-  display: grid;
-  grid-template-rows: auto auto auto minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
   gap: 0;
   height: 100%;
   overflow: hidden;
-  background: var(--bg-surface);
-  border-right: 1px solid var(--border-light);
+  background: var(--rail-bg);
   transition: transform var(--transition-normal), width var(--transition-normal);
   position: relative;
   z-index: 100;
 }
 
 .telegram-sidebar {
-  border-color: var(--border-light);
+  border: none;
   border-radius: 0;
   box-shadow: none;
   backdrop-filter: none;
-  background: var(--bg-surface);
+  background: var(--rail-bg);
 }
 
 /* 工具栏 */
 .sidebar-toolbar {
-  display: grid;
-  grid-template-columns: auto 1fr;
+  display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 12px;
   padding: 12px 16px;
-  border-bottom: 1px solid var(--border-softer);
-  background: var(--bg-surface);
+  background: var(--rail-bg);
   position: relative;
 }
 
@@ -849,34 +890,35 @@ button:disabled {
   grid-template-columns: auto 1fr;
   align-items: center;
   gap: 10px;
-  min-height: 44px;
-  border-radius: var(--radius-full);
-  border: 1px solid transparent;
-  background: var(--bg-surface-soft);
-  color: var(--text-secondary);
-  padding: 0 16px;
+  min-height: 40px;
+  border-radius: 10px;
+  border: none;
+  background: var(--rail-border);
+  color: var(--rail-text-secondary);
+  padding: 0 12px;
+  margin: 0 12px 8px;
   transition: all var(--transition-fast);
 }
 
 .sidebar-search-shell svg {
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
   flex-shrink: 0;
-  color: var(--text-muted);
+  color: var(--rail-text-secondary);
 }
 
 .sidebar-search-input {
   width: 100%;
-  min-height: 44px;
+  min-height: 40px;
   border: none;
   background: transparent;
   padding: 0;
-  color: var(--text-primary);
-  font-size: 15px;
+  color: var(--rail-text);
+  font-size: 14px;
 }
 
 .sidebar-search-input::placeholder {
-  color: var(--text-muted);
+  color: var(--rail-text-secondary);
 }
 
 .sidebar-search-input:focus-visible {
@@ -884,13 +926,11 @@ button:disabled {
 }
 
 .sidebar-search-shell:focus-within {
-  border-color: var(--brand-primary);
-  background: var(--bg-surface);
-  box-shadow: 0 0 0 3px var(--focus-ring);
+  background: var(--rail-hover);
 }
 
 .sidebar-search-shell:focus-within svg {
-  color: var(--brand-primary);
+  color: var(--rail-text);
 }
 
 /* 新建聊天表单 */
@@ -1298,8 +1338,8 @@ button:disabled {
   flex-direction: column;
   height: 100%;
   border-color: var(--border-light);
-  background: #a8d3c6;
-  background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%2390c7b8' fill-opacity='0.12'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+  background: var(--bg-secondary);
+  background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%230CB4C4' fill-opacity='0.08'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
 }
 
 /* 聊天头部 */
@@ -2327,25 +2367,29 @@ button:disabled {
 }
 
 /* ==========================================================================
-   登录界面 - 现代 Telegram 风格设计
+   登录界面 - Security Chat 分栏布局设计
    ========================================================================== */
 .auth-container {
   height: 100vh;
-  display: grid;
-  place-items: center;
+  display: flex;
   position: relative;
   overflow: hidden;
-  padding: 20px;
 }
 
-.auth-background {
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(135deg, #3390ec 0%, #1973c2 100%);
-  z-index: -1;
+/* 左侧品牌区域 - 50% 宽度 */
+.auth-brand-side {
+  flex: 0 0 50%;
+  background: linear-gradient(135deg, var(--brand-primary) 0%, #0894a0 100%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+  position: relative;
+  overflow: hidden;
 }
 
-.auth-pattern {
+.auth-brand-pattern {
   position: absolute;
   inset: 0;
   background-image: url("data:image/svg+xml,%3Csvg width='80' height='80' viewBox='0 0 80 80' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.08'%3E%3Cpath d='M20 20h40v40H20V20zm20 35a15 15 0 1 0 0-30 15 15 0 0 0 0 30z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
@@ -2357,16 +2401,77 @@ button:disabled {
   100% { background-position: 100% 100%; }
 }
 
+.auth-brand-content {
+  position: relative;
+  z-index: 1;
+  text-align: center;
+  color: white;
+}
+
+.auth-brand-logo {
+  width: 80px;
+  height: 80px;
+  margin: 0 auto 24px;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(8px);
+}
+
+.auth-brand-logo svg {
+  width: 44px;
+  height: 44px;
+  color: white;
+}
+
+.auth-brand-title {
+  font-size: 28px;
+  font-weight: 700;
+  margin: 0 0 12px;
+  letter-spacing: -0.02em;
+}
+
+.auth-brand-subtitle {
+  font-size: 15px;
+  opacity: 0.9;
+  margin: 0;
+  line-height: 1.5;
+  letter-spacing: 0.15em;
+}
+
+/* 右侧表单区域 - 50% 宽度 */
+.auth-form-side {
+  flex: 0 0 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+  background: var(--bg-surface);
+  overflow-y: auto;
+}
+
+.auth-background {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, var(--brand-primary) 0%, var(--brand-dark) 100%);
+  z-index: -1;
+}
+
+.auth-pattern {
+  position: absolute;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg width='80' height='80' viewBox='0 0 80 80' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.08'%3E%3Cpath d='M20 20h40v40H20V20zm20 35a15 15 0 1 0 0-30 15 15 0 0 0 0 30z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+  animation: backgroundMove 25s linear infinite;
+}
+
 .auth-card {
   width: 100%;
-  max-width: 440px;
-  background: rgba(255, 255, 255, 0.98);
-  backdrop-filter: blur(24px);
-  border-radius: 24px;
-  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.12), 0 8px 24px rgba(0, 0, 0, 0.08);
-  padding: 56px 36px 80px;
-  animation: authCardSlideIn 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  max-width: 400px;
+  background: var(--bg-surface);
+  border-radius: 20px;
+  padding: 48px 32px 64px;
   position: relative;
 }
 
@@ -2420,7 +2525,7 @@ button:disabled {
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 16px 40px rgba(51, 144, 236, 0.45);
+  box-shadow: 0 16px 40px rgba(12, 180, 196, 0.35);
   position: relative;
   overflow: hidden;
   transition: transform 0.4s ease, box-shadow 0.4s ease;
@@ -2428,7 +2533,7 @@ button:disabled {
 
 .auth-logo-inner:hover {
   transform: scale(1.08);
-  box-shadow: 0 20px 48px rgba(51, 144, 236, 0.55);
+  box-shadow: 0 20px 48px rgba(12, 180, 196, 0.45);
 }
 
 .auth-logo-inner::before {
@@ -2483,10 +2588,16 @@ button:disabled {
 .auth-form {
   display: flex;
   flex-direction: column;
-  gap: 24px;
-  animation: formFadeIn 0.5s ease forwards;
-  animation-delay: 0.3s;
-  opacity: 0;
+  gap: 20px;
+}
+
+.auth-form-title {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0 0 8px;
+  text-align: center;
+  letter-spacing: 0.05em;
 }
 
 @keyframes formFadeIn {
@@ -2515,10 +2626,28 @@ button:disabled {
   transition: color 0.2s ease;
 }
 
+.auth-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.auth-input-icon {
+  position: absolute;
+  left: 18px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 20px;
+  height: 20px;
+  color: var(--text-muted);
+  pointer-events: none;
+  z-index: 1;
+}
+
 .auth-input {
   width: 100%;
   min-height: 56px;
-  padding: 0 24px;
+  padding: 0 24px 0 52px;
   border: 2px solid var(--border-light);
   border-radius: 16px;
   background: var(--bg-surface);
@@ -3710,10 +3839,9 @@ button:disabled {
 
 /* Tauri App 主容器 */
 .app-container.tauri-app {
-  display: grid;
-  grid-template-columns: 320px 1fr;
+  display: flex;
   height: 100vh;
-  background: #f5f5f5;
+  background: var(--bg-surface);
   position: relative;
 }
 
@@ -3721,6 +3849,13 @@ button:disabled {
 .app-sidebar {
   position: relative;
   z-index: 10;
+  width: 280px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: var(--rail-bg);
+  border-right: 1px solid var(--rail-border);
 }
 
 /* 主内容区 */
@@ -3728,6 +3863,9 @@ button:disabled {
   flex: 1;
   min-width: 0;
   position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
 }
 
 /* 无会话状态 */
@@ -3736,26 +3874,46 @@ button:disabled {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  height: 100vh;
-  background: #f5f5f5;
+  height: 100%;
+  background: var(--bg-secondary);
   text-align: center;
+  flex: 1;
 }
 
 .no-conversation-icon {
   font-size: 80px;
   margin-bottom: 24px;
-  opacity: 0.5;
+  opacity: 0.3;
+}
+
+.no-conversation-logo {
+  width: 80px;
+  height: 80px;
+  margin-bottom: 24px;
+  background: linear-gradient(135deg, var(--brand-primary) 0%, var(--brand-dark) 100%);
+  border-radius: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.6;
+}
+
+.no-conversation-logo svg {
+  width: 44px;
+  height: 44px;
+  color: white;
 }
 
 .no-conversation h2 {
-  margin: 0 0 8px 0;
+  margin: 0 0 12px 0;
   font-size: 24px;
-  color: #333333;
+  color: var(--text-primary);
+  font-weight: 600;
 }
 
 .no-conversation p {
-  margin: 0 0 32px 0;
-  color: #666666;
+  margin: 0;
+  color: var(--text-secondary);
   font-size: 15px;
 }
 
