@@ -178,7 +178,12 @@ export function LoginScreen(props: Props): JSX.Element {
             {/* 注册表单 */}
             {isRegister && (
               <form onSubmit={props.onRegister} className="auth-form">
-                <h2 className="auth-form-title">注 册</h2>
+                <div className="auth-header-back">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" fill="currentColor"/>
+                  </svg>
+                </div>
+                <h2 className="auth-form-title">注册</h2>
                 <div className="auth-form-group">
                   <div className="auth-input-wrapper">
                     <svg className="auth-input-icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -223,6 +228,21 @@ export function LoginScreen(props: Props): JSX.Element {
                       placeholder="密码"
                       type="password"
                       name="new-password"
+                      autoComplete="new-password"
+                      className="auth-input"
+                      maxLength={64}
+                    />
+                  </div>
+                </div>
+                <div className="auth-form-group">
+                  <div className="auth-input-wrapper">
+                    <svg className="auth-input-icon" viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z" fill="currentColor"/>
+                    </svg>
+                    <input
+                      placeholder="确认密码"
+                      type="password"
+                      name="confirm-password"
                       autoComplete="new-password"
                       className="auth-input"
                       maxLength={64}
