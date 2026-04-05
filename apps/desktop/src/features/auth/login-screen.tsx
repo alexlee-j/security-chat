@@ -44,7 +44,7 @@ export function LoginScreen(props: Props): JSX.Element {
             </svg>
           </div>
           <h1 className="auth-brand-title">Security Chat</h1>
-          <p className="auth-brand-subtitle">安全 · 私密 · 可信赖</p>
+          <p className="auth-brand-subtitle">安全至上，畅聊无忧</p>
         </div>
       </aside>
 
@@ -55,7 +55,12 @@ export function LoginScreen(props: Props): JSX.Element {
             {/* 登录表单 */}
             {isLogin && (
               <form onSubmit={props.onLogin} className="auth-form">
-                <h2 className="auth-form-title">登 录</h2>
+                <div className="auth-header-back">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-2 12H6v-2h12v2zm0-3H6V9h12v2zm0-3H6V6h12v2z" fill="currentColor"/>
+                  </svg>
+                </div>
+                <h2 className="auth-form-title">登录</h2>
                 <div className="auth-form-group">
                   <div className="auth-input-wrapper">
                     <svg className="auth-input-icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -95,7 +100,7 @@ export function LoginScreen(props: Props): JSX.Element {
                       <span className="auth-spinner"></span>
                       登录中...
                     </>
-                  ) : '登 录'}
+                  ) : '登录'}
                 </button>
                 <div className="auth-footer">
                   <p>还没有账号？
