@@ -13,6 +13,51 @@ import { ConversationService } from './conversation.service';
 export class ConversationController {
   constructor(private readonly conversationService: ConversationService) {}
 
+  @Get('list')
+  list(
+    @CurrentUser() user: RequestUser,
+    @Query() query: ListConversationsDto,
+  ): Promise<
+    Array<{
+      conversationId: string;
+      type: number;
+      name: string | null;
+      defaultBurnEnabled: boolean;
+      defaultBurnDuration: number | null;
+      unreadCount: number;
+      peerUser: { userId: string; username: string; avatarUrl: string | null } | null;
+      groupInfo: { name: string; memberCount: number } | null;
+      lastMessage: {
+        messageId: string;
+        messageIndex: string;
+        senderId: string;
+        messageType: number;
+        isBurn: boolean;
+        deliveredAt: string | null;
+        readAt: string | null;
+        createdAt: string;
+      } | null;
+    }>
+  > {
+    return this.conversationService.listConversations(user.userId, query);
+  }
+
+  @Get(':conversationId')
+  getConversation(
+    @CurrentUser() user: RequestUser,
+    @Param('conversationId', new ParseUUIDPipe()) conversationId: string,
+  ): Promise<{
+    conversationId: string;
+    type: number;
+    name: string | null;
+    defaultBurnEnabled: boolean;
+    defaultBurnDuration: number | null;
+    peerUser: { userId: string; username: string; avatarUrl: string | null } | null;
+    groupInfo: { name: string; memberCount: number } | null;
+  }> {
+    return this.conversationService.getConversation(user.userId, conversationId);
+  }
+
   @Post('direct')
   createDirect(
     @CurrentUser() user: RequestUser,
@@ -61,35 +106,6 @@ export class ConversationController {
     }>
   > {
     return this.conversationService.listGroupMembers(user.userId, conversationId);
-  }
-
-  @Get('list')
-  list(
-    @CurrentUser() user: RequestUser,
-    @Query() query: ListConversationsDto,
-  ): Promise<
-    Array<{
-      conversationId: string;
-      type: number;
-      name: string | null;
-      defaultBurnEnabled: boolean;
-      defaultBurnDuration: number | null;
-      unreadCount: number;
-      peerUser: { userId: string; username: string; avatarUrl: string | null } | null;
-      groupInfo: { name: string; memberCount: number } | null;
-      lastMessage: {
-        messageId: string;
-        messageIndex: string;
-        senderId: string;
-        messageType: number;
-        isBurn: boolean;
-        deliveredAt: string | null;
-        readAt: string | null;
-        createdAt: string;
-      } | null;
-    }>
-  > {
-    return this.conversationService.listConversations(user.userId, query);
   }
 
   @Get(':conversationId/burn-default')

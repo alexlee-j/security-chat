@@ -13,7 +13,7 @@ export class DraftMessage {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
-  @Column({ type: 'uuid' })
+  @Column({ name: 'user_id', type: 'uuid' })
   userId!: string;
 
   @Column({ name: 'conversation_id', type: 'uuid' })

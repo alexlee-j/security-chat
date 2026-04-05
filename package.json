@@ -23,6 +23,9 @@
     "start:mobile": "pnpm --filter @security-chat/mobile start"
   },
   "devDependencies": {
+    "@playwright/test": "^1.59.1",
+    "axios": "^1.13.5",
+    "playwright": "^1.59.1",
     "socket.io-client": "^4.8.3",
     "tsx": "^4.7.0"
   }

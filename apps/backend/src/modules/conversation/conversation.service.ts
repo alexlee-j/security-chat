@@ -349,6 +349,89 @@ export class ConversationService {
     };
   }
 
+  async getConversation(
+    userId: string,
+    conversationId: string,
+  ): Promise<{
+    conversationId: string;
+    type: number;
+    name: string | null;
+    defaultBurnEnabled: boolean;
+    defaultBurnDuration: number | null;
+    peerUser: { userId: string; username: string; avatarUrl: string | null } | null;
+    groupInfo: { name: string; memberCount: number } | null;
+  }> {
+    await this.assertMember(conversationId, userId);
+
+    const conversation = await this.conversationRepository.findOne({
+      where: { id: conversationId },
+    });
+
+    if (!conversation) {
+      throw new NotFoundException('Conversation not found');
+    }
+
+    // 获取成员信息
+    const members = await this.memberRepository.find({
+      where: { conversationId },
+      select: ['userId'],
+    });
+
+    const isGroup = conversation.type === 2;
+
+    // 获取 peerUser 或群组信息
+    let peerUser: { userId: string; username: string; avatarUrl: string | null } | null = null;
+    let groupInfo: { name: string; memberCount: number } | null = null;
+
+    if (!isGroup) {
+      // 单聊：获取对方用户信息
+      const peerMember = members.find((m) => m.userId !== userId);
+      if (peerMember) {
+        const peer = await this.userRepository.findOne({
+          where: { id: peerMember.userId },
+          select: ['id', 'username', 'avatarUrl'],
+        });
+        if (peer) {
+          peerUser = {
+            userId: peer.id,
+            username: peer.username,
+            avatarUrl: peer.avatarUrl,
+          };
+        }
+      }
+    } else {
+      // 群聊：获取群信息
+      try {
+        const groupResult = await this.dataSource.query(
+          `SELECT name FROM "groups" WHERE conversation_id = $1`,
+          [conversationId],
+        );
+        if (groupResult.length > 0) {
+          groupInfo = {
+            name: groupResult[0].name,
+            memberCount: members.length,
+          };
+        }
+      } catch (error) {
+        // groups 表可能不存在，返回基本信息
+        groupInfo = {
+          name: conversation.name ?? 'Group Chat',
+          memberCount: members.length,
+        };
+      }
+    }
+
+    return {
+      conversationId: conversation.id,
+      type: conversation.type,
+      name: conversation.name,
+      defaultBurnEnabled: conversation.defaultBurnEnabled,
+      defaultBurnDuration: conversation.defaultBurnDuration,
+      peerUser,
+      groupInfo,
+    };
+  }
+
   async assertMember(conversationId: string, userId: string): Promise<void> {
     const member = await this.memberRepository.findOne({
       where: { conversationId, userId },

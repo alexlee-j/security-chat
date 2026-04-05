@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { DatabaseModule } from './infra/database/database.module';
@@ -22,7 +23,9 @@ import { GroupModule } from './modules/group/group.module';
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
+      envFilePath: ['.env.development', '.env'],
     }),
+    ScheduleModule.forRoot(),
     DatabaseModule,
     RedisModule,
     AuthModule,

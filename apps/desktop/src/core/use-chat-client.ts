@@ -1320,6 +1320,8 @@ export function useChatClient(): {
       const result = await createDirectConversation(targetUserId);
       setPeerUserId('');
       setError('');
+      // 先更新 ref，避免 loadConversations 中的自动选中逻辑覆盖
+      activeConversationIdRef.current = result.conversationId;
       await loadConversations();
       setActiveConversationId(result.conversationId);
     } catch (error) {
@@ -1342,6 +1344,8 @@ export function useChatClient(): {
     try {
       const result = await createDirectConversation(userId);
       setError('');
+      // 先更新 ref，避免 loadConversations 中的自动选中逻辑覆盖
+      activeConversationIdRef.current = result.conversationId;
       await loadConversations();
       setActiveConversationId(result.conversationId);
     } catch {

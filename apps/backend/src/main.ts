@@ -7,6 +7,7 @@ import { AppModule } from './app.module';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as cors from 'cors';
+import * as express from 'express';
 
 // 手动加载环境变量（必须在其他代码之前）
 function loadEnv(): void {
@@ -60,6 +61,9 @@ async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule, {
     logger: logLevel.split(',') as any[],
   });
+
+  // 增加 JSON body limit 以支持大量 prekeys 上传
+  app.use(express.json({ limit: '10mb' }));
   const httpLogger = new Logger('HttpAccess');
   const enableHttpLog = process.env.LOG_HTTP !== '0';
   

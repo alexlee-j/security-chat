@@ -10,7 +10,7 @@ import { test, expect, chromium } from '@playwright/test';
  * 5. 验证消息是否正确解密
  */
 
-const BASE_URL = 'http://127.0.0.1:4173';
+const BASE_URL = 'http://localhost:4173';
 
 // 生成随机用户名
 const generateRandomUser = () => ({
@@ -46,9 +46,9 @@ test('Signal 协议 E2E 加密完整测试', async () => {
     await pageA.waitForTimeout(500);
 
     // 填写注册表单
-    await pageA.fill('input[placeholder*="账号"]', userA.username);
-    await pageA.fill('input[placeholder*="邮箱"]', userA.email);
-    await pageA.fill('input[type="password"]', userA.password);
+    await pageA.fill('input[placeholder="请设置用户名"]', userA.username);
+    await pageA.fill('input[placeholder="请输入邮箱地址"]', userA.email);
+    await pageA.fill('input[placeholder="请设置密码"]', userA.password);
 
     // 点击注册按钮
     await pageA.click('button:has-text("注册")');
@@ -68,9 +68,9 @@ test('Signal 协议 E2E 加密完整测试', async () => {
     await pageB.waitForTimeout(500);
 
     // 填写注册表单
-    await pageB.fill('input[placeholder*="账号"]', userB.username);
-    await pageB.fill('input[placeholder*="邮箱"]', userB.email);
-    await pageB.fill('input[type="password"]', userB.password);
+    await pageB.fill('input[placeholder="请设置用户名"]', userB.username);
+    await pageB.fill('input[placeholder="请输入邮箱地址"]', userB.email);
+    await pageB.fill('input[placeholder="请设置密码"]', userB.password);
 
     // 点击注册按钮
     await pageB.click('button:has-text("注册")');
@@ -86,8 +86,8 @@ test('Signal 协议 E2E 加密完整测试', async () => {
     await pageA.waitForLoadState('networkidle');
 
     // 填写登录表单
-    await pageA.fill('input[placeholder*="账号"]', userA.username);
-    await pageA.fill('input[type="password"]', userA.password);
+    await pageA.fill('input[placeholder="请输入用户名"]', userA.username);
+    await pageA.fill('input[placeholder="请输入密码"]', userA.password);
 
     // 点击登录按钮
     await pageA.click('button:has-text("登录")');
@@ -109,8 +109,8 @@ test('Signal 协议 E2E 加密完整测试', async () => {
     await pageB.waitForLoadState('networkidle');
 
     // 填写登录表单
-    await pageB.fill('input[placeholder*="账号"]', userB.username);
-    await pageB.fill('input[type="password"]', userB.password);
+    await pageB.fill('input[placeholder="请输入用户名"]', userB.username);
+    await pageB.fill('input[placeholder="请输入密码"]', userB.password);
 
     // 点击登录按钮
     await pageB.click('button:has-text("登录")');
@@ -135,8 +135,8 @@ test('Signal 协议 E2E 加密完整测试', async () => {
       await pageA.click('button:has-text("创建")');
       await pageA.waitForTimeout(500);
 
-      // 填写用户 B 的用户名
-      await pageA.fill('input[placeholder*="用户"]', userB.username);
+      // 填写用户 B 的用户名 - 使用发起聊天的输入框
+      await pageA.fill('input[placeholder="输入用户名或用户 ID 发起聊天"]', userB.username);
       await pageA.waitForTimeout(500);
 
       // 点击确认按钮
