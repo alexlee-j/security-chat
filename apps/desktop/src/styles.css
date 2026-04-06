@@ -1544,45 +1544,6 @@ button:disabled {
   height: 28px;
 }
 
-.fab-menu {
-  position: absolute;
-  width: 200px;
-  padding: 8px;
-  border-radius: 12px;
-  background: var(--bg-surface);
-  box-shadow: var(--shadow-elevated);
-  display: grid;
-  gap: 4px;
-  z-index: 99;
-}
-
-.fab-menu button {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-height: 44px;
-  padding: 10px 14px;
-  border-radius: 8px;
-  border: none;
-  background: transparent;
-  color: var(--text-primary);
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all var(--transition-fast);
-  text-align: left;
-}
-
-.fab-menu button:hover {
-  background: var(--hover-overlay);
-}
-
-.fab-menu button svg {
-  width: 20px;
-  height: 20px;
-  color: var(--text-secondary);
-}
-
 /* 聊天头部 - 设计稿: 64px 高，白色背景 */
 .chat-header {
   display: flex;
