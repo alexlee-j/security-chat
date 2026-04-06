@@ -944,25 +944,40 @@ export function ChatPanel(props: Props): JSX.Element {
 
       <div className="message-list" ref={messageListRef} onScroll={handleMessageListScroll}>
         {!hasActiveConversation ? (
-          <div className="empty-state">请选择左侧会话开始聊天。</div>
+          <div className="chat-empty">
+            <p>请选择一个会话开始聊天</p>
+          </div>
         ) : visibleMessages.length === 0 ? (
-          <div className="empty-state">还没有消息，发一条试试看。</div>
+          <div className="chat-empty">
+            <p>暂无聊天消息</p>
+          </div>
         ) : (
           <>
             {props.hasMoreHistory && visibleMessages.length >= displayedMessageCount ? (
               <div className="history-loader">
-                <button type="button" onClick={() => void props.onLoadOlderMessages()} disabled={props.loadingMoreHistory}>
-                  {props.loadingMoreHistory ? '加载中...' : '加载更早消息'}
-                </button>
+                {props.loadingMoreHistory ? (
+                  <span className="spinner" />
+                ) : (
+                  <button type="button" onClick={() => void props.onLoadOlderMessages()}>
+                    加载更早消息
+                  </button>
+                )}
               </div>
             ) : props.hasMoreHistory ? (
               <div className="history-loader">
                 <button type="button" onClick={() => void props.onLoadOlderMessages()} disabled={props.loadingMoreHistory}>
-                  {props.loadingMoreHistory ? '加载中...' : '查看更早消息'}
+                  {props.loadingMoreHistory ? (
+                    <>
+                      <span className="spinner" />
+                      加载中...
+                    </>
+                  ) : '查看更早消息'}
                 </button>
               </div>
             ) : (
-              <div className="history-end subtle">没有更早消息了</div>
+              <div className="history-end">
+                <span>没有更早消息了</span>
+              </div>
             )}
             {displayedMessages.map((row) => {
               const decoded = props.decodePayload(row.encryptedPayload);
