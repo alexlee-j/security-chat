@@ -78,14 +78,7 @@ export class ConversationService {
       throw new BadRequestException('Group name is required');
     }
 
-    if (!memberUserIds || memberUserIds.length === 0) {
-      throw new BadRequestException('At least one member is required');
-    }
-
-    const validMembers = [...new Set(memberUserIds.filter(id => id && id !== userId))];
-    if (validMembers.length === 0) {
-      throw new BadRequestException('At least one valid member is required');
-    }
+    const validMembers = [...new Set(memberUserIds?.filter(id => id && id !== userId) ?? [])];
 
     const users = await this.userRepository.find({
       where: { id: In(validMembers) },
@@ -443,6 +436,104 @@ export class ConversationService {
     }
   }
 
+  async updateSettings(
+    userId: string,
+    conversationId: string,
+    dto: { isPinned?: boolean; isMuted?: boolean },
+  ): Promise<{ conversationId: string; isPinned: boolean; isMuted: boolean }> {
+    await this.assertMember(conversationId, userId);
+
+    const member = await this.memberRepository.findOne({
+      where: { conversationId, userId },
+    });
+
+    if (!member) {
+      throw new NotFoundException('Member not found');
+    }
+
+    if (dto.isPinned !== undefined) {
+      member.isPinned = dto.isPinned;
+    }
+
+    if (dto.isMuted !== undefined) {
+      member.isMuted = dto.isMuted;
+    }
+
+    await this.memberRepository.save(member);
+
+    return {
+      conversationId,
+      isPinned: member.isPinned,
+      isMuted: member.isMuted,
+    };
+  }
+
+  async searchConversations(
+    userId: string,
+    query: string,
+  ): Promise<
+    Array<{
+      conversationId: string;
+      type: number;
+      name: string | null;
+    }>
+  > {
+    const rows = await this.dataSource.query(
+      `
+      SELECT DISTINCT ON (c.id)
+        c.id AS conversation_id,
+        c.type AS type,
+        c.name AS conversation_name,
+        c.updated_at
+      FROM conversations c
+      INNER JOIN conversation_members cm ON cm.conversation_id = c.id
+      WHERE cm.user_id = $1
+        AND (
+          c.name ILIKE $2
+          OR c.id::text = $2
+        )
+      ORDER BY c.id, c.updated_at DESC
+      LIMIT 20;
+      `,
+      [userId, `%${query.replace(/[%_]/g, '\\$&')}%`],
+    );
+
+    return rows.map((row: { conversation_id: string; type: number; conversation_name: string | null }) => ({
+      conversationId: row.conversation_id,
+      type: Number(row.type),
+      name: row.conversation_name,
+    }));
+  }
+
+  async deleteConversation(userId: string, conversationId: string): Promise<{ deleted: boolean }> {
+    await this.assertMember(conversationId, userId);
+
+    const conversation = await this.conversationRepository.findOne({
+      where: { id: conversationId },
+    });
+
+    if (!conversation) {
+      throw new NotFoundException('Conversation not found');
+    }
+
+    // 私聊：任何成员都可以删除
+    // 群聊：只有创建者可以删除
+    if (conversation.type === 2) {
+      // 检查是否是群聊创建者
+      const members = await this.memberRepository.find({
+        where: { conversationId, role: 1 },
+      });
+      const isCreator = members.some((m) => m.userId === userId);
+      if (!isCreator) {
+        throw new ForbiddenException('Only group creator can delete the conversation');
+      }
+    }
+
+    await this.conversationRepository.remove(conversation);
+
+    return { deleted: true };
+  }
+
   async listConversations(
     userId: string,
     query: ListConversationsDto,
@@ -454,6 +545,9 @@ export class ConversationService {
       defaultBurnEnabled: boolean;
       defaultBurnDuration: number | null;
       unreadCount: number;
+      isPinned: boolean;
+      isMuted: boolean;
+      isOnline?: boolean;
       peerUser: { userId: string; username: string; avatarUrl: string | null } | null;
       groupInfo: { name: string; memberCount: number } | null;
       lastMessage: {
@@ -479,6 +573,8 @@ export class ConversationService {
         c.default_burn_enabled AS default_burn_enabled,
         c.default_burn_duration AS default_burn_duration,
         COALESCE(uc.unread_count, 0) AS unread_count,
+        my.is_pinned AS is_pinned,
+        my.is_muted AS is_muted,
         u.id AS peer_user_id,
         u.username AS peer_username,
         u.avatar_url AS peer_avatar_url,
@@ -538,6 +634,12 @@ export class ConversationService {
       [userId, limit],
     );
 
+    // 批量查询私聊对方的在线状态
+    const peerUserIds = rows
+      .map((row: { peer_user_id: string | null; type: number }) => row.type === 1 ? row.peer_user_id : null)
+      .filter((id): id is string => id !== null);
+    const onlineStatusMap = await this.getUsersOnlineStatus(peerUserIds);
+
     return rows.map(
       (row: {
         conversation_id: string;
@@ -546,6 +648,8 @@ export class ConversationService {
         default_burn_enabled: boolean;
         default_burn_duration: number | null;
         unread_count: string | number;
+        is_pinned: boolean;
+        is_muted: boolean;
         peer_user_id: string | null;
         peer_username: string | null;
         peer_avatar_url: string | null;
@@ -566,6 +670,9 @@ export class ConversationService {
         defaultBurnEnabled: Boolean(row.default_burn_enabled),
         defaultBurnDuration: row.default_burn_duration === null ? null : Number(row.default_burn_duration),
         unreadCount: Number(row.unread_count ?? 0),
+        isPinned: Boolean(row.is_pinned),
+        isMuted: Boolean(row.is_muted),
+        isOnline: row.type === 1 && row.peer_user_id ? (onlineStatusMap.get(row.peer_user_id) ?? false) : undefined,
         peerUser: row.peer_user_id
           ? {
               userId: row.peer_user_id,
@@ -594,5 +701,25 @@ export class ConversationService {
           : null,
       }),
     );
+  }
+
+  private async getUsersOnlineStatus(userIds: string[]): Promise<Map<string, boolean>> {
+    if (userIds.length === 0) {
+      return new Map();
+    }
+    const result = new Map<string, boolean>();
+    try {
+      const keys = userIds.map((id) => `online:${id}`);
+      const values = await this.redis.mget(...keys);
+      userIds.forEach((userId, index) => {
+        result.set(userId, values[index] === '1');
+      });
+    } catch (error) {
+      console.error('Failed to batch check users online status:', error);
+      userIds.forEach((userId) => {
+        result.set(userId, false);
+      });
+    }
+    return result;
   }
 }
