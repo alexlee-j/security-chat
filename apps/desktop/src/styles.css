@@ -1181,15 +1181,6 @@ button:disabled {
   padding: 0px;
 }
 
-.conversation-group-title {
-  padding: 12px 16px 6px;
-  color: var(--text-muted);
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
 /* 会话项 - 设计稿样式: 72px高, 12px padding, cornerRadius 12px */
 .conversation {
   display: flex;

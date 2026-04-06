@@ -192,7 +192,10 @@ export function ConversationSidebar(props: Props): JSX.Element {
         onClick={() => props.onSelectConversation(row.conversationId)}
         onContextMenu={(event) => openConversationMenu(event, row.conversationId)}
       >
-        <span className="avatar" style={{ background: `var(--avatar-gradient-${(getAvatarColorIndex(displayName) % 5) + 1})` }}>{getInitials(displayName)}</span>
+        <span className="avatar-wrapper">
+          <span className="avatar" style={{ background: `var(--avatar-gradient-${(getAvatarColorIndex(displayName) % 5) + 1})` }}>{getInitials(displayName)}</span>
+          {row.peerUser?.isOnline ? <span className="status-dot" /> : null}
+        </span>
         <div className="conversation-main">
           <div className="conversation-row">
             <div className="conversation-title">
@@ -223,6 +226,7 @@ export function ConversationSidebar(props: Props): JSX.Element {
             type="button"
             className="nav-menu-btn"
             aria-label="菜单"
+            onClick={() => props.onWorkspaceChange?.('friend')}
           >
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <path d="M4 6h16v2H4V6Zm0 5h16v2H4v-2Zm0 5h16v2H4v-2Z" fill="currentColor" />
