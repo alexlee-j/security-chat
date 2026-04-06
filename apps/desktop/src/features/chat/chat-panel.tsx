@@ -839,10 +839,11 @@ export function ChatPanel(props: Props): JSX.Element {
     <>
       <section className="chat-panel card telegram-chat">
       <TopBar
-        type="chat"
+        type={props.activeConversation?.type === 2 ? 'group' : 'chat'}
         avatar={getInitial(peerName)}
         name={peerName}
         status={statusText}
+        memberCount={props.activeConversation?.type === 2 ? props.activeConversation.groupInfo?.memberCount : undefined}
         onSearch={() => {
           setSearchOpen((v) => {
             const next = !v;
