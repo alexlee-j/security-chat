@@ -639,11 +639,13 @@ export function ChatPanel(props: Props): JSX.Element {
     setImagePreviewSrc('');
   }
 
-  function openContextMenu(event: React.MouseEvent, message: MessageItem): void {
+  function openContextMenu(event: React.MouseEvent, message: MessageItem, isOwn: boolean): void {
     event.preventDefault();
     event.stopPropagation();
+    // isOwn=true: 菜单位置偏右; isOwn=false: 菜单位置偏左
+    const x = isOwn ? event.clientX + 120 : event.clientX - 120;
     setContextMenu({
-      x: event.clientX,
+      x,
       y: event.clientY,
       message,
     });
@@ -1001,7 +1003,7 @@ export function ChatPanel(props: Props): JSX.Element {
                   data-msg-id={row.id}
                   data-msg-type={row.messageType}
                   className={`${isOut ? 'message self' : 'message'}${focusedMessageId === row.id ? ' focused' : ''}${isBurning ? ' message-burning' : ''}${isRevoked ? ' message-revoked' : ''}`}
-                  onContextMenu={(e) => openContextMenu(e, row)}
+                  onContextMenu={(e) => openContextMenu(e, row, isOut)}
                 >
                   <MessageBubble
                     type={isOut ? 'out' : 'in'}
