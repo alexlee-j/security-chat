@@ -4542,9 +4542,9 @@ button:disabled {
    FAB 悬浮按钮菜单 - 右下角固定定位
    ========================================================================== */
 .fab-menu {
-  position: fixed;
-  bottom: 72px;
-  right: 72px;
+  position: absolute;
+  bottom: 16px;
+  right: 16px;
   z-index: 100;
 }
 
@@ -4604,11 +4604,10 @@ button:disabled {
 }
 
 .fab-icon {
-  font-family: 'Material Symbols Rounded';
   font-size: 28px;
-  font-weight: normal;
-  font-style: normal;
+  font-weight: 300;
   color: white;
+  line-height: 1;
 }
 
 .conversation-context-menu {

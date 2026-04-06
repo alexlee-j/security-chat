@@ -72,25 +72,40 @@ export class MessageEncryptionService {
     let session = await this.keyManager.getSession(senderUserId, senderDeviceId);
 
     if (!session) {
-      // 获取本地身份密钥对
-      const identityKeyPair = await this.keyManager.getIdentityKeyPair();
-      // 获取本地签名预密钥和一次性预密钥
-      const signedPrekeys = await this.keyManager.getSignedPrekeys();
-      const oneTimePrekeys = await this.keyManager.getOneTimePrekeys();
-      
-      if (signedPrekeys.length === 0) {
-        throw new Error('No signed prekey available for session acceptance');
-      }
+      // 检查是否是 PreKeySignalMessage（X3DH 初始消息）
+      // PreKeySignalMessage 有 preKeyId 字段，且 baseKey/identityKey 用于密钥交换
+      const isPreKeySignalMessage = this.isPreKeySignalMessage(fixedEncryptedMessage);
 
-      // 接受会话（使用完整的 X3DH 协议）
-      session = await this.signal.acceptSession(
-        fixedEncryptedMessage,
-        identityKeyPair,
-        signedPrekeys[0],
-        oneTimePrekeys.length > 0 ? oneTimePrekeys[0] : undefined
-      );
-      // 保存会话
-      await this.keyManager.saveSession(senderUserId, senderDeviceId, session);
+      if (isPreKeySignalMessage) {
+        // 这是 X3DH 初始消息，需要建立新会话
+        const identityKeyPair = await this.keyManager.getIdentityKeyPair();
+        const signedPrekeys = await this.keyManager.getSignedPrekeys();
+        const oneTimePrekeys = await this.keyManager.getOneTimePrekeys();
+
+        if (signedPrekeys.length === 0) {
+          throw new Error('No signed prekey available for session acceptance');
+        }
+
+        session = await this.signal.acceptSession(
+          fixedEncryptedMessage,
+          identityKeyPair,
+          signedPrekeys[0],
+          oneTimePrekeys.length > 0 ? oneTimePrekeys[0] : undefined
+        );
+        await this.keyManager.saveSession(senderUserId, senderDeviceId, session);
+      } else {
+        // 这是普通 SignalMessage，但会话不存在
+        // 这可能是因为会话丢失（如重连后本地会话被清除）
+        // 此时无法解密，应抛出错误让调用方知道需要重新建立会话
+        console.error('[MessageEncryption] Session not found for regular SignalMessage:', {
+          senderUserId,
+          senderDeviceId,
+          hasBaseKey: !!fixedEncryptedMessage.baseKey,
+          hasIdentityKey: !!fixedEncryptedMessage.identityKey,
+          messageNumber: fixedEncryptedMessage.messageNumber,
+        });
+        throw new Error('会话不存在，无法解密消息。可能需要重新建立会话。');
+      }
     }
 
     // 解密消息
@@ -100,6 +115,18 @@ export class MessageEncryptionService {
     await this.keyManager.saveSession(senderUserId, senderDeviceId, session);
 
     return plaintext;
+  }
+
+  /**
+   * 检查是否是 PreKeySignalMessage（X3DH 初始消息）
+   * PreKeySignalMessage 有 preKeyId 字段，表示使用了预密钥
+   */
+  private isPreKeySignalMessage(message: EncryptedMessage): boolean {
+    // PreKeySignalMessage 的特征：
+    // 1. 有 preKeyId 字段（表示使用了预密钥进行 X3DH 密钥交换）
+    // 2. 有有效的 baseKey 和 identityKey（用于 X3DH）
+    // 普通 SignalMessage 的 preKeyId 为 undefined 或 0
+    return !!message.preKeyId && message.preKeyId > 0;
   }
 
   /**

@@ -71,7 +71,7 @@ export function FabMenu(props: FabMenuProps): JSX.Element {
         aria-label="打开操作菜单"
         onClick={() => setOpen(!open)}
       >
-        <span className="fab-icon material-symbols-rounded">add</span>
+        <span className="fab-icon">+</span>
       </button>
     </div>
   );

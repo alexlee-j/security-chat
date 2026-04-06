@@ -504,6 +504,10 @@ export class SessionStore {
       rootKey: this.uint8ArrayToBase64(session.rootKey),
       previousChainLength: session.previousChainLength,
       ephemeralPublicKey: session.ephemeralPublicKey ? this.uint8ArrayToBase64(session.ephemeralPublicKey) : undefined,
+      // 注意：不序列化 localIdentityKeyPair，因为：
+      // 1. 它包含 CryptoKey 对象，不能直接序列化
+      // 2. DH 棘轮逻辑在简化实现中未使用
+      // 3. 当需要时，可以从 identityKeys 获取
     };
   }
 
@@ -524,6 +528,7 @@ export class SessionStore {
       rootKey: this.base64ToUint8Array(data.rootKey),
       previousChainLength: data.previousChainLength,
       ephemeralPublicKey: data.ephemeralPublicKey ? this.base64ToUint8Array(data.ephemeralPublicKey) : undefined,
+      // localIdentityKeyPair 不从序列化数据恢复，会话将使用较少的字段
     };
   }
 
