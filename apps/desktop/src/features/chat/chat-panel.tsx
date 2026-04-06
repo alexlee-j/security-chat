@@ -11,6 +11,7 @@
 import { FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from 'react';
 import * as React from 'react';
 import { ConversationListItem, MessageItem } from '../../core/types';
+import { TopBar } from './top-bar';
 
 /**
  * Props 类型定义 - 聊天面板组件属性
@@ -837,67 +838,24 @@ export function ChatPanel(props: Props): JSX.Element {
   return (
     <>
       <section className="chat-panel card telegram-chat">
-      <header className="chat-header">
-        <div className="chat-title">
-          <span className="avatar avatar-large" style={{ background: `var(--avatar-gradient-${(getAvatarColorIndex(peerName) % 5) + 1})` }}>{getInitial(peerName)}</span>
-          <div>
-            <h3>{peerName}</h3>
-            <p className="subtle">{statusText}</p>
-          </div>
-        </div>
-        <div className="chat-tools">
-          <button
-            type="button"
-            className="chat-tool-btn icon-btn"
-            disabled={!hasActiveConversation}
-            aria-label="搜索会话"
-            onClick={() => {
-              setSearchOpen((v) => {
-                const next = !v;
-                if (!next) {
-                  setSearchKeyword('');
-                  setFocusedMessageId('');
-                }
-                return next;
-              });
-              setMenuOpen(false);
-            }}
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path
-                d="M11 4a7 7 0 1 0 4.41 12.44l4.08 4.08 1.41-1.41-4.08-4.08A7 7 0 0 0 11 4Zm0 2a5 5 0 1 1 0 10 5 5 0 0 1 0-10Z"
-                fill="currentColor"
-              />
-            </svg>
-          </button>
-          <button
-            type="button"
-            className="chat-tool-btn icon-btn"
-            disabled={!hasActiveConversation}
-            aria-label="更多操作"
-            onClick={() => setMenuOpen((v) => !v)}
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <circle cx="5" cy="12" r="2" fill="currentColor" />
-              <circle cx="12" cy="12" r="2" fill="currentColor" />
-              <circle cx="19" cy="12" r="2" fill="currentColor" />
-            </svg>
-          </button>
-          {menuOpen ? (
-            <div className="chat-menu">
-              <button type="button" onClick={() => void props.onRefreshConversation()}>
-                刷新会话
-              </button>
-              <button type="button" onClick={scrollToBottom}>
-                跳到底部
-              </button>
-              <button type="button" onClick={clearComposer}>
-                清空输入
-              </button>
-            </div>
-          ) : null}
-        </div>
-      </header>
+      <TopBar
+        type="chat"
+        avatar={getInitial(peerName)}
+        name={peerName}
+        status={statusText}
+        onSearch={() => {
+          setSearchOpen((v) => {
+            const next = !v;
+            if (!next) {
+              setSearchKeyword('');
+              setFocusedMessageId('');
+            }
+            return next;
+          });
+          setMenuOpen(false);
+        }}
+        onMore={() => setMenuOpen((v) => !v)}
+      />
 
       {searchOpen ? (
         <div className="chat-search-row">
