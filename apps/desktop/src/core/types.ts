@@ -20,7 +20,7 @@ export type ConversationListItem = {
   defaultBurnEnabled: boolean;
   defaultBurnDuration: number | null;
   unreadCount: number;
-  peerUser: { userId: string; username: string; avatarUrl: string | null } | null;
+  peerUser: { userId: string; username: string; avatarUrl: string | null; isOnline?: boolean } | null;
   groupInfo: { name: string; memberCount: number } | null;
   lastMessage: {
     messageId: string;

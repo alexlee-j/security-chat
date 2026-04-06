@@ -158,6 +158,26 @@ export class MessageGateway implements OnGatewayInit, OnGatewayConnection, OnGat
     }
   }
 
+  async areUsersOnline(userIds: string[]): Promise<Map<string, boolean>> {
+    const result = new Map<string, boolean>();
+    if (userIds.length === 0) {
+      return result;
+    }
+    try {
+      const keys = userIds.map((id) => `online:${id}`);
+      const values = await this.redis.mget(...keys);
+      userIds.forEach((userId, index) => {
+        result.set(userId, values[index] === '1');
+      });
+    } catch (error) {
+      console.error('Failed to batch check users online status:', error);
+      userIds.forEach((userId) => {
+        result.set(userId, false);
+      });
+    }
+    return result;
+  }
+
   @SubscribeMessage('message.ping')
   ping(@ConnectedSocket() client: Socket, @MessageBody() payload: Record<string, unknown>): void {
     client.emit('message.pong', { ts: Date.now(), payload });

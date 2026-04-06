@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { CurrentUser, RequestUser } from '../../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CreateDirectConversationDto } from './dto/create-direct-conversation.dto';
@@ -6,12 +6,22 @@ import { CreateGroupConversationDto } from './dto/create-group-conversation.dto'
 import { AddGroupMembersDto, RemoveGroupMemberDto } from './dto/manage-group-members.dto';
 import { ListConversationsDto } from './dto/list-conversations.dto';
 import { UpdateBurnDefaultDto } from './dto/update-burn-default.dto';
+import { UpdateConversationSettingsDto } from './dto/update-conversation-settings.dto';
+import { SearchConversationsDto } from './dto/search-conversations.dto';
 import { ConversationService } from './conversation.service';
 
 @Controller('conversation')
 @UseGuards(JwtAuthGuard)
 export class ConversationController {
   constructor(private readonly conversationService: ConversationService) {}
+
+  @Get('search')
+  search(
+    @CurrentUser() user: RequestUser,
+    @Query() query: SearchConversationsDto,
+  ): Promise<Array<{ conversationId: string; type: number; name: string | null }>> {
+    return this.conversationService.searchConversations(user.userId, query.search);
+  }
 
   @Get('list')
   list(
@@ -25,6 +35,9 @@ export class ConversationController {
       defaultBurnEnabled: boolean;
       defaultBurnDuration: number | null;
       unreadCount: number;
+      isPinned: boolean;
+      isMuted: boolean;
+      isOnline?: boolean;
       peerUser: { userId: string; username: string; avatarUrl: string | null } | null;
       groupInfo: { name: string; memberCount: number } | null;
       lastMessage: {
@@ -123,5 +136,22 @@ export class ConversationController {
     @Body() dto: UpdateBurnDefaultDto,
   ): Promise<{ conversationId: string; enabled: boolean; burnDuration: number | null }> {
     return this.conversationService.updateBurnDefault(user.userId, conversationId, dto);
+  }
+
+  @Patch(':conversationId/settings')
+  updateSettings(
+    @CurrentUser() user: RequestUser,
+    @Param('conversationId', new ParseUUIDPipe()) conversationId: string,
+    @Body() dto: UpdateConversationSettingsDto,
+  ): Promise<{ conversationId: string; isPinned: boolean; isMuted: boolean }> {
+    return this.conversationService.updateSettings(user.userId, conversationId, dto);
+  }
+
+  @Delete(':conversationId')
+  deleteConversation(
+    @CurrentUser() user: RequestUser,
+    @Param('conversationId', new ParseUUIDPipe()) conversationId: string,
+  ): Promise<{ deleted: boolean }> {
+    return this.conversationService.deleteConversation(user.userId, conversationId);
   }
 }

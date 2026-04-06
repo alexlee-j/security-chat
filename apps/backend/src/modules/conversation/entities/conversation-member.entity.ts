@@ -26,6 +26,12 @@ export class ConversationMember {
   @Column({ type: 'smallint', default: 0 })
   role!: number;
 
+  @Column({ name: 'is_pinned', type: 'boolean', default: false })
+  isPinned!: boolean;
+
+  @Column({ name: 'is_muted', type: 'boolean', default: false })
+  isMuted!: boolean;
+
   @CreateDateColumn({ name: 'joined_at', type: 'timestamptz' })
   joinedAt!: Date;
 

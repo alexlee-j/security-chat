@@ -1053,11 +1053,11 @@ export function ChatPanel(props: Props): JSX.Element {
         )}
       </div>
 
-      <footer className=”composer-area”>
+      <footer className="composer-area">
         <input
           ref={fileInputRef}
-          type=”file”
-          className=”hidden-file-input”
+          type="file"
+          className="hidden-file-input"
           onChange={(e) => {
             const file = e.target.files?.[0];
             if (file) {
@@ -1066,17 +1066,17 @@ export function ChatPanel(props: Props): JSX.Element {
             e.currentTarget.value = '';
           }}
         />
-        <form ref={composerFormRef} onSubmit={props.onSubmit} className=”composer”>
+        <form ref={composerFormRef} onSubmit={props.onSubmit} className="composer">
           {props.replyToMessage ? (
-            <div className=”reply-preview”>
-              <div className=”reply-preview-content”>
-                <div className=”reply-preview-header”>
-                  <span className=”reply-preview-label”>引用</span>
-                  <span className=”reply-preview-sender”>
+            <div className="reply-preview">
+              <div className="reply-preview-content">
+                <div className="reply-preview-header">
+                  <span className="reply-preview-label">引用</span>
+                  <span className="reply-preview-sender">
                     {props.replyToMessage.senderId === props.currentUserId ? '我' : '对方'}
                   </span>
                 </div>
-                <div className=”reply-preview-text”>
+                <div className="reply-preview-text">
                   {(() => {
                     const payload = parsePayload(props.decodePayload(props.replyToMessage!.encryptedPayload));
                     const content = payload.text || (props.replyToMessage!.messageType === 2 ? '[图片]' : props.replyToMessage!.messageType === 3 ? '[语音]' : '[文件]');
@@ -1085,63 +1085,63 @@ export function ChatPanel(props: Props): JSX.Element {
                 </div>
               </div>
               <button
-                type=”button”
-                className=”reply-preview-close”
+                type="button"
+                className="reply-preview-close"
                 onClick={() => props.onReplyToMessageChange(null)}
-                aria-label=”取消引用”
+                aria-label="取消引用"
               >
-                <svg viewBox=”0 0 24 24” aria-hidden=”true”>
-                  <path d=”M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z” fill=”currentColor”/>
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" fill="currentColor"/>
                 </svg>
               </button>
             </div>
           ) : null}
           <button
-            type=”button”
-            className=”composer-tool-btn”
+            type="button"
+            className="composer-tool-btn"
             disabled={!hasActiveConversation || props.mediaUploading}
-            aria-label=”附加”
+            aria-label="附加"
             onClick={() => fileInputRef.current?.click()}
           >
-            <svg viewBox=”0 0 24 24” aria-hidden=”true”>
+            <svg viewBox="0 0 24 24" aria-hidden="true">
               <path
-                d=”M15.5 5a4.5 4.5 0 0 1 0 9H8.8a2.8 2.8 0 1 1 0-5.6h6.4v1.8H8.8a1 1 0 1 0 0 2h6.7a2.7 2.7 0 1 0 0-5.4H8.2A4.2 4.2 0 1 0 8.2 15h7.1v1.8H8.2a6 6 0 1 1 0-12h7.3Z”
-                fill=”currentColor”
+                d="M15.5 5a4.5 4.5 0 0 1 0 9H8.8a2.8 2.8 0 1 1 0-5.6h6.4v1.8H8.8a1 1 0 1 0 0 2h6.7a2.7 2.7 0 1 0 0-5.4H8.2A4.2 4.2 0 1 0 8.2 15h7.1v1.8H8.2a6 6 0 1 1 0-12h7.3Z"
+                fill="currentColor"
               />
             </svg>
           </button>
           <button
-            type=”button”
-            className=”composer-tool-btn”
+            type="button"
+            className="composer-tool-btn"
             disabled={!hasActiveConversation}
-            aria-label=”表情”
+            aria-label="表情"
             onClick={() => setEmojiOpen((v) => !v)}
           >
-            <svg viewBox=”0 0 24 24” aria-hidden=”true”>
+            <svg viewBox="0 0 24 24" aria-hidden="true">
               <path
-                d=”M12 4a8 8 0 1 0 8 8 8 8 0 0 0-8-8Zm0 14a6 6 0 1 1 6-6 6 6 0 0 1-6 6Zm-3-7a1 1 0 1 0-1-1 1 1 0 0 0 1 1Zm6 0a1 1 0 1 0-1-1 1 1 0 0 0 1 1Zm-6.2 2.6a4.1 4.1 0 0 0 6.4 0l1.6 1a6 6 0 0 1-9.6 0l1.6-1Z”
-                fill=”currentColor”
+                d="M12 4a8 8 0 1 0 8 8 8 8 0 0 0-8-8Zm0 14a6 6 0 1 1 6-6 6 6 0 0 1-6 6Zm-3-7a1 1 0 1 0-1-1 1 1 0 0 0 1 1Zm6 0a1 1 0 1 0-1-1 1 1 0 0 0 1 1Zm-6.2 2.6a4.1 4.1 0 0 0 6.4 0l1.6 1a6 6 0 0 1-9.6 0l1.6-1Z"
+                fill="currentColor"
               />
             </svg>
           </button>
           <button
-            type=”button”
-            className=”composer-tool-btn”
+            type="button"
+            className="composer-tool-btn"
             disabled={!hasActiveConversation}
-            aria-label=”麦克风”
+            aria-label="麦克风"
           >
-            <svg viewBox=”0 0 24 24” aria-hidden=”true”>
+            <svg viewBox="0 0 24 24" aria-hidden="true">
               <path
-                d=”M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3Zm-1-9c0-.55.45-1 1-1s1 .45 1 1v6c0 .55-.45 1-1 1s-1-.45-1-1V5Zm6 6c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2Z”
-                fill=”currentColor”
+                d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3Zm-1-9c0-.55.45-1 1-1s1 .45 1 1v6c0 .55-.45 1-1 1s-1-.45-1-1V5Zm6 6c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2Z"
+                fill="currentColor"
               />
             </svg>
           </button>
-          <div className=”composer-input-wrapper”>
+          <div className="composer-input-wrapper">
             <textarea
               value={props.messageText}
               onChange={(e) => props.onMessageTextChange(e.target.value)}
-              placeholder=”输入消息，按 Enter 发送”
+              placeholder="输入消息，按 Enter 发送"
               onFocus={props.onStartTyping}
               onBlur={props.onStopTyping}
               rows={1}
@@ -1158,25 +1158,25 @@ export function ChatPanel(props: Props): JSX.Element {
               disabled={!hasActiveConversation}
             />
             <button
-              type=”submit”
-              className=”send-btn”
+              type="submit"
+              className="send-btn"
               disabled={
                 !hasActiveConversation ||
                 props.sendingMessage ||
                 props.mediaUploading ||
                 !props.messageText.trim()
               }
-              aria-label=”发送消息”
+              aria-label="发送消息"
             >
-              <svg viewBox=”0 0 24 24” aria-hidden=”true”>
-                <path d=”m21 12-17 7 3.6-7L4 5l17 7Z” fill=”currentColor” />
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="m21 12-17 7 3.6-7L4 5l17 7Z" fill="currentColor" />
               </svg>
             </button>
           </div>
         </form>
         {emojiOpen ? (
           <>
-            <div className=”emoji-picker-overlay” onClick={() => setEmojiOpen(false)} />
+            <div className="emoji-picker-overlay" onClick={() => setEmojiOpen(false)} />
             <EmojiPicker
               onSelect={(emoji) => {
                 appendEmoji(emoji);
@@ -1186,7 +1186,7 @@ export function ChatPanel(props: Props): JSX.Element {
             />
           </>
         ) : null}
-        <small className=”typing-hint”>
+        <small className="typing-hint">
           {props.mediaUploading ? '媒体上传中...' : props.sendingMessage ? '发送中...' : props.typingHint || ' '}
         </small>
       </footer>
@@ -1209,9 +1209,9 @@ export function ChatPanel(props: Props): JSX.Element {
       <MessageContextMenu
         x={contextMenu.x}
         y={contextMenu.y}
-        messageType={contextMenu.message.messageType}
+        messageType={contextMenu.message.messageType as 1 | 2 | 3 | 4}
         isOwn={contextMenu.message.senderId === props.currentUserId}
-        isRevoked={contextMenu.message.isRevoked}
+        isRevoked={contextMenu.message.isRevoked ?? false}
         onCopy={() => copyMessage(contextMenu.message.id)}
         onReply={() => replyMessage(contextMenu.message.id)}
         onForward={() => forwardMessage(contextMenu.message.id)}

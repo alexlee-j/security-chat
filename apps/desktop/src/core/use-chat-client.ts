@@ -17,6 +17,7 @@ import {
   ackRead,
   blockUser,
   createDirectConversation,
+  deleteConversation,
   downloadMedia,
   decodePayload as decodePayloadApi,
   decodePayloadAsync,
@@ -184,6 +185,7 @@ export type ChatClientActions = {
   setActiveConversationId: (value: string) => void;
   toggleConversationPin: (conversationId: string) => void;
   toggleConversationMute: (conversationId: string) => void;
+  deleteConversation: (conversationId: string) => Promise<boolean>;
   setFriendKeyword: (value: string) => void;
   onLogin: (event: FormEvent<HTMLFormElement>) => Promise<void>;
   onRegister: (event: FormEvent<HTMLFormElement>) => Promise<void>;
@@ -1729,6 +1731,19 @@ export function useChatClient(): {
     );
   }
 
+  async function deleteConversationFromServer(conversationId: string): Promise<boolean> {
+    if (!conversationId) {
+      return false;
+    }
+    try {
+      await deleteConversation(conversationId);
+      return true;
+    } catch (error) {
+      console.error('[useChatClient] 删除会话失败:', error);
+      return false;
+    }
+  }
+
   function handleBurnEnabledChange(value: boolean): void {
     setBurnEnabled(value);
     const conversationId = activeConversationIdRef.current;
@@ -2013,6 +2028,7 @@ export function useChatClient(): {
       setActiveConversationId,
       toggleConversationPin,
       toggleConversationMute,
+      deleteConversation: deleteConversationFromServer,
       setFriendKeyword,
       onLogin,
       onRegister,

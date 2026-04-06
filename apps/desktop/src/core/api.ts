@@ -176,6 +176,11 @@ export async function updateConversationBurnDefault(
   return res.data.data;
 }
 
+export async function deleteConversation(conversationId: string): Promise<{ deleted: boolean }> {
+  const res = await http.delete<ApiEnvelope<{ deleted: boolean }>>(`/conversation/${conversationId}`);
+  return res.data.data;
+}
+
 export async function getMessages(
   conversationId: string,
   afterIndex = 0,

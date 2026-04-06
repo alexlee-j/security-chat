@@ -1,5 +1,5 @@
 import data from '@emoji-mart/data';
-import { Picker } from '@emoji-mart/react';
+import Picker from '@emoji-mart/react';
 
 type EmojiPickerProps = {
   onSelect: (emoji: string) => void;

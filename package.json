@@ -24,9 +24,15 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.59.1",
+    "@types/jest": "^29.5.14",
+    "@types/node": "^25.5.2",
     "axios": "^1.13.5",
     "playwright": "^1.59.1",
     "socket.io-client": "^4.8.3",
     "tsx": "^4.7.0"
+  },
+  "dependencies": {
+    "@emoji-mart/data": "^1.2.1",
+    "@emoji-mart/react": "^1.1.1"
   }
 }

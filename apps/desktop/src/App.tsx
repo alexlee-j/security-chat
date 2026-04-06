@@ -196,6 +196,7 @@ export function App(): JSX.Element {
               onSelectConversation={actions.setActiveConversationId}
               onTogglePin={actions.toggleConversationPin}
               onToggleMute={actions.toggleConversationMute}
+              onDeleteConversation={actions.deleteConversation}
               onWorkspaceChange={setWorkspace}
               onLogout={() => void actions.onLogout()}
               currentUserId={state.auth.userId}

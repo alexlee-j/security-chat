@@ -1,4 +1,4 @@
-import { MouseEvent, useEffect, useMemo, useState } from 'react';
+import { FormEvent, MouseEvent, useEffect, useMemo, useState } from 'react';
 import * as React from 'react';
 import { ConversationListItem } from '../../core/types';
 import { ConversationContextMenu } from './conversation-context-menu';
@@ -20,6 +20,7 @@ type Props = {
   onSelectConversation: (conversationId: string) => void;
   onTogglePin: (conversationId: string) => void;
   onToggleMute: (conversationId: string) => void;
+  onDeleteConversation: (conversationId: string) => Promise<boolean>;
   onWorkspaceChange?: (workspace: 'chat' | 'friend') => void;
   onLogout?: () => void;
   currentUserId?: string;
@@ -164,6 +165,14 @@ export function ConversationSidebar(props: Props): JSX.Element {
     setMenu(null);
   }
 
+  async function onMenuDeleteConversation(conversationId: string): Promise<void> {
+    setMenu(null);
+    const success = await props.onDeleteConversation(conversationId);
+    if (!success) {
+      console.error('[conversation-sidebar] 删除会话失败');
+    }
+  }
+
   function openConversationMenu(event: MouseEvent<HTMLButtonElement>, conversationId: string): void {
     event.preventDefault();
     setMenu({
@@ -269,7 +278,7 @@ export function ConversationSidebar(props: Props): JSX.Element {
           isMuted={mutedSet.has(menu.conversationId)}
           onPin={onMenuTogglePin}
           onMute={onMenuToggleMute}
-          onDelete={() => setMenu(null)}
+          onDelete={onMenuDeleteConversation}
           onCopyId={onCopyConversationId}
           onClose={() => setMenu(null)}
         />
