@@ -13,6 +13,7 @@ import * as React from 'react';
 import { ConversationListItem, MessageItem } from '../../core/types';
 import { TopBar } from './top-bar';
 import { ChatMoreMenu } from './chat-more-menu';
+import { MessageBubble } from './message-bubble';
 
 /**
  * Props 类型定义 - 聊天面板组件属性
@@ -963,115 +964,70 @@ export function ChatPanel(props: Props): JSX.Element {
             {displayedMessages.map((row) => {
               const decoded = props.decodePayload(row.encryptedPayload);
               const payload = parsePayload(decoded);
+              const isOut = row.senderId === props.currentUserId;
               const isBurning = burningMessageIds.has(row.id);
               const isRevoked = row.isRevoked;
               const burnCountdown = burnCountdowns[row.id];
               const showBurnTimer = row.isBurn && burnCountdown !== undefined && burnCountdown > 0 && !isBurning;
+
+              // 构建 MessageBubble 所需的数据
+              const bubbleContent = row.messageType === 1
+                ? (payload.text ?? '')
+                : row.messageType === 2
+                ? (imageSourceMap[row.id] || payload.mediaUrl || '')
+                : row.messageType === 3
+                ? (audioSourceMap[row.id] || payload.mediaUrl || '')
+                : (payload.mediaUrl || '');
+
+              const bubbleStatus: 'sending' | 'sent' | 'delivered' | 'read' | 'failed' = isRevoked
+                ? 'sent'
+                : row.readAt
+                ? 'read'
+                : row.deliveredAt
+                ? 'delivered'
+                : 'sent';
+
+              const bubbleReplyTo = payload.replyTo
+                ? {
+                    sender: payload.replyTo.senderId === props.currentUserId ? '我' : '对方',
+                    text: payload.replyTo.text || '[图片]',
+                  }
+                : undefined;
+
               return (
                 <article
                   key={row.id}
                   data-msg-id={row.id}
                   data-msg-type={row.messageType}
-                  className={`${row.senderId === props.currentUserId ? 'message self' : 'message'}${focusedMessageId === row.id ? ' focused' : ''}${isBurning ? ' message-burning' : ''}${isRevoked ? ' message-revoked' : ''}`}
+                  className={`${isOut ? 'message self' : 'message'}${focusedMessageId === row.id ? ' focused' : ''}${isBurning ? ' message-burning' : ''}${isRevoked ? ' message-revoked' : ''}`}
                   onContextMenu={(e) => openContextMenu(e, row)}
                 >
-                  <div className="message-content" style={{ marginBottom: row.isBurn || isRevoked ? '6px' : '0' }}>
-                    {payload.replyTo ? (
-                      <div
-                        className="message-reply"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          const targetMsg = props.messages.find((m) => m.id === payload.replyTo?.messageId);
-                          if (targetMsg) {
-                            const element = document.querySelector(`[data-msg-id="${targetMsg.id}"]`);
-                            element?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                            setFocusedMessageId(targetMsg.id);
-                            setTimeout(() => setFocusedMessageId(''), 2000);
-                          }
-                        }}
-                      >
-                        <div className="message-reply-content">
-                          <div className="message-reply-header">
-                            <span className="message-reply-label">引用</span>
-                            <span className="message-reply-sender">
-                              {payload.replyTo.senderId === props.currentUserId ? '我' : '对方'}
-                            </span>
-                          </div>
-                          <div className="message-reply-text">
-                            {payload.replyTo.text || '[图片]'}
-                          </div>
-                        </div>
-                      </div>
-                    ) : null}
-                    {isRevoked ? (
-                      <div className="message-revoked-content">
-                        <svg viewBox="0 0 24 24" aria-hidden="true">
-                          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z" fill="currentColor"/>
-                        </svg>
-                        <span>消息已撤回</span>
-                      </div>
-                    ) : row.messageType === 1 ? (
-                      renderHighlightedText(payload.text ?? '', searchKeyword)
-                    ) : row.messageType === 2 ? (
-                      <div className="message-image-wrapper">
-                        {imageSourceMap[row.id] ? (
-                          <img
-                            src={imageSourceMap[row.id]}
-                            alt={payload.fileName || '图片'}
-                            className="message-image"
-                            onClick={() => openImagePreview(imageSourceMap[row.id])}
-                            onError={(e) => {
-                              console.log('图片加载失败:', imageSourceMap[row.id]);
-                              (e.target as HTMLImageElement).style.display = 'none';
-                            }}
-                          />
-                        ) : (
-                          <button type="button" className="link-btn" onClick={() => prepareImageSource(row, payload).then(() => {})}>
-                            加载图片
-                          </button>
-                        )}
-                      </div>
-                    ) : row.messageType === 3 ? (
-                      audioSourceMap[row.id] ? (
-                        <audio
-                          controls
-                          preload="none"
-                          src={audioSourceMap[row.id]}
-                          onPlay={() => {
-                            void props.onReadMessageOnce(row);
-                          }}
-                        />
-                      ) : (
-                        <button type="button" className="link-btn" onClick={() => openMediaMessage(row, payload)}>
-                          加载语音
-                        </button>
-                      )
-                    ) : (
-                      <button type="button" className="link-btn" onClick={() => openMediaMessage(row, payload)}>
-                        {`下载文件 ${payload.fileName ?? ''}`.trim()}
-                      </button>
-                    )}
-                    {payload.text && row.messageType !== 1 && row.messageType !== 2 ? (
-                      <div style={{ marginTop: '6px' }}>{renderHighlightedText(payload.text, searchKeyword)}</div>
-                    ) : null}
-                  </div>
-
-                  <small className="message-meta">
-                    <span>{formatTime(row.createdAt)}</span>
-                    <span>{isRevoked ? '已撤回' : row.readAt ? '已读' : row.deliveredAt ? '已送达' : '已发送'}</span>
-                    {showBurnTimer ? (
-                      <span className="message-burn-countdown">
-                        <svg viewBox="0 0 24 24" aria-hidden="true">
-                          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" fill="currentColor"/>
-                        </svg>
-                        {burnCountdown}s
-                      </span>
-                    ) : row.isBurn && !isRevoked ? (
-                      <button type="button" className="message-burn-btn" onClick={() => void props.onTriggerBurn(row.id)}>
-                        焚毁
-                      </button>
-                    ) : null}
-                  </small>
+                  <MessageBubble
+                    type={isOut ? 'out' : 'in'}
+                    messageType={row.messageType}
+                    content={String(bubbleContent)}
+                    time={formatTime(row.createdAt)}
+                    status={bubbleStatus}
+                    isBurn={row.isBurn && !isRevoked}
+                    burnSeconds={showBurnTimer ? burnCountdown : undefined}
+                    replyTo={bubbleReplyTo}
+                    fileName={payload.fileName}
+                    fileSize={undefined}
+                    voiceDuration={undefined}
+                    onRetry={undefined}
+                  />
+                  {showBurnTimer ? (
+                    <span className="message-burn-countdown">
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" fill="currentColor"/>
+                      </svg>
+                      {burnCountdown}s
+                    </span>
+                  ) : row.isBurn && !isRevoked ? (
+                    <button type="button" className="message-burn-btn" onClick={() => void props.onTriggerBurn(row.id)}>
+                      焚毁
+                    </button>
+                  ) : null}
                 </article>
               );
             })}
