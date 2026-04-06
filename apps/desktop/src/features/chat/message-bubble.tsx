@@ -1,6 +1,15 @@
+import { useState } from 'react';
+
+enum MessageType {
+  Text = 1,
+  Image = 2,
+  Voice = 3,
+  File = 4,
+}
+
 type MessageBubbleProps = {
   type: 'in' | 'out';
-  messageType: 1 | 2 | 3 | 4;  // 1文本 2图片 3语音 4文件
+  messageType: MessageType;
   content: string;
   time: string;
   status?: 'sending' | 'sent' | 'delivered' | 'read' | 'failed';
@@ -14,8 +23,25 @@ type MessageBubbleProps = {
 };
 
 export function MessageBubble(props: MessageBubbleProps): JSX.Element {
+  const {
+    type,
+    messageType,
+    content,
+    time,
+    status,
+    isBurn,
+    burnSeconds,
+    replyTo,
+    fileName,
+    fileSize,
+    voiceDuration,
+    onRetry,
+  } = props;
+
+  const [imageError, setImageError] = useState(false);
+
   const renderStatus = () => {
-    if (props.type === 'in') return null;
+    if (type === 'in') return null;
     const statusMap = {
       sending: '⏳',
       sent: '✓',
@@ -23,53 +49,63 @@ export function MessageBubble(props: MessageBubbleProps): JSX.Element {
       read: '✓✓',
       failed: '❌',
     };
-    const className = props.status === 'read' ? 'status-read' : '';
-    return <span className={className}>{statusMap[props.status || 'sent']}</span>;
+    const className = status === 'read' ? 'status-read' : '';
+    return <span className={className}>{statusMap[status || 'sent']}</span>;
   };
 
   const renderContent = () => {
-    if (props.messageType === 2) {
-      return <img src={props.content} alt="图片" className="message-image" />;
+    if (messageType === MessageType.Image) {
+      if (imageError) {
+        return <div className="message-image-error">图片加载失败</div>;
+      }
+      return (
+        <img
+          src={content}
+          alt="图片"
+          className="message-image"
+          onError={() => setImageError(true)}
+        />
+      );
     }
-    if (props.messageType === 3) {
+    if (messageType === MessageType.Voice) {
       return (
         <div className="voice-bubble">
           <span className="play-btn">▶</span>
-          <span className="duration">{props.voiceDuration}</span>
+          <span className="duration">{voiceDuration}</span>
         </div>
       );
     }
-    if (props.messageType === 4) {
+    if (messageType === MessageType.File) {
       return (
         <div className="file-bubble">
           <span className="file-icon">📄</span>
           <div>
-            <div className="file-name">{props.fileName}</div>
-            <div className="file-size">{props.fileSize}</div>
+            <div className="file-name">{fileName}</div>
+            <div className="file-size">{fileSize}</div>
           </div>
         </div>
       );
     }
-    return props.content;
+    return content;
   };
 
   return (
-    <div className={`message-bubble ${props.type}`}>
-      {props.replyTo && (
+    <div className={`message-bubble ${type}`}>
+      {replyTo && (
         <div className="reply-preview">
-          <span className="reply-sender">{props.replyTo.sender}</span>
-          <span className="reply-text">{props.replyTo.text}</span>
+          <span className="reply-sender">{replyTo.sender}</span>
+          <span className="reply-text">{replyTo.text}</span>
         </div>
       )}
       <div className="bubble-content">
         {renderContent()}
-        {props.isBurn && <span className="burn-indicator">🔥{props.burnSeconds}s</span>}
+        {isBurn && <span className="burn-indicator">🔥{burnSeconds}s</span>}
       </div>
       <div className="bubble-meta">
         {renderStatus()}
-        <span className="time">{props.time}</span>
-        {props.status === 'failed' && (
-          <button className="retry-btn" onClick={props.onRetry}>重试</button>
+        <span className="time">{time}</span>
+        {status === 'failed' && (
+          <button className="retry-btn" onClick={onRetry}>重试</button>
         )}
       </div>
     </div>
