@@ -6,6 +6,7 @@
  */
 
 import * as React from 'react';
+import { useEffect } from 'react';
 
 export type ChatMoreMenuProps = {
   type: 'chat' | 'group';
@@ -23,29 +24,40 @@ export type ChatMoreMenuProps = {
 };
 
 export function ChatMoreMenu(props: ChatMoreMenuProps): JSX.Element {
+  // 监听 Escape 键关闭菜单
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        props.onClose();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [props.onClose]);
+
   return (
-    <div className="chat-more-menu">
-      <button onClick={props.onToggleBurn}>
+    <div className="chat-more-menu" role="menu" aria-label="更多操作菜单">
+      <button role="menuitem" onClick={props.onToggleBurn}>
         🔥 {props.burnEnabled ? '关闭阅后即焚' : '开启阅后即焚'}
       </button>
-      <button onClick={props.onTogglePin}>
+      <button role="menuitem" onClick={props.onTogglePin}>
         📌 {props.isPinned ? '取消置顶' : '置顶聊天'}
       </button>
-      <button onClick={props.onToggleMute}>
+      <button role="menuitem" onClick={props.onToggleMute}>
         🔇 {props.isMuted ? '取消静音' : '静音'}
       </button>
       {props.type === 'chat' ? (
-        <button onClick={props.onStartGroupChat}>
+        <button role="menuitem" onClick={props.onStartGroupChat}>
           👥 发起群聊
         </button>
       ) : (
         <>
-          <button onClick={props.onAddMember}>👤 添加新成员</button>
-          <button onClick={props.onExitGroup} className="danger">🚪 退出群聊</button>
+          <button role="menuitem" onClick={props.onAddMember}>👤 添加新成员</button>
+          <button role="menuitem" onClick={props.onExitGroup} className="danger">🚪 退出群聊</button>
         </>
       )}
       {props.type === 'chat' && (
-        <button onClick={props.onDeleteConversation} className="danger">🗑 删除该会话</button>
+        <button role="menuitem" onClick={props.onDeleteConversation} className="danger">🗑 删除该会话</button>
       )}
     </div>
   );
