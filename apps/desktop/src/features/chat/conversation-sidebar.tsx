@@ -1,6 +1,7 @@
 import { MouseEvent, useEffect, useMemo, useState } from 'react';
 import * as React from 'react';
 import { ConversationListItem } from '../../core/types';
+import { ConversationContextMenu } from './conversation-context-menu';
 import { FabMenu } from './fab-menu';
 
 type Props = {
@@ -260,21 +261,18 @@ export function ConversationSidebar(props: Props): JSX.Element {
         )}
       </div>
       {menu ? (
-        <div
-          className="conversation-menu"
-          style={{ left: `${menu.x}px`, top: `${menu.y}px` }}
-          onClick={(event) => event.stopPropagation()}
-        >
-          <button type="button" onClick={() => onMenuTogglePin(menu.conversationId)}>
-            {pinnedSet.has(menu.conversationId) ? '取消置顶' : '置顶会话'}
-          </button>
-          <button type="button" onClick={() => onMenuToggleMute(menu.conversationId)}>
-            {mutedSet.has(menu.conversationId) ? '取消静音' : '静音会话'}
-          </button>
-          <button type="button" onClick={() => void onCopyConversationId(menu.conversationId)}>
-            复制会话ID
-          </button>
-        </div>
+        <ConversationContextMenu
+          x={menu.x}
+          y={menu.y}
+          conversationId={menu.conversationId}
+          isPinned={pinnedSet.has(menu.conversationId)}
+          isMuted={mutedSet.has(menu.conversationId)}
+          onPin={onMenuTogglePin}
+          onMute={onMenuToggleMute}
+          onDelete={() => setMenu(null)}
+          onCopyId={onCopyConversationId}
+          onClose={() => setMenu(null)}
+        />
       ) : null}
       <FabMenu
         onNewGroup={() => props.onNewGroup?.()}

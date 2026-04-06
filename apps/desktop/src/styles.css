@@ -4452,3 +4452,31 @@ button:disabled {
 .fab-menu-icon {
   font-size: 20px;
 }
+
+.conversation-context-menu {
+  position: fixed;
+  background: var(--card-bg);
+  border-radius: 8px;
+  box-shadow: 0 2px 8px var(--shadow-medium);
+  padding: 8px;
+  z-index: 1000;
+  min-width: 160px;
+}
+
+.conversation-context-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  border: none;
+  background: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.conversation-context-menu button:hover {
+  background: var(--search-bg);
+}
