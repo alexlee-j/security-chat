@@ -4627,3 +4627,28 @@ button:disabled {
 .conversation-context-menu button:hover {
   background: var(--search-bg);
 }
+
+/* ==========================================================================
+   Emoji Picker 样式
+   ========================================================================== */
+.emoji-picker-container {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 1000;
+  background: var(--card-bg);
+  border-radius: 12px;
+  box-shadow: 0 4px 20px var(--shadow-medium);
+  overflow: hidden;
+}
+
+.emoji-picker-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 999;
+  background: rgba(0, 0, 0, 0.3);
+}

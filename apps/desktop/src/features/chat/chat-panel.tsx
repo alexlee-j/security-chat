@@ -15,6 +15,7 @@ import { TopBar } from './top-bar';
 import { ChatMoreMenu } from './chat-more-menu';
 import { MessageBubble } from './message-bubble';
 import { MessageContextMenu } from './message-context-menu';
+import { EmojiPicker } from './emoji-picker';
 
 /**
  * Props 类型定义 - 聊天面板组件属性
@@ -1159,13 +1160,16 @@ export function ChatPanel(props: Props): JSX.Element {
           </div>
         </form>
         {emojiOpen ? (
-          <div className=”emoji-panel”>
-            {QUICK_EMOJIS.map((emoji) => (
-              <button key={emoji} type=”button” className=”emoji-item” onClick={() => appendEmoji(emoji)}>
-                {emoji}
-              </button>
-            ))}
-          </div>
+          <>
+            <div className=”emoji-picker-overlay” onClick={() => setEmojiOpen(false)} />
+            <EmojiPicker
+              onSelect={(emoji) => {
+                appendEmoji(emoji);
+                setEmojiOpen(false);
+              }}
+              onClose={() => setEmojiOpen(false)}
+            />
+          </>
         ) : null}
         <small className=”typing-hint”>
           {props.mediaUploading ? '媒体上传中...' : props.sendingMessage ? '发送中...' : props.typingHint || ' '}
