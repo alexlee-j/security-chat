@@ -2349,6 +2349,7 @@ button:disabled {
   background: var(--card-bg);
   border-top: 1px solid var(--border);
   padding: 14px 20px;
+  height: 72px;
 }
 
 .hidden-file-input {
