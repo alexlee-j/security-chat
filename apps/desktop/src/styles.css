@@ -4691,3 +4691,46 @@ button:disabled {
   z-index: 999;
   background: rgba(0, 0, 0, 0.3);
 }
+
+/* ==========================================================================
+   响应式布局
+   ========================================================================== */
+
+/* 整体布局 */
+.chat-shell {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.telegram-desktop {
+  display: flex;
+  width: 100%;
+}
+
+/* 聊天面板自适应 */
+.chat-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;  /* 允许flex子元素收缩 */
+}
+
+.message-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+}
+
+/* 气泡最大宽度 */
+.message-bubble {
+  max-width: 400px;
+}
+
+.message-bubble .voice-bubble {
+  max-width: 180px;
+}
+
+.message-bubble .file-bubble {
+  max-width: 240px;
+}
