@@ -32,6 +32,7 @@ use db::commands::{
     db_get_unread_count,
     keychain_store,
     keychain_retrieve,
+    keychain_delete,
 };
 use std::path::PathBuf;
 
@@ -74,6 +75,7 @@ pub fn run() {
             db_get_unread_count,
             keychain_store,
             keychain_retrieve,
+            keychain_delete,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

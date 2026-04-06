@@ -240,7 +240,7 @@ export class AuthService {
 
   /**
    * 验证验证码并重置密码
-   * 防撞库：尝试次数限制 3次/验证码
+   * 防撞库：尝试次数限制 5次/验证码
    */
   async resetPasswordWithCode(dto: ForgotPasswordResetDto): Promise<{ success: true; message: string }> {
     const email = dto.email.toLowerCase().trim();

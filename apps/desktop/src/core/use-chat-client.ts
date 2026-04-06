@@ -1120,6 +1120,15 @@ export function useChatClient(): {
       return;
     }
 
+    // 前端预校验密码强度
+    const passwordRegex = /^(?=.*[0-9])(?=.*[a-zA-Z])/;
+    if (!passwordRegex.test(forgotPassword)) {
+      const msg = '密码必须包含数字和字母';
+      setError(msg);
+      showToast(msg, 'error');
+      return;
+    }
+
     setAuthSubmitting(true);
 
     try {

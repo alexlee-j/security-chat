@@ -62,7 +62,7 @@ export async function storeKey(
  */
 export async function retrieveKey(keyType: KeyType): Promise<Uint8Array | null> {
   try {
-    const result = await invoke<number[] | null>('keychain_retrieve', { keyType });
+    const result = await invoke<number[] | null>('keychain_retrieve', { key_type: keyType });
     if (result === null) {
       return null;
     }
@@ -91,12 +91,14 @@ export async function hasKey(keyType: KeyType): Promise<boolean> {
 /**
  * 删除密钥
  * @param keyType - 密钥类型
- * @note Rust 侧 keychain_delete 命令尚未暴露为 Tauri Command
  */
 export async function deleteKey(keyType: KeyType): Promise<void> {
-  // TODO: 当 Rust 侧添加 keychain_delete Tauri Command 后实现
-  console.warn('[Keychain] deleteKey not yet implemented - Rust command not exposed');
-  throw new KeychainError('删除密钥功能尚未实现');
+  try {
+    await invoke('keychain_delete', { key_type: keyType });
+  } catch (error) {
+    console.error('[Keychain] Failed to delete key:', error);
+    throw new KeychainError(`删除密钥失败: ${error}`);
+  }
 }
 
 /**

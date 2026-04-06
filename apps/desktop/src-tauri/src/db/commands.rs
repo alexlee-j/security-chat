@@ -220,3 +220,20 @@ pub async fn keychain_retrieve(
     .await
     .map_err(|e| e.to_string())?
 }
+
+/// 从 Keychain 删除密钥
+#[tauri::command]
+pub async fn keychain_delete(
+    key_type: String,
+    state: State<'_, AppDbState>,
+) -> Result<(), String> {
+    let store = state.store.clone();
+    let key_type_clone = key_type.clone();
+
+    tokio::task::spawn_blocking(move || {
+        let guard = store.lock().map_err(|e| e.to_string())?;
+        guard.keychain_delete(&key_type_clone).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
