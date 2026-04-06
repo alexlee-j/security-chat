@@ -248,7 +248,7 @@
 
   /* 文本色系统 - 深色 */
   --text-primary: #E4E4E7;
-  --text-secondary: #A1A1AA;
+  --text-secondary: #a0aec0;
   --text-muted: #71717A;
   --text-inverse: #181820;
 
@@ -278,11 +278,18 @@
   --message-shadow: none;
 
   /* 搜索框配色 - 设计稿 Dark 模式 */
-  --search-bg: #2d3a47;
+  --search-bg: #2d3748;
   --search-text: #ffffff;
   --search-placeholder: #8b9aa3;
   --search-focus-bg: #3d4a57;
   --search-icon-color: #dfe1e5;
+
+  /* 卡片背景 - Dark Mode */
+  --card-bg: #2d3748;
+
+  /* 阴影色 - Dark Mode */
+  --shadow-light: #00000033;
+  --shadow-medium: #0000004d;
 }
 
 /* ==========================================================================
@@ -4536,8 +4543,8 @@ button:disabled {
    ========================================================================== */
 .fab-menu {
   position: absolute;
-  bottom: 72px;
-  right: 72px;
+  bottom: 16px;
+  right: 16px;
   z-index: 100;
 }
 
