@@ -99,7 +99,7 @@ export function MessageBubble(props: MessageBubbleProps): JSX.Element {
       )}
       <div className="bubble-content">
         {renderContent()}
-        {isBurn && <span className="burn-indicator">🔥{burnSeconds}s</span>}
+        {isBurn && burnSeconds != null && <span className="burn-indicator">🔥{burnSeconds}s</span>}
       </div>
       <div className="bubble-meta">
         {renderStatus()}
