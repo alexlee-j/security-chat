@@ -120,6 +120,12 @@ export function App(): JSX.Element {
           mode={state.authMode}
           account={state.account}
           registerEmail={state.registerEmail}
+          forgotEmail={state.forgotEmail}
+          forgotCode={state.forgotCode}
+          forgotPassword={state.forgotPassword}
+          forgotConfirmPassword={state.forgotConfirmPassword}
+          forgotCodeSent={state.forgotCodeSent}
+          forgotCooldown={state.forgotCooldown}
           loginCode={state.loginCode}
           codeHint={state.codeHint}
           password={state.password}
@@ -131,6 +137,10 @@ export function App(): JSX.Element {
           onModeChange={actions.setAuthMode}
           onAccountChange={actions.setAccount}
           onRegisterEmailChange={actions.setRegisterEmail}
+          onForgotEmailChange={actions.setForgotEmail}
+          onForgotCodeChange={actions.setForgotCode}
+          onForgotPasswordChange={actions.setForgotPassword}
+          onForgotConfirmPasswordChange={actions.setForgotConfirmPassword}
           onLoginCodeChange={actions.setLoginCode}
           onPasswordChange={actions.setPassword}
           onRememberPasswordChange={actions.setRememberPassword}
@@ -139,6 +149,8 @@ export function App(): JSX.Element {
           onRegister={actions.onRegister}
           onSendLoginCode={actions.onSendLoginCode}
           onLoginWithCode={actions.onLoginWithCode}
+          onSendForgotCode={actions.onSendForgotCode}
+          onResetPassword={actions.onResetPassword}
         />
         {/* Toast 提示 */}
         {state.toast && (

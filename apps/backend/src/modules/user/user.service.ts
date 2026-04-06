@@ -121,6 +121,10 @@ export class UserService {
     return this.userRepository.findOne({ where: { id } });
   }
 
+  async updatePassword(userId: string, passwordHash: string): Promise<void> {
+    await this.userRepository.update(userId, { passwordHash });
+  }
+
   async touchDeviceActivity(userId: string, deviceId: string): Promise<void> {
     await this.deviceRepository.update(
       { id: deviceId, userId },

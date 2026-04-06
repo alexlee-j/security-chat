@@ -17,11 +17,11 @@
    CSS 变量定义 - Security Chat 风格配色系统
    ========================================================================== */
 :root {
-  /* 主色调 - Security Chat 青 */
-  --brand-primary: #0CB4C4;
-  --brand-hover: #0a9aa8;
-  --brand-light: #e6fafb;
-  --brand-dark: #0894a0;
+  /* 主色调 - 设计稿 #3390ec */
+  --brand-primary: #3390ec;
+  --brand-hover: #2b7fd4;
+  --brand-light: #e6f4fc;
+  --brand-dark: #1a6fc9;
 
   /* 背景色系统 */
   --bg-primary: #87aadd;
@@ -39,8 +39,8 @@
   --rail-text: #ffffff;
   --rail-text-secondary: #8b9bb4;
   --rail-hover: rgba(255, 255, 255, 0.08);
-  --rail-active: rgba(12, 180, 196, 0.15);
-  --rail-active-indicator: #0CB4C4;
+  --rail-active: rgba(51, 144, 236, 0.15);
+  --rail-active-indicator: #3390ec;
   
   /* 文本色系统 */
   --text-primary: #000000;
@@ -99,6 +99,33 @@
   --avatar-gradient-3: linear-gradient(135deg, #dda0dd 0%, #ba55d3 100%);
   --avatar-gradient-4: linear-gradient(135deg, #ffa07a 0%, #ff6347 100%);
   --avatar-gradient-5: linear-gradient(135deg, #98fb98 0%, #3cb371 100%);
+
+  /* 聊天界面配色 - 设计稿 Light 模式 */
+  --chat-bg: #e8f4f8;
+  --sidebar-bg: #f8f9fa;
+  --topbar-bg: #ffffff;
+  --input-bg: #f8f9fa;
+  --input-border: #dfe1e5;
+  --input-placeholder: #aab0b6;
+  --chat-item-bg: #ffffff;
+  --chat-item-selected-bg: #3390ec;
+  --chat-item-shadow: 0 1px 4px rgba(0, 0, 0, 0.059);
+  --chat-item-hover: rgba(0, 0, 0, 0.04);
+  --online-indicator: #4caf50;
+  --fab-bg: #3390ec;
+  --fab-shadow: rgba(0, 0, 0, 0.2);
+  --composer-bg: #ffffff;
+  --composer-input-bg: #f8f9fa;
+  --composer-tool-color: #707579;
+  --composer-placeholder: #707579;
+  --message-shadow: 0 1px 3px rgba(0, 0, 0, 0.078);
+
+  /* 搜索框配色 - 设计稿 Light 模式 */
+  --search-bg: #eef0f2;
+  --search-text: #000000;
+  --search-placeholder: #707579;
+  --search-focus-bg: #e0e3e8;
+  --search-icon-color: #707579;
 }
 
 /* ==========================================================================
@@ -106,11 +133,11 @@
    ========================================================================== */
 @media (prefers-color-scheme: dark) {
   :root {
-    /* 主色调 - 深色模式下保持一致 */
-    --brand-primary: #00DDE6;
-    --brand-hover: #00E5EF;
-    --brand-light: #1a3a3e;
-    --brand-dark: #00ACC1;
+    /* 主色调 - 设计稿 #8777d1 */
+    --brand-primary: #8777d1;
+    --brand-hover: #9b8cd9;
+    --brand-light: #2d2a42;
+    --brand-dark: #6b5cb0;
 
     /* 背景色系统 - 深色 */
     --bg-primary: #1E1E2E;
@@ -118,8 +145,8 @@
     --bg-gradient: linear-gradient(180deg, #1E1E2E 0%, #181820 100%);
     --bg-surface: #2A2A3C;
     --bg-surface-soft: #252536;
-    --bg-message-in: #2A2A3C;
-    --bg-message-out: #1e3a3e;
+    --bg-message-in: #2d3a42;
+    --bg-message-out: #8777d1;
     --bg-message-hover: rgba(255, 255, 255, 0.04);
 
     /* 导航栏深色主题 - 更深的配色 */
@@ -128,8 +155,8 @@
     --rail-text: #E4E4E7;
     --rail-text-secondary: #A1A1AA;
     --rail-hover: rgba(255, 255, 255, 0.06);
-    --rail-active: rgba(0, 221, 230, 0.12);
-    --rail-active-indicator: #00DDE6;
+    --rail-active: rgba(135, 119, 209, 0.12);
+    --rail-active-indicator: #8777d1;
 
     /* 文本色系统 - 深色 */
     --text-primary: #E4E4E7;
@@ -138,9 +165,36 @@
     --text-inverse: #181820;
 
     /* 边框和分割线 - 深色 */
-    --border-light: #3F3F46;
+    --border-light: #2d3a47;
     --border-softer: #27272A;
     --border-divider: rgba(255, 255, 255, 0.08);
+
+    /* 聊天界面配色 - 设计稿 Dark 模式 */
+    --chat-bg: #202530;
+    --sidebar-bg: #182533;
+    --topbar-bg: #182533;
+    --input-bg: #1a242d;
+    --input-border: #3d4a57;
+    --input-placeholder: #5a6a75;
+    --chat-item-bg: #2d3a47;
+    --chat-item-selected-bg: #8777d1;
+    --chat-item-shadow: 0 1px 4px rgba(0, 0, 0, 0.16);
+    --chat-item-hover: rgba(255, 255, 255, 0.04);
+    --online-indicator: #4caf50;
+    --fab-bg: #8777d1;
+    --fab-shadow: rgba(0, 0, 0, 0.4);
+    --composer-bg: #182533;
+    --composer-input-bg: #2d3a47;
+    --composer-tool-color: #8b9aa3;
+    --composer-placeholder: #8b9aa3;
+    --message-shadow: none;
+
+    /* 搜索框配色 - 设计稿 Dark 模式 */
+    --search-bg: #2d3a47;
+    --search-text: #ffffff;
+    --search-placeholder: #8b9aa3;
+    --search-focus-bg: #3d4a57;
+    --search-icon-color: #8b9aa3;
   }
 }
 
@@ -262,7 +316,7 @@ button {
   gap: 6px;
 }
 
-button:hover:not(:disabled) {
+button:hover:not(:disabled):not(.auth-link):not(.auth-button) {
   background: var(--bg-surface-soft);
   transform: translateY(-1px);
   box-shadow: var(--shadow-sm);
@@ -564,7 +618,7 @@ button:disabled {
 }
 
 /* ==========================================================================
-   会话侧边栏
+   会话侧边栏 - 设计稿样式
    ========================================================================== */
 .sidebar {
   display: flex;
@@ -572,7 +626,7 @@ button:disabled {
   gap: 0;
   height: 100%;
   overflow: hidden;
-  background: var(--rail-bg);
+  background: var(--sidebar-bg);
   transition: transform var(--transition-normal), width var(--transition-normal);
   position: relative;
   z-index: 100;
@@ -583,17 +637,18 @@ button:disabled {
   border-radius: 0;
   box-shadow: none;
   backdrop-filter: none;
-  background: var(--rail-bg);
+  background: var(--sidebar-bg);
 }
 
-/* 工具栏 */
+/* 侧边栏头部 - 设计稿: 40px 高，左侧菜单图标 + 搜索框 */
 .sidebar-toolbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 12px 16px;
-  background: var(--rail-bg);
+  padding: 0 12px;
+  height: 40px;
+  background: var(--sidebar-bg);
   position: relative;
 }
 
@@ -884,17 +939,17 @@ button:disabled {
   height: 22px;
 }
 
-/* 搜索框 - 胶囊设计 */
+/* 搜索框 - 设计稿规格 */
 .sidebar-search-shell {
   display: grid;
   grid-template-columns: auto 1fr;
   align-items: center;
   gap: 10px;
-  min-height: 40px;
-  border-radius: 10px;
+  min-height: 32px;
+  border-radius: 16px;
   border: none;
-  background: var(--rail-border);
-  color: var(--rail-text-secondary);
+  background: var(--search-bg);
+  color: var(--search-icon-color);
   padding: 0 12px;
   margin: 0 12px 8px;
   transition: all var(--transition-fast);
@@ -904,21 +959,21 @@ button:disabled {
   width: 18px;
   height: 18px;
   flex-shrink: 0;
-  color: var(--rail-text-secondary);
+  color: var(--search-icon-color);
 }
 
 .sidebar-search-input {
   width: 100%;
-  min-height: 40px;
+  min-height: 32px;
   border: none;
   background: transparent;
   padding: 0;
-  color: var(--rail-text);
+  color: var(--search-text);
   font-size: 14px;
 }
 
 .sidebar-search-input::placeholder {
-  color: var(--rail-text-secondary);
+  color: var(--search-placeholder);
 }
 
 .sidebar-search-input:focus-visible {
@@ -926,11 +981,11 @@ button:disabled {
 }
 
 .sidebar-search-shell:focus-within {
-  background: var(--rail-hover);
+  background: var(--search-focus-bg);
 }
 
 .sidebar-search-shell:focus-within svg {
-  color: var(--rail-text);
+  color: var(--search-text);
 }
 
 /* 新建聊天表单 */
@@ -1041,52 +1096,32 @@ button:disabled {
   text-transform: uppercase;
 }
 
-/* 会话项 */
+/* 会话项 - 设计稿样式: 72px高, 12px padding, cornerRadius 12px */
 .conversation {
   text-align: left;
   border: none;
-  border-radius: var(--radius-lg);
-  background: transparent;
+  border-radius: 12px;
+  background: var(--chat-item-bg);
   color: var(--text-primary);
-  padding: 10px 12px;
-  display: grid;
-  grid-template-columns: 52px minmax(0, 1fr) auto;
+  padding: 12px;
+  display: flex;
   align-items: center;
   gap: 12px;
   cursor: pointer;
   transition: all var(--transition-fast);
   position: relative;
   overflow: hidden;
-}
-
-.conversation::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: transparent;
-  transition: background var(--transition-fast);
-  border-radius: var(--radius-lg);
-}
-
-.conversation:hover::before {
-   background: rgba(0, 0, 0, 0.04);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.059);
 }
 
 .conversation:hover {
-  background: transparent;
+  background: var(--chat-item-hover);
 }
 
-.conversation:hover .conversation-title {
-  color: var(--text-primary);
-}
-
-.conversation:hover .conversation-meta,
-.conversation:hover .conversation-time {
-  color: var(--text-secondary);
-}
-
+/* Active 会话项 - 设计稿中无阴影 */
 .conversation.active {
-  background: var(--brand-primary);
+  background: var(--chat-item-selected-bg);
+  box-shadow: none;
 }
 
 .conversation.active .conversation-title,
@@ -1095,13 +1130,9 @@ button:disabled {
   color: var(--text-inverse);
 }
 
-.conversation.active::before {
-  background: rgba(255, 255, 255, 0.1);
-}
-
 /* Active + Hover 状态 - 确保 active 优先级更高 */
 .conversation.active:hover {
-  background: var(--brand-primary);
+  background: var(--chat-item-selected-bg);
 }
 
 .conversation.active:hover .conversation-title,
@@ -1114,21 +1145,20 @@ button:disabled {
   background: rgba(255, 255, 255, 0.1);
 }
 
-/* 头像 */
+/* 头像 - 设计稿: 40x40 (侧边栏和聊天头部用) */
 .avatar {
-  width: 52px;
-  height: 52px;
+  width: 40px;
+  height: 40px;
   border-radius: 50%;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 17px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--text-inverse);
   background: var(--avatar-gradient-1);
   flex-shrink: 0;
   position: relative;
-  overflow: hidden;
 }
 
 .avatar::after {
@@ -1139,10 +1169,29 @@ button:disabled {
   border-radius: 50%;
 }
 
+/* 消息区域头像 - 设计稿: 36x36 */
+.avatar.message-avatar {
+  width: 36px;
+  height: 36px;
+  font-size: 13px;
+}
+
+/* 在线状态指示器 - 设计稿: 8x8px 绿色圆点 */
+.avatar .online-dot {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  background: var(--online-indicator);
+  border-radius: 50%;
+  border: 2px solid var(--chat-item-bg);
+  bottom: -1px;
+  right: -1px;
+}
+
 .avatar-large {
-  width: 56px;
-  height: 56px;
-  font-size: 20px;
+  width: 48px;
+  height: 48px;
+  font-size: 16px;
 }
 
 /* 会话内容区 */
@@ -1211,15 +1260,15 @@ button:disabled {
   font-style: italic;
 }
 
-/* 未读徽章 */
+/* 未读徽章 - 设计稿: 20x20px 圆形 */
 .conversation-unread {
-  min-width: 24px;
-  height: 24px;
+  min-width: 20px;
+  height: 20px;
   border-radius: var(--radius-full);
   color: var(--text-inverse);
-  font-size: 13px;
+  font-size: 11px;
   font-weight: 700;
-  background: var(--text-inverse);
+  background: var(--brand-primary);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1317,11 +1366,11 @@ button:disabled {
 }
 
 /* ==========================================================================
-   聊天面板
+   聊天面板 - 设计稿样式
    ========================================================================== */
 .chat-panel {
-  display: grid;
-  grid-template-rows: auto auto 1fr auto;
+  display: flex;
+  flex-direction: column;
   gap: 0;
   border-radius: 0;
   box-shadow: none;
@@ -1331,6 +1380,7 @@ button:disabled {
   height: 100%;
   max-height: 100%;
   overflow: hidden;
+  background: var(--chat-bg);
 }
 
 .telegram-chat {
@@ -1338,11 +1388,83 @@ button:disabled {
   flex-direction: column;
   height: 100%;
   border-color: var(--border-light);
-  background: var(--bg-secondary);
-  background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%230CB4C4' fill-opacity='0.08'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+  background: var(--chat-bg);
 }
 
-/* 聊天头部 */
+/* ==========================================================================
+   FAB 悬浮按钮 - 设计稿规格
+   ========================================================================== */
+.fab {
+  position: absolute;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--fab-bg);
+  color: white;
+  border: none;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  z-index: 100;
+}
+
+.fab:hover {
+  transform: scale(1.05);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+}
+
+.fab:active {
+  transform: scale(0.95);
+}
+
+.fab svg {
+  width: 28px;
+  height: 28px;
+}
+
+.fab-menu {
+  position: absolute;
+  width: 200px;
+  padding: 8px;
+  border-radius: 12px;
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-elevated);
+  display: grid;
+  gap: 4px;
+  z-index: 99;
+}
+
+.fab-menu button {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  text-align: left;
+}
+
+.fab-menu button:hover {
+  background: var(--hover-overlay);
+}
+
+.fab-menu button svg {
+  width: 20px;
+  height: 20px;
+  color: var(--text-secondary);
+}
+
+/* 聊天头部 - 设计稿: 56px 高，白色背景 */
 .chat-header {
   display: flex;
   justify-content: space-between;
@@ -1351,10 +1473,9 @@ button:disabled {
   border: 0;
   border-bottom: 1px solid var(--border-light);
   border-radius: 0;
-  background: rgba(255, 255, 255, 0.95);
-  backdrop-filter: blur(10px);
-  padding: 12px 20px;
-  box-shadow: var(--shadow-xs);
+  background: var(--topbar-bg);
+  padding: 0 20px;
+  height: 56px;
   z-index: 10;
   transition: all var(--transition-fast);
 }
@@ -1362,32 +1483,31 @@ button:disabled {
 .chat-title {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
 }
 
 .chat-title h3 {
-  font-size: 17px;
+  font-size: 15px;
   font-weight: 600;
   color: var(--text-primary);
 }
 
 .chat-title .subtle {
-  font-size: 13px;
+  font-size: 11px;
   color: var(--text-secondary);
 }
 
 .chat-tools {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 16px;
   position: relative;
 }
 
 .chat-tool-btn {
-  min-height: 40px;
-  min-width: 40px;
+  min-height: 24px;
+  min-width: 24px;
   padding: 0;
-  border-radius: 50%;
   border: none;
   background: transparent;
   color: var(--text-secondary);
@@ -1398,16 +1518,16 @@ button:disabled {
   cursor: pointer;
 }
 
+.chat-tool-btn svg {
+  width: 24px;
+  height: 24px;
+}
+
 .chat-tool-btn:hover:not(:disabled) {
   background: var(--hover-overlay);
   color: var(--text-primary);
   transform: none;
   box-shadow: none;
-}
-
-.chat-tool-btn svg {
-  width: 20px;
-  height: 20px;
 }
 
 /* 聊天菜单 */
@@ -1517,8 +1637,7 @@ button:disabled {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: 16px 20px;
-  padding-bottom: 12px;
+  padding: 20px;
   min-height: 0;
   flex: 1;
 }
@@ -1551,7 +1670,7 @@ button:disabled {
 }
 
 /* ==========================================================================
-   消息气泡 - Telegram 风格
+   消息气泡 - 设计稿规格
    ========================================================================== */
 .message {
   width: fit-content;
@@ -1559,16 +1678,16 @@ button:disabled {
   align-self: flex-start;
   border: none;
   border-radius: var(--message-radius);
-  padding: 10px 14px 8px;
+  padding: 12px;
   background: var(--bg-message-in);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.06);
+  box-shadow: var(--message-shadow);
   position: relative;
 }
 
 .message.self {
   align-self: flex-end;
   background: var(--bg-message-out);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.06);
+  box-shadow: none;
   border-bottom-right-radius: var(--message-tail-radius);
 }
 
@@ -1865,14 +1984,16 @@ button:disabled {
 }
 
 /* ==========================================================================
-   输入区域 (Composer)
+   输入区域 (Composer) - 设计稿规格
    ========================================================================== */
 .composer-area {
-  display: grid;
-  gap: 10px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
   border-top: 1px solid var(--border-light);
-  background: var(--bg-surface);
+  background: var(--composer-bg);
   padding: 14px 20px;
+  min-height: 72px;
 }
 
 .composer-advanced-toggle {
@@ -1939,38 +2060,40 @@ button:disabled {
   display: none;
 }
 
-/* 输入框主体 */
+/* 输入框主体 - 设计稿规格: 圆角22px, 高度44px */
 .composer {
+  flex: 1;
   display: flex;
-  flex-direction: column;
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius-lg);
-  background: var(--bg-surface);
-  padding: 6px;
+  align-items: center;
+  border: none;
+  border-radius: 22px;
+  background: var(--composer-input-bg);
+  padding: 0 16px;
   transition: all var(--transition-fast);
+  min-height: 44px;
 }
 
 .composer:focus-within {
-  border-color: var(--brand-primary);
-  box-shadow: 0 0 0 3px var(--focus-ring);
+  box-shadow: 0 0 0 2px var(--focus-ring);
 }
 
 .composer-input-row {
-  display: grid;
-  grid-template-columns: auto auto 1fr auto;
+  display: flex;
+  align-items: center;
   gap: 8px;
-  align-items: end;
+  flex: 1;
 }
 
 .composer textarea {
+  flex: 1;
   border: none;
   background: transparent;
-  padding: 10px 14px;
+  padding: 10px 0;
   font-size: 15px;
   line-height: 1.4;
   resize: none;
   max-height: 140px;
-  min-height: 26px;
+  min-height: 44px;
   font-family: inherit;
   color: var(--text-primary);
 }
@@ -1980,7 +2103,7 @@ button:disabled {
 }
 
 .composer textarea::placeholder {
-  color: var(--text-muted);
+  color: var(--composer-placeholder);
 }
 
 .composer button {
@@ -1991,15 +2114,17 @@ button:disabled {
 }
 
 .composer-tool {
-  min-width: 42px !important;
-  width: 42px;
-  min-height: 42px !important;
+  min-width: 28px !important;
+  width: 28px;
+  min-height: 28px !important;
+  height: 28px;
   border-radius: 50% !important;
   padding: 0 !important;
-  color: var(--text-secondary) !important;
-  background: var(--bg-surface-soft) !important;
+  color: var(--composer-tool-color) !important;
+  background: transparent !important;
   border: none !important;
   transition: all var(--transition-fast);
+  flex-shrink: 0;
 }
 
 .composer-tool:hover:not(:disabled) {
@@ -2009,21 +2134,23 @@ button:disabled {
 }
 
 .composer-send {
-  min-width: 46px !important;
-  width: 46px;
-  min-height: 46px !important;
+  min-width: 28px !important;
+  width: 28px;
+  min-height: 28px !important;
+  height: 28px;
   border-radius: 50% !important;
   padding: 0 !important;
   background: var(--brand-primary) !important;
   border: none !important;
-  box-shadow: 0 2px 10px rgba(51, 144, 236, 0.3);
-  transition: all var(--transition-spring);
+  box-shadow: 0 2px 8px rgba(51, 144, 236, 0.3);
+  transition: all var(--transition-fast);
+  flex-shrink: 0;
 }
 
 .composer-send:hover:not(:disabled) {
   background: var(--brand-hover) !important;
-  transform: scale(1.08);
-  box-shadow: 0 4px 16px rgba(51, 144, 236, 0.45);
+  transform: scale(1.05);
+  box-shadow: 0 4px 12px rgba(51, 144, 236, 0.4);
 }
 
 .composer-send:active:not(:disabled) {
@@ -2031,8 +2158,8 @@ button:disabled {
 }
 
 .composer-send svg {
-  width: 22px;
-  height: 22px;
+  width: 16px;
+  height: 16px;
 }
 
 /* ==========================================================================
@@ -2368,6 +2495,140 @@ button:disabled {
 
 /* ==========================================================================
    登录界面 - Security Chat 分栏布局设计
+   设计稿颜色值 (security-chat.pen)
+   ========================================================================== */
+
+/* ==========================================================================
+   Auth CSS 变量 - 基于设计稿的实际颜色值
+   ========================================================================== */
+
+/* Light 模式 - 使用设计稿中的实际颜色 */
+:root {
+  /* 品牌色 - 设计稿 #3390ec */
+  --auth-brand-primary: #3390ec;
+  --auth-brand-hover: #4da3f0;
+
+  /* 背景色 - 设计稿 */
+  --auth-bg: #e8f4f8;
+  --auth-card-bg: #ffffff;
+
+  /* 文字色 - 设计稿 */
+  --auth-title-color: #1a1a1a;
+  --auth-subtitle-color: #707579;
+  --auth-text-muted: #8b9aa3;
+
+  /* 输入框 - 设计稿 */
+  --auth-input-bg: #f8f9fa;
+  --auth-input-border: #dfe1e5;
+  --auth-input-placeholder: #aab0b6;
+  --auth-input-focus: #3390ec;
+
+  /* 按钮渐变 - 设计稿 */
+  --auth-btn-gradient-start: #4da3f0;
+  --auth-btn-gradient-end: #3390ec;
+
+  /* 链接色 - 设计稿 */
+  --auth-link-color: #3390ec;
+
+  /* 复选框 - 设计稿 */
+  --auth-checkbox-bg: #f8f9fa;
+  --auth-checkbox-border: #dfe1e5;
+  --auth-checkbox-checked: #3390ec;
+  --auth-checkbox-label: #8b9aa3;
+
+  /* 阴影 - 设计稿: blur 60, color #00000020 (rgba 0.125), offset y:20 */
+  --auth-shadow: rgba(0, 0, 0, 0.125);
+
+  /* 按钮阴影 - 使用品牌色半透明 */
+  --auth-btn-shadow: color-mix(in srgb, var(--auth-brand-primary) 26.7%, transparent);
+
+  /* 品牌区域背景 - 设计稿 opacity 0.08 */
+  --auth-brand-bg: color-mix(in srgb, var(--auth-brand-primary) 8%, transparent);
+
+  /* 装饰椭圆透明度 - 设计稿中的实际 opacity 值 */
+  --auth-ellipse-1-opacity: color-mix(in srgb, var(--auth-brand-primary) 15%, transparent);
+  --auth-ellipse-2-opacity: color-mix(in srgb, var(--auth-brand-primary) 8%, transparent);
+  --auth-ellipse-3-opacity: color-mix(in srgb, var(--auth-brand-primary) 12%, transparent);
+}
+
+/* Dark 模式 - 使用设计稿中的实际颜色 */
+@media (prefers-color-scheme: dark) {
+  :root {
+    /* 品牌色 - 设计稿 #8777d1 */
+    --auth-brand-primary: #8777d1;
+    --auth-brand-hover: #9b8bd9;
+
+    /* 背景色 - 设计稿 */
+    --auth-bg: #202530;
+    --auth-card-bg: #232936;
+
+    /* 文字色 - 设计稿 */
+    --auth-title-color: #ffffff;
+    --auth-subtitle-color: #8b9aa3;
+    --auth-text-muted: #8b9aa3;
+
+    /* 输入框 - 设计稿 */
+    --auth-input-bg: #1a242d;
+    --auth-input-border: #3d4a57;
+    --auth-input-placeholder: #5a6a75;
+    --auth-input-focus: #8777d1;
+
+    /* 按钮渐变 - 设计稿 */
+    --auth-btn-gradient-start: #9b8bd9;
+    --auth-btn-gradient-end: #8777d1;
+
+    /* 链接色 - 设计稿 */
+    --auth-link-color: #8777d1;
+
+    /* 复选框 - 设计稿 */
+    --auth-checkbox-bg: #1a242d;
+    --auth-checkbox-border: #3d4a57;
+    --auth-checkbox-checked: #8777d1;
+    --auth-checkbox-label: #8b9aa3;
+
+    /* 阴影 */
+    --auth-shadow: rgba(0, 0, 0, 0.5);
+
+    /* 按钮阴影 - 使用品牌色半透明 */
+    --auth-btn-shadow: color-mix(in srgb, var(--auth-brand-primary) 40%, transparent);
+
+    /* 品牌区域背景 */
+    --auth-brand-bg: color-mix(in srgb, var(--auth-brand-primary) 8%, transparent);
+
+    /* 装饰椭圆透明度 */
+    --auth-ellipse-1-opacity: color-mix(in srgb, var(--auth-brand-primary) 15%, transparent);
+    --auth-ellipse-2-opacity: color-mix(in srgb, var(--auth-brand-primary) 8%, transparent);
+    --auth-ellipse-3-opacity: color-mix(in srgb, var(--auth-brand-primary) 12%, transparent);
+  }
+
+  /* Dark 模式下按钮样式覆盖 */
+  .auth-button {
+    box-shadow: 0 6px 16px var(--auth-btn-shadow);
+  }
+
+  .auth-button:hover:not(:disabled) {
+    background: linear-gradient(
+      90deg,
+      var(--auth-btn-gradient-start) 0%,
+      var(--auth-btn-gradient-end) 100%
+    );
+    transform: none;
+    box-shadow: 0 6px 16px var(--auth-btn-shadow);
+  }
+
+  .auth-button:active:not(:disabled) {
+    background: linear-gradient(
+      90deg,
+      var(--auth-btn-gradient-start) 0%,
+      var(--auth-btn-gradient-end) 100%
+    );
+    transform: none;
+    box-shadow: 0 6px 16px var(--auth-btn-shadow);
+  }
+}
+
+/* ==========================================================================
+   主容器布局 - 桌面端自适应
    ========================================================================== */
 .auth-container {
   height: 100vh;
@@ -2376,191 +2637,112 @@ button:disabled {
   overflow: hidden;
 }
 
-/* 左侧品牌区域 - 540px 宽度 */
+/* ==========================================================================
+   左侧品牌区域 - 严格按照设计稿
+   设计稿: 背景 opacity 0.08, 椭圆 opacity 0.15/0.08/0.12
+   ========================================================================== */
 .auth-brand-side {
-  width: 540px;
-  height: 700px;
-  background: linear-gradient(180deg, #00DDE6 0%, #00ACC1 100%);
+  /* 桌面端: 45% 宽度比例，自适应 */
+  flex: 0 0 45%;
+  min-width: 320px;
+  max-width: 600px;
+  height: 100vh;
+  /* 背景: 使用 CSS 变量，支持 Light/Dark 模式 */
+  background: var(--auth-brand-bg);
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: flex-start;
-  padding-top: 100px;
+  justify-content: center;
   position: relative;
   overflow: hidden;
-  flex-shrink: 0;
 }
 
-.auth-brand-pattern {
+/* 装饰椭圆 - 使用 CSS 变量，支持 Light/Dark 模式 */
+.auth-brand-ellipse-1 {
   position: absolute;
-  inset: 0;
-  background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.08'%3E%3Cpath d='M30 5L5 30l25 25 25-25L30 5zm0 10l15 15-15 15-15-15 15-15z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+  width: 280px;
+  height: 280px;
+  background: var(--auth-ellipse-1-opacity);
+  border-radius: 50%;
+  top: -80px;
+  left: -60px;
 }
 
-@keyframes backgroundMove {
-  0% { background-position: 0 0; }
-  100% { background-position: 100% 100%; }
+.auth-brand-ellipse-2 {
+  position: absolute;
+  width: 220px;
+  height: 220px;
+  background: var(--auth-ellipse-2-opacity);
+  border-radius: 50%;
+  bottom: 60px;
+  right: -40px;
 }
 
+.auth-brand-ellipse-3 {
+  position: absolute;
+  width: 160px;
+  height: 160px;
+  background: var(--auth-ellipse-3-opacity);
+  border-radius: 50%;
+  top: -20px;
+  right: -20px;
+}
+
+/* 品牌内容 */
 .auth-brand-content {
   position: relative;
   z-index: 1;
   text-align: center;
-  color: white;
-}
-
-.auth-brand-logo {
-  width: 72px;
-  height: 72px;
-  margin: 0 auto 20px;
-  background: rgba(255, 255, 255, 0.2);
-  border-radius: 18px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.auth-brand-logo svg {
-  width: 36px;
-  height: 36px;
-  color: white;
+  padding: 0 40px;
 }
 
 .auth-brand-title {
-  font-size: 26px;
-  font-weight: 600;
+  font-size: 32px;
+  font-weight: 700;
   margin: 0 0 16px;
-  letter-spacing: 0.02em;
   color: white;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  letter-spacing: 0;
 }
 
 .auth-brand-subtitle {
-  font-size: 16px;
-  opacity: 0.9;
+  font-size: 19px;
+  font-weight: 700;
   margin: 0;
   line-height: 1.6;
-  letter-spacing: 0.15em;
-  color: white;
+  color: rgba(255, 255, 255, 0.9);
+  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 
-/* 右侧表单区域 - 660px 宽度 */
+/* ==========================================================================
+   右侧表单区域 - 使用 CSS 变量
+   ========================================================================== */
 .auth-form-side {
-  width: 660px;
-  height: 700px;
+  flex: 1;
+  min-width: 0;
+  height: 100vh;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #ffffff;
+  background: var(--auth-bg);
   overflow-y: auto;
-  flex-shrink: 0;
+  padding: 40px;
 }
 
-.auth-background {
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(135deg, var(--brand-primary) 0%, var(--brand-dark) 100%);
-  z-index: -1;
-}
-
-.auth-pattern {
-  position: absolute;
-  inset: 0;
-  background-image: url("data:image/svg+xml,%3Csvg width='80' height='80' viewBox='0 0 80 80' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.08'%3E%3Cpath d='M20 20h40v40H20V20zm20 35a15 15 0 1 0 0-30 15 15 0 0 0 0 30z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
-  animation: backgroundMove 25s linear infinite;
-}
-
+/* 表单卡片 - 使用 CSS 变量 */
 .auth-card {
   width: 100%;
-  max-width: 380px;
-  background: #ffffff;
-  padding: 48px 40px;
-  position: relative;
-}
-
-.auth-card::before {
-  display: none;
-}
-
-.auth-header {
-  text-align: center;
-  margin-bottom: 48px;
-  position: relative;
-  z-index: 1;
-}
-
-.auth-logo {
-  width: 104px;
-  height: 104px;
-  margin: 0 auto 32px;
-  position: relative;
-}
-
-.auth-logo-inner {
-  width: 100%;
-  height: 100%;
-  background: linear-gradient(135deg, var(--brand-primary) 0%, var(--brand-dark) 100%);
+  max-width: 420px;
+  background: var(--auth-card-bg);
+  padding: 40px;
   border-radius: 28px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 16px 40px rgba(12, 180, 196, 0.35);
-  position: relative;
-  overflow: hidden;
-  transition: transform 0.4s ease, box-shadow 0.4s ease;
-}
-
-.auth-logo-inner:hover {
-  transform: scale(1.08);
-  box-shadow: 0 20px 48px rgba(12, 180, 196, 0.45);
-}
-
-.auth-logo-inner::before {
-  content: '';
-  position: absolute;
-  top: -50%;
-  left: -50%;
-  width: 200%;
-  height: 200%;
-  background: linear-gradient(45deg, transparent, rgba(255, 255, 255, 0.25), transparent);
-  transform: rotate(45deg);
-  animation: logoShine 3.5s ease-in-out infinite;
-}
-
-@keyframes logoShine {
-  0% { transform: translateX(-100%) rotate(45deg); }
-  100% { transform: translateX(100%) rotate(45deg); }
-}
-
-.auth-logo-inner svg {
-  width: 52px;
-  height: 52px;
-  color: white;
-  z-index: 1;
-  stroke-width: 1.5;
-}
-
-.auth-title {
-  font-size: 36px;
-  font-weight: 700;
-  color: var(--text-primary);
-  margin: 0 0 12px;
-  font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  letter-spacing: -0.02em;
-}
-
-.auth-subtitle {
-  font-size: 17px;
-  color: var(--text-secondary);
-  margin: 0;
-  line-height: 1.4;
-  max-width: 320px;
-  margin: 0 auto;
+  box-shadow: 0 20px 60px var(--auth-shadow);
 }
 
 .auth-form-container {
-  margin-bottom: 32px;
-  position: relative;
-  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
 }
 
 .auth-form {
@@ -2570,170 +2752,328 @@ button:disabled {
 }
 
 .auth-form-title {
-  font-size: 22px;
-  font-weight: 600;
-  color: #1a1a1a;
-  margin: 0 0 28px;
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--auth-title-color);
+  margin: 0;
   text-align: center;
-  letter-spacing: 0.02em;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 
-.auth-header-back {
-  width: 52px;
-  height: 52px;
-  margin: 0 auto 24px;
-  background: linear-gradient(135deg, var(--brand-primary) 0%, var(--brand-dark) 100%);
-  border-radius: 16px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 4px 16px rgba(12, 180, 196, 0.3);
+.auth-form-subtitle {
+  font-size: 15px;
+  font-weight: normal;
+  color: var(--auth-subtitle-color);
+  margin: -8px 0 0;
+  text-align: center;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 
-.auth-header-back svg {
-  width: 26px;
-  height: 26px;
-  color: white;
-}
-
-@keyframes formFadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(24px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.auth-form-group {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.auth-form-label {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-primary);
-  letter-spacing: 0.02em;
-  transition: color 0.2s ease;
-}
-
+/* ==========================================================================
+   表单元素 - 使用 CSS 变量
+   ========================================================================== */
 .auth-input-wrapper {
   position: relative;
   display: flex;
   align-items: center;
 }
 
-.auth-input-icon {
-  position: absolute;
-  left: 16px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 18px;
-  height: 18px;
-  color: #999999;
-  pointer-events: none;
+.auth-input {
+  width: 100%;
+  height: 52px;
+  padding: 0 18px;
+  border: 1.5px solid var(--auth-input-border);
+  border-radius: 14px;
+  background: var(--auth-input-bg);
+  color: var(--auth-title-color);
+  font-size: 14px;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  transition: border-color 0.2s ease;
+  position: relative;
   z-index: 1;
 }
 
-.auth-input {
-  width: 100%;
-  min-height: 52px;
-  padding: 0 18px 0 48px;
-  border: 1px solid #e0e0e0;
-  border-radius: 12px;
-  background: #ffffff;
-  color: #1a1a1a;
-  font-size: 15px;
-  transition: all var(--transition-normal);
-  font-weight: 400;
-}
-
-.auth-input:focus-visible {
+.auth-input:focus {
   outline: none;
-  border-color: var(--brand-primary);
-  box-shadow: 0 0 0 3px rgba(12, 180, 196, 0.15);
+  border-color: var(--auth-input-focus);
 }
 
 .auth-input::placeholder {
-  color: #999999;
-  font-weight: 400;
+  color: var(--auth-input-placeholder);
 }
 
 .auth-input:disabled {
   opacity: 0.6;
   cursor: not-allowed;
-  background: #f5f5f5;
 }
 
-.auth-button {
-  min-height: 52px;
-  border-radius: 12px;
-  border: none;
-  font-size: 15px;
-  font-weight: 600;
+.auth-input-disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  background-color: var(--auth-input-bg-disabled, #f3f4f6);
+}
+
+/* ==========================================================================
+   密码强度提示
+   ========================================================================== */
+.auth-password-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  margin-bottom: 4px;
+  font-size: 12px;
+  color: var(--auth-hint-color, #6b7280);
+}
+
+.auth-password-hint .hint-icon {
+  color: #ef4444;
+  font-weight: bold;
+}
+
+.auth-password-hint .hint-text {
+  color: var(--auth-hint-text, #6b7280);
+}
+
+/* ==========================================================================
+   密码强度提示 - 输入框内嵌 tooltip 样式
+   ========================================================================== */
+.auth-input-tooltip {
+  position: absolute;
+  right: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--auth-hint-icon-color, #9ca3af);
   cursor: pointer;
-  transition: all var(--transition-normal);
-  display: inline-flex;
+  display: flex;
+  align-items: center;
+  padding: 4px;
+  transition: color 0.15s ease;
+  z-index: 1001;
+}
+
+.auth-input-tooltip:hover,
+.auth-input-tooltip:focus {
+  color: var(--auth-hint-icon-hover, #3390ec);
+}
+
+.auth-input-tooltip:focus {
+  outline: none;
+}
+
+/* 使用 CSS tooltip - 点击和悬浮都显示 */
+.auth-input-tooltip::after {
+  content: attr(data-title);
+  position: absolute;
+  right: 50%;
+  transform: translateX(50%);
+  top: calc(100% + 10px);
+  background: var(--auth-tooltip-bg, #1f2937);
+  color: var(--auth-tooltip-text, #fff);
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 400;
+  white-space: nowrap;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.15s ease, visibility 0.15s ease;
+  z-index: 1002;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  line-height: 1.4;
+  pointer-events: none;
+}
+
+/* tooltip 箭头 */
+.auth-input-tooltip::before {
+  content: '';
+  position: absolute;
+  right: 50%;
+  transform: translateX(50%);
+  top: calc(100% + 4px);
+  border: 6px solid transparent;
+  border-top: none;
+  border-bottom-color: var(--auth-tooltip-bg, #1f2937);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.15s ease, visibility 0.15s ease;
+  z-index: 1001;
+}
+
+.auth-input-tooltip:hover::before,
+.auth-input-tooltip:focus::before {
+  opacity: 1;
+  visibility: visible;
+}
+
+.auth-input-tooltip:hover::after,
+.auth-input-tooltip:focus::after {
+  opacity: 1;
+  visibility: visible;
+}
+
+/* ==========================================================================
+   复选框 - 使用 CSS 变量
+   ========================================================================== */
+.auth-checkbox-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.auth-checkbox-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.auth-checkbox {
+  width: 18px;
+  height: 18px;
+  border: 1px solid var(--auth-checkbox-border);
+  border-radius: 4px;
+  background: var(--auth-checkbox-bg);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.auth-checkbox:checked {
+  background: var(--auth-checkbox-checked);
+  border-color: var(--auth-checkbox-checked);
+}
+
+.auth-checkbox:checked::after {
+  content: '✓';
+  color: white;
+  font-size: 12px;
+  font-weight: bold;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.auth-checkbox-label {
+  font-size: 13px;
+  font-weight: normal;
+  color: var(--auth-checkbox-label);
+  cursor: pointer;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+/* ==========================================================================
+   链接按钮 - 使用 CSS 变量
+   ========================================================================== */
+.auth-link {
+  border: none;
+  background: transparent;
+  color: var(--auth-link-color);
+  font-size: 13px;
+  font-weight: normal;
+  cursor: pointer;
+  padding: 0;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+/* 覆盖全局 button:hover，确保链接按钮悬停无样式变化 */
+.auth-link:hover {
+  background: transparent;
+  transform: none;
+  box-shadow: none;
+}
+
+/* ==========================================================================
+   主按钮 - 使用 CSS 变量
+   ========================================================================== */
+.auth-button {
+  width: 100%;
+  height: 52px;
+  border: none;
+  border-radius: 14px;
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
-  letter-spacing: 0.02em;
-  position: relative;
-  overflow: hidden;
-}
-
-.auth-button::before {
-  display: none;
-}
-
-.auth-button.primary {
-  background: linear-gradient(135deg, #00DDE6 0%, #00ACC1 100%);
+  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  /* 按钮渐变 - 设计稿 rotation 90 表示从左到右水平渐变 */
+  background: linear-gradient(
+    90deg,
+    var(--auth-btn-gradient-start) 0%,
+    var(--auth-btn-gradient-end) 100%
+  );
   color: white;
-  box-shadow: 0 4px 16px rgba(0, 172, 193, 0.3);
+  /* 按钮阴影 - 使用 CSS 变量 */
+  box-shadow: 0 6px 16px var(--auth-btn-shadow);
 }
 
-.auth-button.primary:hover:not(:disabled) {
-  background: linear-gradient(135deg, #00E5EF 0%, #00ACC1 100%);
-  transform: translateY(-1px);
-  box-shadow: 0 6px 20px rgba(0, 172, 193, 0.4);
+/* 覆盖全局 button:hover 样式，确保按钮悬停无变化 */
+.auth-button:hover:not(:disabled) {
+  background: linear-gradient(
+    90deg,
+    var(--auth-btn-gradient-start) 0%,
+    var(--auth-btn-gradient-end) 100%
+  );
+  transform: none;
+  box-shadow: 0 6px 16px var(--auth-btn-shadow);
 }
 
-.auth-button.primary:active:not(:disabled) {
-  transform: translateY(0);
-  box-shadow: 0 2px 8px rgba(0, 172, 193, 0.3);
-}
-
-.auth-button.secondary {
-  background: #f5f5f5;
-  color: #666666;
-  border: 1px solid #e0e0e0;
-}
-
-.auth-button.secondary:hover:not(:disabled) {
-  background: #eeeeee;
-  border-color: #d0d0d0;
-  color: #333333;
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-sm);
+.auth-button:active:not(:disabled) {
+  background: linear-gradient(
+    90deg,
+    var(--auth-btn-gradient-start) 0%,
+    var(--auth-btn-gradient-end) 100%
+  );
+  transform: none;
+  box-shadow: 0 6px 16px var(--auth-btn-shadow);
 }
 
 .auth-button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
-  transform: none;
-  box-shadow: none;
 }
 
+/* 注册表单 */
+.auth-register-form {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+/* 底部链接行 */
+.auth-footer-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  font-size: 15px;
+  margin-top: 4px;
+}
+
+.auth-footer-row .auth-text {
+  color: var(--auth-subtitle-color);
+  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+.auth-footer-row .auth-link {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+/* ==========================================================================
+   加载状态
+   ========================================================================== */
 .auth-spinner {
   width: 20px;
   height: 20px;
   border: 2px solid rgba(255, 255, 255, 0.3);
-  border-top: 2px solid var(--text-inverse);
+  border-top: 2px solid white;
   border-radius: 50%;
   animation: spin 1s linear infinite;
 }
@@ -2743,128 +3083,9 @@ button:disabled {
   100% { transform: rotate(360deg); }
 }
 
-.auth-code-input-group {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-}
-
-.auth-code-input {
-  flex: 1;
-  min-height: 56px;
-  padding: 0 24px;
-  border: 2px solid var(--border-light);
-  border-radius: 16px;
-  background: var(--bg-surface);
-  color: var(--text-primary);
-  font-size: 16px;
-  transition: all var(--transition-normal);
-  font-weight: 500;
-  font-family: 'SF Pro Text', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-}
-
-.auth-code-input:focus-visible {
-  outline: none;
-  border-color: var(--brand-primary);
-  box-shadow: 0 0 0 4px var(--focus-ring);
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-sm);
-}
-
-.auth-code-button {
-  min-width: 130px;
-  min-height: 56px;
-  border-radius: 16px;
-  font-size: 14px;
-  background: var(--brand-primary);
-  color: var(--text-inverse);
-  box-shadow: 0 4px 16px rgba(51, 144, 236, 0.3);
-  transition: all var(--transition-normal);
-}
-
-.auth-code-button:hover:not(:disabled) {
-  background: var(--brand-hover);
-  transform: translateY(-1px);
-  box-shadow: 0 6px 20px rgba(51, 144, 236, 0.4);
-}
-
-.auth-code-button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  transform: none;
-  box-shadow: none;
-}
-
-.auth-code-hint {
-  font-size: 13px;
-  color: var(--text-secondary);
-  margin-top: 6px;
-  line-height: 1.4;
-}
-
-.auth-spinner.small {
-  width: 16px;
-  height: 16px;
-  border-width: 2px;
-}
-
-.auth-footer {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  margin-top: 8px;
-}
-
-.auth-footer p {
-  text-align: center;
-  font-size: 14px;
-  color: #666666;
-  margin: 0;
-  line-height: 1.5;
-}
-
-.auth-link {
-  border: none;
-  background: transparent;
-  color: #00ACC1;
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all var(--transition-fast);
-  padding: 0 4px;
-  margin-left: 4px;
-  font-family: inherit;
-}
-
-.auth-link::after {
-  display: none;
-}
-
-.auth-link:hover {
-  color: #00DDE6;
-}
-
-.auth-link.secondary {
-  margin: 0;
-  text-align: center;
-  padding: 10px 0;
-  color: var(--text-secondary);
-  display: block;
-  margin-left: 0;
-}
-
-.auth-link.secondary::after {
-  background: var(--text-secondary);
-}
-
-.auth-link.secondary:hover {
-  color: var(--brand-primary);
-}
-
-.auth-link.secondary:hover::after {
-  background: var(--brand-primary);
-}
-
+/* ==========================================================================
+   错误提示
+   ========================================================================== */
 .auth-error {
   background: #ffebee;
   border: 2px solid #e53935;
@@ -2873,11 +3094,7 @@ button:disabled {
   display: flex;
   align-items: flex-start;
   gap: 12px;
-  margin-top: 20px;
   animation: errorSlideIn 0.3s ease forwards;
-  position: relative;
-  z-index: 10;
-  box-shadow: 0 4px 12px rgba(229, 57, 53, 0.2);
 }
 
 @keyframes errorSlideIn {
@@ -2902,7 +3119,6 @@ button:disabled {
   justify-content: center;
   flex-shrink: 0;
   margin-top: 2px;
-  box-shadow: 0 2px 8px rgba(229, 57, 53, 0.3);
 }
 
 .auth-error-icon svg {
@@ -2919,55 +3135,142 @@ button:disabled {
   font-weight: 500;
 }
 
-/* 响应式设计 */
-@media (max-width: 480px) {
-  .auth-card {
-    padding: 48px 24px;
-    margin: 20px;
-    max-width: calc(100% - 40px);
+/* ==========================================================================
+   响应式设计 - 平板 (768px - 1024px)
+   ========================================================================== */
+@media (max-width: 1024px) {
+  .auth-brand-side {
+    flex: 0 0 40%;
+    min-width: 280px;
   }
-  
-  .auth-title {
-    font-size: 30px;
+
+  .auth-brand-title {
+    font-size: 28px;
   }
-  
-  .auth-subtitle {
-    font-size: 15px;
+
+  .auth-brand-subtitle {
+    font-size: 17px;
   }
-  
-  .auth-form {
-    gap: 20px;
-  }
-  
-  .auth-input {
-    min-height: 52px;
-    padding: 0 20px;
-  }
-  
-  .auth-button {
-    min-height: 52px;
-  }
-  
-  .auth-code-input-wrapper {
-    flex-direction: column;
-    align-items: stretch;
-  }
-  
-  .auth-code-button {
-    width: 100%;
-    min-height: 52px;
-  }
-  
-  .auth-logo {
-    width: 96px;
-    height: 96px;
-  }
-  
-  .auth-logo-inner svg {
-    width: 48px;
-    height: 48px;
+
+  .auth-form-side {
+    padding: 32px;
   }
 }
+
+/* ==========================================================================
+   响应式设计 - 大手机 (768px)
+   ========================================================================== */
+@media (max-width: 768px) {
+  .auth-container {
+    flex-direction: column;
+  }
+
+  .auth-brand-side {
+    flex: 0 0 auto;
+    width: 100%;
+    height: 280px;
+  }
+
+  .auth-brand-content {
+    padding: 0 20px;
+  }
+
+  .auth-brand-title {
+    font-size: 26px;
+    margin-bottom: 12px;
+  }
+
+  .auth-brand-subtitle {
+    font-size: 16px;
+  }
+
+  .auth-brand-ellipse-1,
+  .auth-brand-ellipse-2,
+  .auth-brand-ellipse-3 {
+    display: none;
+  }
+
+  .auth-form-side {
+    flex: 1;
+    height: auto;
+    min-height: calc(100vh - 280px);
+    padding: 24px 16px;
+  }
+
+  .auth-card {
+    padding: 32px 24px;
+    border-radius: 24px;
+  }
+
+  .auth-form-title {
+    font-size: 24px;
+  }
+
+  .auth-form-subtitle {
+    font-size: 14px;
+  }
+}
+
+/* ==========================================================================
+   响应式设计 - 小手机 (480px)
+   ========================================================================== */
+@media (max-width: 480px) {
+  .auth-brand-side {
+    height: 220px;
+  }
+
+  .auth-brand-title {
+    font-size: 22px;
+  }
+
+  .auth-brand-subtitle {
+    font-size: 14px;
+  }
+
+  .auth-form-side {
+    padding: 16px 12px;
+  }
+
+  .auth-card {
+    padding: 24px 20px;
+    border-radius: 20px;
+  }
+
+  .auth-form-title {
+    font-size: 22px;
+  }
+
+  .auth-form {
+    gap: 16px;
+  }
+
+  .auth-input {
+    height: 48px;
+    font-size: 14px;
+  }
+
+  .auth-button {
+    height: 48px;
+    font-size: 15px;
+  }
+
+  .auth-checkbox-label {
+    font-size: 12px;
+  }
+
+  .auth-link {
+    font-size: 12px;
+  }
+
+  .auth-footer-row {
+    font-size: 13px;
+  }
+
+  .auth-footer-row .auth-link {
+    font-size: 13px;
+  }
+}
+
 @media (max-width: 1024px) {
   .chat-shell {
     grid-template-columns: auto minmax(0, 1fr);

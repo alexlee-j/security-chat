@@ -14,7 +14,10 @@ export class RegisterDto {
   phone!: string;
 
   @IsString()
-  @Length(8, 64)
+  @Length(8, 64, { message: '密码至少8位' })
+  @Matches(/^(?=.*[0-9])(?=.*[a-zA-Z])/, {
+    message: '密码必须包含数字和字母',
+  })
   password!: string;
 
   @IsString()

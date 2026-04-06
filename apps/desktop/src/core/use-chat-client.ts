@@ -20,6 +20,8 @@ import {
   downloadMedia,
   decodePayload as decodePayloadApi,
   decodePayloadAsync,
+  sendForgotPasswordCode,
+  resetPasswordWithCode,
   getConversationBurnDefault,
   getBlockedUsers,
   getConversations,
@@ -103,9 +105,21 @@ async function saveConversationPrefSnapshot(snapshot: { pinned: string[]; muted:
  */
 export type ChatClientState = {
   auth: AuthState | null;
-  authMode: 'login' | 'register' | 'code';
+  authMode: 'login' | 'register' | 'code' | 'forgot-password';
   account: string;
   registerEmail: string;
+  /** 忘记密码 - 邮箱 */
+  forgotEmail: string;
+  /** 忘记密码 - 验证码 */
+  forgotCode: string;
+  /** 忘记密码 - 新密码 */
+  forgotPassword: string;
+  /** 忘记密码 - 确认密码 */
+  forgotConfirmPassword: string;
+  /** 忘记密码 - 验证码是否已发送 */
+  forgotCodeSent: boolean;
+  /** 忘记密码 - 重新发送倒计时 */
+  forgotCooldown: number;
   loginCode: string;
   codeHint: string;
   password: string;
@@ -148,9 +162,13 @@ export type ChatClientState = {
 };
 
 export type ChatClientActions = {
-  setAuthMode: (value: 'login' | 'register' | 'code') => void;
+  setAuthMode: (value: 'login' | 'register' | 'code' | 'forgot-password') => void;
   setAccount: (value: string) => void;
   setRegisterEmail: (value: string) => void;
+  setForgotEmail: (value: string) => void;
+  setForgotCode: (value: string) => void;
+  setForgotPassword: (value: string) => void;
+  setForgotConfirmPassword: (value: string) => void;
   setLoginCode: (value: string) => void;
   setPassword: (value: string) => void;
   setRememberPassword: (value: boolean) => void;
@@ -172,6 +190,8 @@ export type ChatClientActions = {
   onSendLoginCode: () => Promise<void>;
   onLoginWithCode: (event: FormEvent<HTMLFormElement>) => Promise<void>;
   onLogout: () => Promise<void>;
+  onSendForgotCode: (event: FormEvent<HTMLFormElement>) => Promise<void>;
+  onResetPassword: (event: FormEvent<HTMLFormElement>) => Promise<void>;
   onSendMessage: (event: FormEvent<HTMLFormElement>) => Promise<void>;
   onCreateDirect: (event: FormEvent<HTMLFormElement>) => Promise<void>;
   onSearchFriends: (event: FormEvent<HTMLFormElement>) => Promise<void>;
@@ -208,9 +228,15 @@ export function useChatClient(): {
 
   // ==================== 认证相关状态 ====================
   const [auth, setAuth] = useState<AuthState | null>(null);
-  const [authMode, setAuthMode] = useState<'login' | 'register' | 'code'>('login');
+  const [authMode, setAuthMode] = useState<'login' | 'register' | 'code' | 'forgot-password'>('login');
   const [account, setAccount] = useState('');
   const [registerEmail, setRegisterEmail] = useState('');
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [forgotCode, setForgotCode] = useState('');
+  const [forgotPassword, setForgotPassword] = useState('');
+  const [forgotConfirmPassword, setForgotConfirmPassword] = useState('');
+  const [forgotCodeSent, setForgotCodeSent] = useState(false);
+  const [forgotCooldown, setForgotCooldown] = useState(0);
   const [loginCode, setLoginCode] = useState('');
   const [codeHint, setCodeHint] = useState('');
   const [password, setPassword] = useState('');
@@ -1056,6 +1082,69 @@ export function useChatClient(): {
     await clearAllAuthData();
   }
 
+  /**
+   * 发送忘记密码验证码
+   */
+  async function onSendForgotCode(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    setAuthSubmitting(true);
+    setError('');
+
+    try {
+      const result = await sendForgotPasswordCode(forgotEmail);
+      showToast(result.message, 'success');
+      setForgotCodeSent(true);
+      setForgotCooldown(300); // 5分钟冷却
+    } catch (error: any) {
+      console.error('Send forgot code failed:', error);
+      const message = error?.response?.data?.error?.message || error?.message || '发送失败，请稍后重试';
+      setError(message);
+      showToast(message, 'error');
+    } finally {
+      setAuthSubmitting(false);
+    }
+  }
+
+  /**
+   * 重置密码
+   */
+  async function onResetPassword(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    setError('');
+
+    // 验证确认密码
+    if (forgotPassword !== forgotConfirmPassword) {
+      const msg = '两次输入的密码不一致';
+      setError(msg);
+      showToast(msg, 'error');
+      return;
+    }
+
+    setAuthSubmitting(true);
+
+    try {
+      const result = await resetPasswordWithCode(forgotEmail, forgotCode, forgotPassword);
+      showToast(result.message || '密码重置成功', 'success');
+
+      // 重置表单状态
+      setForgotEmail('');
+      setForgotCode('');
+      setForgotPassword('');
+      setForgotConfirmPassword('');
+      setForgotCodeSent(false);
+
+      // 跳转登录页
+      setAuthMode('login');
+    } catch (error: any) {
+      console.error('Reset password failed:', error);
+      const message = error?.response?.data?.error?.message || error?.message || '重置失败，请稍后重试';
+      setError(message);
+      showToast(message, 'error');
+    } finally {
+      setAuthSubmitting(false);
+    }
+  }
+
   // 验证码倒计时效果
   useEffect(() => {
     if (loginCodeCooldown <= 0) {
@@ -1850,6 +1939,12 @@ export function useChatClient(): {
       authMode,
       account,
       registerEmail,
+      forgotEmail,
+      forgotCode,
+      forgotPassword,
+      forgotConfirmPassword,
+      forgotCodeSent,
+      forgotCooldown,
       loginCode,
       codeHint,
       password,
@@ -1890,6 +1985,10 @@ export function useChatClient(): {
       setAuthMode,
       setAccount,
       setRegisterEmail,
+      setForgotEmail,
+      setForgotCode,
+      setForgotPassword,
+      setForgotConfirmPassword,
       setLoginCode,
       setPassword,
       setRememberPassword: handleRememberPasswordChange,
@@ -1911,6 +2010,8 @@ export function useChatClient(): {
       onSendLoginCode,
       onLoginWithCode,
       onLogout,
+      onSendForgotCode,
+      onResetPassword,
       onSendMessage,
       onCreateDirect,
       onSearchFriends,

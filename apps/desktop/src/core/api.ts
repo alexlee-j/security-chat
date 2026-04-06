@@ -128,6 +128,20 @@ export async function register(input: {
   return res.data.data;
 }
 
+export async function sendForgotPasswordCode(email: string): Promise<{ sent: true; message: string }> {
+  const res = await http.post<ApiEnvelope<{ sent: true; message: string }>>('/auth/forgot-password/send', { email });
+  return res.data.data;
+}
+
+export async function resetPasswordWithCode(email: string, code: string, newPassword: string): Promise<{ success: true; message: string }> {
+  const res = await http.post<ApiEnvelope<{ success: true; message: string }>>('/auth/forgot-password/reset', {
+    email,
+    code,
+    newPassword,
+  });
+  return res.data.data;
+}
+
 export async function getConversations(limit = 50): Promise<ConversationListItem[]> {
   const res = await http.get<ApiEnvelope<ConversationListItem[]>>('/conversation/list', { params: { limit } });
   return res.data.data;

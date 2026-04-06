@@ -7,6 +7,8 @@ import { LoginWithCodeDto } from './dto/login-with-code.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { RegisterDto } from './dto/register.dto';
 import { SendLoginCodeDto } from './dto/send-login-code.dto';
+import { ForgotPasswordSendDto } from './dto/forgot-password-send.dto';
+import { ForgotPasswordResetDto } from './dto/forgot-password-reset.dto';
 
 @Controller('auth')
 export class AuthController {
@@ -59,5 +61,15 @@ export class AuthController {
   @Post('logout')
   logout(@CurrentUser() user: RequestUser): Promise<{ success: true }> {
     return this.authService.logout(user);
+  }
+
+  @Post('forgot-password/send')
+  sendForgotPasswordCode(@Body() dto: ForgotPasswordSendDto): Promise<{ sent: true; message: string }> {
+    return this.authService.sendForgotPasswordCode(dto);
+  }
+
+  @Post('forgot-password/reset')
+  resetPasswordWithCode(@Body() dto: ForgotPasswordResetDto): Promise<{ success: true; message: string }> {
+    return this.authService.resetPasswordWithCode(dto);
   }
 }

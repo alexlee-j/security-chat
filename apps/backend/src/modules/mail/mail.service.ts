@@ -100,4 +100,24 @@ export class MailService {
 
     await this.sendEmail(email, subject, html);
   }
+
+  async sendPasswordResetCode(email: string, code: string, username: string): Promise<void> {
+    const subject = 'Security Chat 密码重置验证码';
+    const html = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <div style="background-color: #f5f5f5; padding: 20px;">
+          <h2 style="color: #333;">Security Chat 密码重置</h2>
+          <p style="font-size: 16px; line-height: 1.5;">您好，${username}！</p>
+          <p style="font-size: 16px; line-height: 1.5;">您请求重置密码，您的验证码是：</p>
+          <div style="background-color: #fff; border: 1px solid #ddd; padding: 20px; margin: 20px 0; text-align: center;">
+            <span style="font-size: 32px; font-weight: bold; color: #3390ec;">${code}</span>
+          </div>
+          <p style="font-size: 14px; color: #666;">此验证码将在 15 分钟后过期，请及时使用。</p>
+          <p style="font-size: 14px; color: #666;">如果您没有请求此验证码，请忽略此邮件，您的账号安全不会受到影响。</p>
+        </div>
+      </div>
+    `;
+
+    await this.sendEmail(email, subject, html);
+  }
 }
