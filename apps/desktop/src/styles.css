@@ -4582,8 +4582,8 @@ button:disabled {
    ========================================================================== */
 .fab-menu {
   position: fixed;
-  bottom: 16px;
-  right: 16px;
+  bottom: 72px;
+  right: 72px;
   z-index: 100;
 }
 
@@ -4636,7 +4636,18 @@ button:disabled {
 }
 
 .fab-menu-icon {
+  font-family: 'Material Symbols Rounded';
   font-size: 20px;
+  font-weight: normal;
+  font-style: normal;
+}
+
+.fab-icon {
+  font-family: 'Material Symbols Rounded';
+  font-size: 28px;
+  font-weight: normal;
+  font-style: normal;
+  color: white;
 }
 
 .conversation-context-menu {

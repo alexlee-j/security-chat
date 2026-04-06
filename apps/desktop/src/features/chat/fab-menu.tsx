@@ -47,7 +47,7 @@ export function FabMenu(props: FabMenuProps): JSX.Element {
               setOpen(false);
             }}
           >
-            <span className="fab-menu-icon" aria-hidden="true">👥</span>
+            <span className="fab-menu-icon material-symbols-rounded" aria-hidden="true">group_add</span>
             <span>新建群聊</span>
           </button>
           <button
@@ -59,7 +59,7 @@ export function FabMenu(props: FabMenuProps): JSX.Element {
               setOpen(false);
             }}
           >
-            <span className="fab-menu-icon" aria-hidden="true">👤</span>
+            <span className="fab-menu-icon material-symbols-rounded" aria-hidden="true">person_add</span>
             <span>发起私聊</span>
           </button>
         </div>
@@ -71,7 +71,7 @@ export function FabMenu(props: FabMenuProps): JSX.Element {
         aria-label="打开操作菜单"
         onClick={() => setOpen(!open)}
       >
-        +
+        <span className="fab-icon material-symbols-rounded">add</span>
       </button>
     </div>
   );
