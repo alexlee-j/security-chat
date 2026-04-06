@@ -1767,6 +1767,41 @@ button:disabled {
   box-shadow: none;
 }
 
+/* 更多菜单 */
+.chat-more-menu {
+  position: absolute;
+  top: 64px;
+  right: 20px;
+  background: var(--card-bg);
+  border-radius: 8px;
+  box-shadow: 0 2px 8px var(--shadow-medium);
+  padding: 8px;
+  z-index: 100;
+  min-width: 180px;
+}
+
+.chat-more-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  background: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.chat-more-menu button:hover {
+  background: var(--search-bg);
+}
+
+.chat-more-menu button.danger {
+  color: var(--error);
+}
+
 /* 聊天搜索行 */
 .chat-search-row {
   display: flex;

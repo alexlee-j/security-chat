@@ -12,6 +12,7 @@ import { FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from '
 import * as React from 'react';
 import { ConversationListItem, MessageItem } from '../../core/types';
 import { TopBar } from './top-bar';
+import { ChatMoreMenu } from './chat-more-menu';
 
 /**
  * Props 类型定义 - 聊天面板组件属性
@@ -236,6 +237,8 @@ export function ChatPanel(props: Props): JSX.Element {
   const [searchOpen, setSearchOpen] = useState(false);          // 搜索面板开关
   const [searchKeyword, setSearchKeyword] = useState('');       // 搜索关键词
   const [menuOpen, setMenuOpen] = useState(false);              // 菜单开关
+  const [isPinned, setIsPinned] = useState(false);              // 置顶状态
+  const [isMuted, setIsMuted] = useState(false);              // 静音状态
   const [focusedMessageId, setFocusedMessageId] = useState(''); // 聚焦的消息ID
   const [emojiOpen, setEmojiOpen] = useState(false);            // 表情面板开关
   const [advancedOpen, setAdvancedOpen] = useState(false);      // 高级选项开关
@@ -376,6 +379,18 @@ export function ChatPanel(props: Props): JSX.Element {
       window.removeEventListener('contextmenu', close);
     };
   }, [contextMenu]);
+
+  // 更多菜单点击外部关闭
+  useEffect(() => {
+    if (!menuOpen) {
+      return;
+    }
+    const close = (): void => setMenuOpen(false);
+    window.addEventListener('click', close);
+    return () => {
+      window.removeEventListener('click', close);
+    };
+  }, [menuOpen]);
 
   useEffect(() => {
     return () => {
@@ -857,6 +872,46 @@ export function ChatPanel(props: Props): JSX.Element {
         }}
         onMore={() => setMenuOpen((v) => !v)}
       />
+
+      {menuOpen ? (
+        <div onClick={(e) => e.stopPropagation()}>
+          <ChatMoreMenu
+            type={props.activeConversation?.type === 2 ? 'group' : 'chat'}
+            burnEnabled={props.burnEnabled}
+            isPinned={isPinned}
+            isMuted={isMuted}
+            onToggleBurn={() => {
+              props.onBurnEnabledChange(!props.burnEnabled);
+              setMenuOpen(false);
+            }}
+            onTogglePin={() => {
+              setIsPinned((v) => !v);
+              setMenuOpen(false);
+            }}
+            onToggleMute={() => {
+              setIsMuted((v) => !v);
+              setMenuOpen(false);
+            }}
+            onDeleteConversation={() => {
+              console.log('删除会话');
+              setMenuOpen(false);
+            }}
+            onStartGroupChat={() => {
+              console.log('发起群聊');
+              setMenuOpen(false);
+            }}
+            onExitGroup={() => {
+              console.log('退出群聊');
+              setMenuOpen(false);
+            }}
+            onAddMember={() => {
+              console.log('添加成员');
+              setMenuOpen(false);
+            }}
+            onClose={() => setMenuOpen(false)}
+          />
+        </div>
+      ) : null}
 
       {searchOpen ? (
         <div className="chat-search-row">
