@@ -1074,13 +1074,6 @@ button:disabled {
   outline: none;
 }
 
-.sidebar-search-shell:focus-within {
-  background: var(--search-focus-bg);
-}
-
-.sidebar-search-shell:focus-within svg {
-  color: var(--search-text);
-}
 
 /* 新建聊天表单 */
 .sidebar-head {

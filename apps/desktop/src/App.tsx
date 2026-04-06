@@ -27,6 +27,8 @@ export function App(): JSX.Element {
   const { state, actions, activeConversation, decodePayload } = useChatClient();
   // 当前工作区：'chat' 聊天界面 | 'friend' 好友界面
   const [workspace, setWorkspace] = useState<'chat' | 'friend'>('chat');
+  // 导航抽屉开关状态
+  const [navDrawerOpen, setNavDrawerOpen] = useState(false);
   // 用于跟踪是否已经尝试过自动登录
   const autoLoginAttemptedRef = useRef(false);
   // 使用 ref 保存 actions 以避免闭包问题
@@ -197,7 +199,7 @@ export function App(): JSX.Element {
               onTogglePin={actions.toggleConversationPin}
               onToggleMute={actions.toggleConversationMute}
               onDeleteConversation={actions.deleteConversation}
-              onWorkspaceChange={setWorkspace}
+              onNavDrawerOpen={() => setNavDrawerOpen(true)}
               onLogout={() => void actions.onLogout()}
               currentUserId={state.auth.userId}
             />
@@ -258,6 +260,81 @@ export function App(): JSX.Element {
             onLogout={() => void actions.onLogout()}
           />
         )}
+      </div>
+
+      {/* 导航抽屉 */}
+      <div className={`nav-drawer ${navDrawerOpen ? 'nav-drawer-open' : ''}`}>
+        <div className="nav-drawer-content">
+          <div className="nav-drawer-header">
+            <button
+              type="button"
+              className="nav-drawer-close-btn"
+              aria-label="关闭菜单"
+              onClick={() => setNavDrawerOpen(false)}
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" fill="currentColor"/>
+              </svg>
+            </button>
+            <span className="nav-drawer-logo">SC</span>
+            <div>
+              <p className="nav-drawer-title">Security Chat</p>
+              <p className="nav-drawer-subtitle">Desktop</p>
+            </div>
+          </div>
+
+          <nav className="nav-drawer-nav">
+            <button
+              type="button"
+              className="nav-drawer-item"
+              onClick={() => {
+                setWorkspace('chat');
+                setNavDrawerOpen(false);
+              }}
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z" fill="currentColor"/>
+              </svg>
+              <span>聊天</span>
+            </button>
+
+            <button
+              type="button"
+              className="nav-drawer-item active"
+              onClick={() => {
+                setWorkspace('friend');
+                setNavDrawerOpen(false);
+              }}
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z" fill="currentColor"/>
+              </svg>
+              <span>好友</span>
+            </button>
+          </nav>
+
+          <div className="nav-drawer-divider" />
+
+          <div className="nav-drawer-user">
+            <p className="nav-drawer-user-label">当前用户</p>
+            <p className="nav-drawer-user-id">{state.auth.userId}</p>
+          </div>
+
+          <button
+            type="button"
+            className="nav-drawer-item nav-drawer-logout"
+            onClick={() => {
+              actions.onLogout();
+              setNavDrawerOpen(false);
+            }}
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z" fill="currentColor"/>
+            </svg>
+            <span>退出登录</span>
+          </button>
+        </div>
+        <div className="nav-drawer-overlay" onClick={() => setNavDrawerOpen(false)} aria-hidden="true" />
       </div>
     </main>
   );
