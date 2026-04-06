@@ -201,6 +201,10 @@ mod tests {
 
     #[test]
     fn test_encrypt_decrypt() {
+        // 确保 master_key 存在（与生产代码 create_secure_keychain 一致）
+        if !SecureKeychain::exists() {
+            SecureKeychain::new().expect("should create master key");
+        }
         let keychain = SecureKeychain::load().expect("should load keychain");
 
         let plaintext = b"secret_message_12345";
