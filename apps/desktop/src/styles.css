@@ -125,7 +125,7 @@
   --search-text: #000000;
   --search-placeholder: #707579;
   --search-focus-bg: #e0e3e8;
-  --search-icon-color: #707579;
+  --search-icon-color: #dfe1e5;
 
   /* 卡片和消息气泡 */
   --card-bg: #ffffff;
@@ -282,7 +282,7 @@
   --search-text: #ffffff;
   --search-placeholder: #8b9aa3;
   --search-focus-bg: #3d4a57;
-  --search-icon-color: #8b9aa3;
+  --search-icon-color: #dfe1e5;
 }
 
 /* ==========================================================================
@@ -1050,8 +1050,8 @@ button:disabled {
 }
 
 .sidebar-search-shell svg {
-  width: 18px;
-  height: 18px;
+  width: 24px;
+  height: 24px;
   flex-shrink: 0;
   color: var(--search-icon-color);
 }
