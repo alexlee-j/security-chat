@@ -4536,8 +4536,8 @@ button:disabled {
    ========================================================================== */
 .fab-menu {
   position: absolute;
-  bottom: 16px;
-  right: 16px;
+  bottom: 72px;
+  right: 72px;
   z-index: 100;
 }
 
