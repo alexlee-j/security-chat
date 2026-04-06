@@ -6,7 +6,7 @@
  */
 
 import * as React from 'react';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 
 export type ChatMoreMenuProps = {
   type: 'chat' | 'group';
@@ -24,8 +24,14 @@ export type ChatMoreMenuProps = {
 };
 
 export function ChatMoreMenu(props: ChatMoreMenuProps): JSX.Element {
+  const menuRef = useRef<HTMLDivElement>(null);
+
   // 监听 Escape 键关闭菜单
   useEffect(() => {
+    // 将焦点移到第一个菜单项
+    const firstButton = menuRef.current?.querySelector('button');
+    firstButton?.focus();
+
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         props.onClose();
@@ -36,7 +42,7 @@ export function ChatMoreMenu(props: ChatMoreMenuProps): JSX.Element {
   }, [props.onClose]);
 
   return (
-    <div className="chat-more-menu" role="menu" aria-label="更多操作菜单">
+    <div ref={menuRef} className="chat-more-menu" role="menu" aria-label="更多操作菜单">
       <button role="menuitem" onClick={props.onToggleBurn}>
         🔥 {props.burnEnabled ? '关闭阅后即焚' : '开启阅后即焚'}
       </button>
