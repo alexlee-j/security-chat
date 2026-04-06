@@ -4390,3 +4390,65 @@ button:disabled {
     right: 16px;
   }
 }
+
+/* ==========================================================================
+   FAB 悬浮按钮菜单 - 右下角固定定位
+   ========================================================================== */
+.fab-menu {
+  position: fixed;
+  bottom: 16px;
+  right: 16px;
+  z-index: 100;
+}
+
+.fab-button {
+  width: 56px;
+  height: 56px;
+  border-radius: 28px;
+  background: var(--fab-bg);
+  color: white;
+  border: none;
+  font-size: 28px;
+  cursor: pointer;
+  box-shadow: 0 4px 8px var(--shadow-light);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.fab-button:hover {
+  background: var(--brand-hover);
+}
+
+.fab-menu-dropdown {
+  position: absolute;
+  bottom: 64px;
+  right: 0;
+  width: 200px;
+  background: var(--card-bg);
+  border-radius: 12px;
+  box-shadow: 0 4px 12px var(--shadow-medium);
+  padding: 8px;
+}
+
+.fab-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px;
+  border: none;
+  background: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.fab-menu-item:hover {
+  background: var(--search-bg);
+}
+
+.fab-menu-icon {
+  font-size: 20px;
+}

@@ -1,6 +1,7 @@
 import { MouseEvent, useEffect, useMemo, useState } from 'react';
 import * as React from 'react';
 import { ConversationListItem } from '../../core/types';
+import { FabMenu } from './fab-menu';
 
 type Props = {
   userId: string;
@@ -21,6 +22,8 @@ type Props = {
   onWorkspaceChange?: (workspace: 'chat' | 'friend') => void;
   onLogout?: () => void;
   currentUserId?: string;
+  onNewGroup?: () => void;
+  onNewChat?: () => void;
 };
 
 function getDisplayName(row: ConversationListItem): string {
@@ -273,6 +276,13 @@ export function ConversationSidebar(props: Props): JSX.Element {
           </button>
         </div>
       ) : null}
+      <FabMenu
+        onNewGroup={() => props.onNewGroup?.()}
+        onNewChat={() => {
+          props.onPeerUserIdChange('');
+          props.onNewChat?.();
+        }}
+      />
     </aside>
   );
 }
