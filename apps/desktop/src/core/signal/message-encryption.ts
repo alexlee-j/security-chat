@@ -5,6 +5,7 @@
 
 import { SignalProtocol, PrekeyBundle, EncryptedMessage, SessionState, IdentityKeyPair, SignedPrekey, OneTimePrekey } from './index';
 import { KeyManager } from './key-management';
+import { SessionNotFoundError } from './errors';
 import * as api from '../api';
 
 /**
@@ -96,7 +97,7 @@ export class MessageEncryptionService {
       } else {
         // 这是普通 SignalMessage，但会话不存在
         // 这可能是因为会话丢失（如重连后本地会话被清除）
-        // 此时无法解密，应抛出错误让调用方知道需要重新建立会话
+        // 抛出 SessionNotFoundError 让调用方知道需要降级处理
         console.error('[MessageEncryption] Session not found for regular SignalMessage:', {
           senderUserId,
           senderDeviceId,
@@ -104,7 +105,7 @@ export class MessageEncryptionService {
           hasIdentityKey: !!fixedEncryptedMessage.identityKey,
           messageNumber: fixedEncryptedMessage.messageNumber,
         });
-        throw new Error('会话不存在，无法解密消息。可能需要重新建立会话。');
+        throw new SessionNotFoundError(senderUserId, senderDeviceId);
       }
     }
 

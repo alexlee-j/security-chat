@@ -539,7 +539,7 @@ export class SessionStore {
     const key = this.getSessionKey(remoteUserId, remoteDeviceId);
     const data = await this.storage.get(key);
     if (!data) return null;
-    
+
     try {
       return this.deserializeSession(data);
     } catch (error) {
@@ -580,9 +580,13 @@ export class SessionStore {
 
   /**
    * 生成会话键
+   * 注意：由于 sourceDeviceId 在消息存储时可能丢失（数据库无此字段），
+   * 我们统一使用固定的 deviceId '1'，确保同一用户的消息可以正确解密。
+   * 这是一个临时方案，后续应改用 remoteIdentityKey 的哈希。
    */
   private getSessionKey(remoteUserId: string, remoteDeviceId: string): string {
-    return `session-${remoteUserId}-${remoteDeviceId}`;
+    // 统一使用 '1' 作为 deviceId，避免因 deviceId 不匹配导致会话找不到
+    return `session-${remoteUserId}-1`;
   }
 }
 
