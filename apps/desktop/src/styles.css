@@ -126,6 +126,25 @@
   --search-placeholder: #707579;
   --search-focus-bg: #e0e3e8;
   --search-icon-color: #707579;
+
+  /* 卡片和消息气泡 */
+  --card-bg: #ffffff;
+  --card-active: #3390ec;
+  --msg-in: #ffffff;
+  --msg-out: #e6ffde;
+
+  /* 文件图标 */
+  --file-in-icon: #4caf50;
+  --file-out-icon: #3390ec;
+
+  /* 状态色 */
+  --success: #4caf50;
+  --error: #e53935;
+
+  /* 边框和阴影 */
+  --border: #dfe1e5;
+  --shadow-light: #00000014;
+  --shadow-medium: #0000001a;
 }
 
 /* ==========================================================================
@@ -196,6 +215,74 @@
     --search-focus-bg: #3d4a57;
     --search-icon-color: #8b9aa3;
   }
+}
+
+/* ==========================================================================
+   Dark Mode - data-theme 属性切换（优先级高于 prefers-color-scheme）
+   ========================================================================== */
+[data-theme="dark"] {
+  /* 主色调 - 设计稿 #8777d1 */
+  --brand-primary: #8777d1;
+  --brand-hover: #9b8cd9;
+  --brand-light: #2d2a42;
+  --brand-dark: #6b5cb0;
+
+  /* 背景色系统 - 深色 */
+  --bg-primary: #1E1E2E;
+  --bg-secondary: #181820;
+  --bg-gradient: linear-gradient(180deg, #1E1E2E 0%, #181820 100%);
+  --bg-surface: #2A2A3C;
+  --bg-surface-soft: #252536;
+  --bg-message-in: #2d3a42;
+  --bg-message-out: #8777d1;
+  --bg-message-hover: rgba(255, 255, 255, 0.04);
+
+  /* 导航栏深色主题 - 更深的配色 */
+  --rail-bg: #181820;
+  --rail-border: #2A2A3C;
+  --rail-text: #E4E4E7;
+  --rail-text-secondary: #A1A1AA;
+  --rail-hover: rgba(255, 255, 255, 0.06);
+  --rail-active: rgba(135, 119, 209, 0.12);
+  --rail-active-indicator: #8777d1;
+
+  /* 文本色系统 - 深色 */
+  --text-primary: #E4E4E7;
+  --text-secondary: #A1A1AA;
+  --text-muted: #71717A;
+  --text-inverse: #181820;
+
+  /* 边框和分割线 - 深色 */
+  --border-light: #2d3a47;
+  --border-softer: #27272A;
+  --border-divider: rgba(255, 255, 255, 0.08);
+
+  /* 聊天界面配色 - 设计稿 Dark 模式 */
+  --chat-bg: #202530;
+  --sidebar-bg: #182533;
+  --topbar-bg: #182533;
+  --input-bg: #1a242d;
+  --input-border: #3d4a57;
+  --input-placeholder: #5a6a75;
+  --chat-item-bg: #2d3a47;
+  --chat-item-selected-bg: #8777d1;
+  --chat-item-shadow: 0 1px 4px rgba(0, 0, 0, 0.16);
+  --chat-item-hover: rgba(255, 255, 255, 0.04);
+  --online-indicator: #4caf50;
+  --fab-bg: #8777d1;
+  --fab-shadow: rgba(0, 0, 0, 0.4);
+  --composer-bg: #182533;
+  --composer-input-bg: #2d3a47;
+  --composer-tool-color: #8b9aa3;
+  --composer-placeholder: #8b9aa3;
+  --message-shadow: none;
+
+  /* 搜索框配色 - 设计稿 Dark 模式 */
+  --search-bg: #2d3a47;
+  --search-text: #ffffff;
+  --search-placeholder: #8b9aa3;
+  --search-focus-bg: #3d4a57;
+  --search-icon-color: #8b9aa3;
 }
 
 /* ==========================================================================
@@ -621,12 +708,13 @@ button:disabled {
    会话侧边栏 - 设计稿样式
    ========================================================================== */
 .sidebar {
+  width: 280px;
+  min-width: 280px;
+  height: 100vh;
+  background: var(--sidebar-bg);
   display: flex;
   flex-direction: column;
-  gap: 0;
-  height: 100%;
   overflow: hidden;
-  background: var(--sidebar-bg);
   transition: transform var(--transition-normal), width var(--transition-normal);
   position: relative;
   z-index: 100;
@@ -642,12 +730,12 @@ button:disabled {
 
 /* 侧边栏头部 - 设计稿: 40px 高，左侧菜单图标 + 搜索框 */
 .sidebar-toolbar {
+  height: 40px;
+  padding: 12px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 0 12px;
-  height: 40px;
   background: var(--sidebar-bg);
   position: relative;
 }
@@ -941,9 +1029,15 @@ button:disabled {
 
 /* 搜索框 - 设计稿规格 */
 .sidebar-search-shell {
-  display: grid;
-  grid-template-columns: auto 1fr;
+  flex: 1;
+  display: flex;
   align-items: center;
+  gap: 8px;
+  background: var(--search-bg);
+  border-radius: 16px;
+  padding: 0 10px;
+  height: 32px;
+}
   gap: 10px;
   min-height: 32px;
   border-radius: 16px;
@@ -1083,8 +1177,8 @@ button:disabled {
   overflow: auto;
   display: grid;
   align-content: start;
-  gap: 4px;
-  padding: 8px;
+  gap: 0px;
+  padding: 0px;
 }
 
 .conversation-group-title {
@@ -1098,30 +1192,32 @@ button:disabled {
 
 /* 会话项 - 设计稿样式: 72px高, 12px padding, cornerRadius 12px */
 .conversation {
-  text-align: left;
-  border: none;
-  border-radius: 12px;
-  background: var(--chat-item-bg);
-  color: var(--text-primary);
-  padding: 12px;
   display: flex;
   align-items: center;
   gap: 12px;
+  padding: 12px;
+  height: 72px;
+  border-radius: 12px;
+  background: var(--card-bg);
+  box-shadow: 0 0 1px var(--shadow-light);
+  margin-bottom: 4px;
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: background 0.15s;
+  text-align: left;
+  border: none;
+  color: var(--text-primary);
   position: relative;
   overflow: hidden;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.059);
 }
 
-.conversation:hover {
-  background: var(--chat-item-hover);
+.conversation:hover:not(.active) {
+  background: var(--search-bg);
 }
 
-/* Active 会话项 - 设计稿中无阴影 */
+/* Active 会话项 */
 .conversation.active {
-  background: var(--chat-item-selected-bg);
-  box-shadow: none;
+  background: var(--card-active);
+  color: white;
 }
 
 .conversation.active .conversation-title,
@@ -1143,6 +1239,38 @@ button:disabled {
 
 .conversation.active:hover::before {
   background: rgba(255, 255, 255, 0.1);
+}
+
+/* 头像容器 - 用于定位状态点 */
+.conversation .avatar-wrapper {
+  position: relative;
+  flex-shrink: 0;
+}
+
+/* 私聊头像 - 圆形 */
+.conversation .avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+}
+
+/* 群聊头像 - 圆角矩形 */
+.conversation.group .avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+}
+
+/* 在线状态点 */
+.conversation .status-dot {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 10px;
+  height: 10px;
+  background: var(--success);
+  border-radius: 50%;
+  border: 2px solid var(--card-bg);
 }
 
 /* 头像 - 设计稿: 40x40 (侧边栏和聊天头部用) */
@@ -1176,11 +1304,11 @@ button:disabled {
   font-size: 13px;
 }
 
-/* 在线状态指示器 - 设计稿: 8x8px 绿色圆点 */
+/* 在线状态指示器 - 设计稿: 10x10px 绿色圆点 */
 .avatar .online-dot {
   position: absolute;
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
   background: var(--online-indicator);
   border-radius: 50%;
   border: 2px solid var(--chat-item-bg);
@@ -1464,7 +1592,7 @@ button:disabled {
   color: var(--text-secondary);
 }
 
-/* 聊天头部 - 设计稿: 56px 高，白色背景 */
+/* 聊天头部 - 设计稿: 64px 高，白色背景 */
 .chat-header {
   display: flex;
   justify-content: space-between;
@@ -1475,7 +1603,7 @@ button:disabled {
   border-radius: 0;
   background: var(--topbar-bg);
   padding: 0 20px;
-  height: 56px;
+  height: 64px;
   z-index: 10;
   transition: all var(--transition-fast);
 }
