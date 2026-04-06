@@ -14,6 +14,7 @@ import { ConversationListItem, MessageItem } from '../../core/types';
 import { TopBar } from './top-bar';
 import { ChatMoreMenu } from './chat-more-menu';
 import { MessageBubble } from './message-bubble';
+import { MessageContextMenu } from './message-context-menu';
 
 /**
  * Props 类型定义 - 聊天面板组件属性
@@ -1236,54 +1237,19 @@ export function ChatPanel(props: Props): JSX.Element {
 
     {/* 消息右键菜单 */}
     {contextMenu ? (
-      <div
-        className="message-context-menu"
-        style={{ left: `${contextMenu.x}px`, top: `${contextMenu.y}px` }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        {!contextMenu.message.isRevoked ? (
-          <>
-            <button type="button" onClick={() => copyMessage(contextMenu.message.id)}>
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z" fill="currentColor"/>
-              </svg>
-              复制
-            </button>
-            <button type="button" onClick={() => replyMessage(contextMenu.message.id)}>
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z" fill="currentColor"/>
-              </svg>
-              引用
-            </button>
-            <button type="button" onClick={() => forwardMessage(contextMenu.message.id)}>
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92s2.92-1.31 2.92-2.92-1.31-2.92-2.92-2.92z" fill="currentColor"/>
-              </svg>
-              转发
-            </button>
-            {[2, 4].includes(contextMenu.message.messageType) ? (
-              <button type="button" onClick={() => downloadMedia(contextMenu.message)}>
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z" fill="currentColor"/>
-                </svg>
-                下载
-              </button>
-            ) : null}
-            <div className="message-context-menu-divider" />
-          </>
-        ) : null}
-        <button
-          type="button"
-          className={`message-context-menu-danger ${contextMenu.message.isRevoked ? 'disabled' : ''}`}
-          onClick={() => deleteMessage(contextMenu.message.id)}
-          disabled={contextMenu.message.isRevoked}
-        >
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" fill="currentColor"/>
-          </svg>
-          {contextMenu.message.isRevoked ? '已撤回' : '删除'}
-        </button>
-      </div>
+      <MessageContextMenu
+        x={contextMenu.x}
+        y={contextMenu.y}
+        messageType={contextMenu.message.messageType}
+        isOwn={contextMenu.message.senderId === props.currentUserId}
+        isRevoked={contextMenu.message.isRevoked}
+        onCopy={() => copyMessage(contextMenu.message.id)}
+        onReply={() => replyMessage(contextMenu.message.id)}
+        onForward={() => forwardMessage(contextMenu.message.id)}
+        onDownload={() => downloadMedia(contextMenu.message)}
+        onDelete={() => deleteMessage(contextMenu.message.id)}
+        onClose={closeContextMenu}
+      />
     ) : null}
 
     {/* 转发对话框 */}
