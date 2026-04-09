@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "cursor-talk-to-figma-mcp": {
+      "command": "bunx",
+      "args": ["cursor-talk-to-figma-mcp@latest"]
+    }
+  }
+}
