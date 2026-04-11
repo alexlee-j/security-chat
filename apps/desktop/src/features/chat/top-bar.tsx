@@ -31,7 +31,7 @@ export function TopBar(props: TopBarProps): JSX.Element {
         </div>
         <div className="chat-info">
           <h3 className="chat-name">{props.name}</h3>
-          <p className="chat-status-text">
+          <p className={props.type === 'chat' && !props.isOnline ? 'chat-status-text offline' : 'chat-status-text'}>
             {props.type === 'chat'
               ? props.isOnline ? '在线' : '离线'
               : `${props.memberCount} 位成员`}

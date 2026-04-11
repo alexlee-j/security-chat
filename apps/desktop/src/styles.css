@@ -360,7 +360,7 @@
   --accent-foreground: 0 0% 100%;
   --destructive: 4 90% 58%;
   --destructive-foreground: 0 0% 100%;
-  --border: 210 18% 29%;
+  --border: 0 0% 23%;
   --input: 208 27% 14%;
   --ring: 251 49% 64%;
 
@@ -442,8 +442,8 @@
   --chat-bg: #202530;
   --sidebar-bg: #182533;
   --topbar-bg: #182533;
-  --input-bg: #1a242d;
-  --input-border: #3d4a57;
+  --input-bg: #2c2c2e;
+  --input-border: #3a3a3c;
   --input-placeholder: #5a6a75;
   --chat-item-bg: #2d3a47;
   --chat-item-selected-bg: #8777d1;
@@ -452,8 +452,8 @@
   --online-indicator: #4caf50;
   --fab-bg: #8777d1;
   --fab-shadow: rgba(0, 0, 0, 0.4);
-  --composer-bg: #182533;
-  --composer-input-bg: #2d3a47;
+  --composer-bg: #2c2c2e;
+  --composer-input-bg: #3a3a3c;
   --composer-tool-color: #8b9aa3;
   --composer-placeholder: #8b9aa3;
   --message-shadow: none;
@@ -466,7 +466,7 @@
   --search-icon-color: #dfe1e5;
 
   /* 卡片背景 */
-  --card-bg: #2d3748;
+  --card-bg: #2c2c2e;
 
   /* 阴影色 */
   --shadow-light: #00000033;
@@ -1828,6 +1828,10 @@ button:disabled {
   font-size: 12px;
   color: var(--success);
   margin: 0;
+}
+
+.chat-status-text.offline {
+  color: var(--text-secondary);
 }
 
 .chat-header-actions {
