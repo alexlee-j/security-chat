@@ -1133,25 +1133,70 @@ button:disabled {
 }
 
 .nav-drawer-theme-btn {
-  height: 36px;
-  width: 36px;
+  height: 32px;
+  width: 32px;
   border: none;
-  background: var(--card);
+  background: transparent;
   border-radius: var(--radius);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--foreground);
+  color: var(--muted-foreground);
   transition: all var(--transition-fast);
+  flex-shrink: 0;
 }
 
 .nav-drawer-theme-btn:hover {
+  color: var(--foreground);
   background: var(--accent);
 }
 
 .nav-drawer-theme-btn .material-symbols-rounded {
   font-size: 20px;
+}
+
+.nav-drawer-theme-label {
+  font-size: 14px;
+  color: var(--muted-foreground);
+  font-weight: 500;
+}
+
+/* 导航项样式 - 水平排列下方 border */
+.nav-drawer-nav-item {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: none;
+  background: transparent;
+  border-bottom: 1px solid transparent;
+  cursor: pointer;
+  color: var(--muted-foreground);
+  font-size: 14px;
+  font-weight: 500;
+  transition: all var(--transition-fast);
+}
+
+.nav-drawer-nav-item:hover {
+  color: var(--primary);
+  border-bottom-color: hsl(var(--primary) / 0.3);
+}
+
+.nav-drawer-nav-item.active {
+  color: var(--primary);
+  border-bottom-color: var(--primary);
+}
+
+.nav-drawer-nav-icon {
+  font-size: 20px;
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 /* Material Symbols Rounded 字体图标 */

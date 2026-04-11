@@ -296,11 +296,11 @@ export function App(): JSX.Element {
           </div>
 
           {/* 导航区 */}
-          <nav className="nav-drawer-nav px-3 py-3">
+          <nav className="nav-drawer-nav px-3 py-3 flex flex-row gap-2">
             <button
               type="button"
               className={cn(
-                "nav-drawer-item w-full",
+                "nav-drawer-nav-item flex-1",
                 workspace === 'chat' && "active"
               )}
               onClick={() => {
@@ -308,14 +308,14 @@ export function App(): JSX.Element {
                 setNavDrawerOpen(false);
               }}
             >
-              <span className="material-symbols-rounded nav-drawer-icon">chat</span>
+              <span className="material-symbols-rounded nav-drawer-nav-icon">chat</span>
               <span>聊天</span>
             </button>
 
             <button
               type="button"
               className={cn(
-                "nav-drawer-item w-full",
+                "nav-drawer-nav-item flex-1",
                 workspace === 'friend' && "active"
               )}
               onClick={() => {
@@ -323,7 +323,7 @@ export function App(): JSX.Element {
                 setNavDrawerOpen(false);
               }}
             >
-              <span className="material-symbols-rounded nav-drawer-icon">group</span>
+              <span className="material-symbols-rounded nav-drawer-nav-icon">group</span>
               <span>好友</span>
             </button>
           </nav>
@@ -331,9 +331,9 @@ export function App(): JSX.Element {
           <Separator className="my-1 mx-4" />
 
           {/* 快捷设置区 - 主题切换 */}
-          <div className="px-4 py-3">
-            <div className="flex items-center justify-between">
-              <span className="nav-drawer-section-label">显示模式</span>
+          <div className="px-4 border-b border-border">
+            <div className="flex items-center justify-between py-3">
+              <span className="nav-drawer-theme-label">显示模式</span>
               <button
                 type="button"
                 className="nav-drawer-theme-btn"
@@ -344,7 +344,7 @@ export function App(): JSX.Element {
                   setTheme(themes[(currentIndex + 1) % themes.length]);
                 }}
               >
-                <span className="material-symbols-rounded text-xl">
+                <span className="material-symbols-rounded">
                   {theme === 'light' ? 'wb_sunny' : theme === 'dark' ? 'dark_mode' : 'desktop_windows'}
                 </span>
               </button>
