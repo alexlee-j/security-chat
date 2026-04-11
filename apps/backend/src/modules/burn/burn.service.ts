@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { Repository } from 'typeorm';
@@ -42,6 +42,17 @@ export class BurnService {
     }
 
     await this.conversationService.assertMember(message.conversationId, userId);
+
+    // 群聊不支持阅后即焚功能
+    const conversation = await this.conversationService.findById(message.conversationId);
+    if (conversation?.type === 2) {
+      throw new BadRequestException('Burn messages are not supported in group chats');
+    }
+
+    // 消息发送者不能触发焚毁（只有接收者可以）
+    if (message.senderId === userId) {
+      throw new ForbiddenException('Only message recipient can trigger burn');
+    }
 
     if (!message.isBurn) {
       throw new BadRequestException('Message is not burn-enabled');

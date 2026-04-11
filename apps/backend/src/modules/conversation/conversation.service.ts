@@ -413,6 +413,10 @@ export class ConversationService {
     };
   }
 
+  async findById(conversationId: string): Promise<Conversation | null> {
+    return this.conversationRepository.findOne({ where: { id: conversationId } });
+  }
+
   async assertMember(conversationId: string, userId: string): Promise<void> {
     const member = await this.memberRepository.findOne({
       where: { conversationId, userId },
