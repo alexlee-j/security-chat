@@ -862,6 +862,7 @@ export function ChatPanel(props: Props): JSX.Element {
         avatar={getInitial(peerName)}
         name={peerName}
         status={statusText}
+        isOnline={props.activeConversation?.peerUser?.isOnline ?? false}
         memberCount={props.activeConversation?.type === 2 ? props.activeConversation.groupInfo?.memberCount : undefined}
         onSearch={() => {
           setSearchOpen((v) => {
