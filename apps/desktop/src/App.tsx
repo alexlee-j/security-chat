@@ -169,11 +169,11 @@ export function App(): JSX.Element {
           <div className={`toast toast-${state.toast.type} ${state.toast.visible ? 'visible' : ''}`}>
             <svg viewBox="0 0 24 24" aria-hidden="true">
               {state.toast.type === 'success' ? (
-                <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" fill="currentColor"/>
+                <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" fill="currentColor" />
               ) : state.toast.type === 'error' ? (
-                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z" fill="currentColor"/>
+                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z" fill="currentColor" />
               ) : (
-                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z" fill="currentColor"/>
+                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z" fill="currentColor" />
               )}
             </svg>
             <span>{state.toast.message}</span>
@@ -296,39 +296,40 @@ export function App(): JSX.Element {
           </div>
 
           {/* 导航区 */}
-          <nav className="nav-drawer-nav px-3 py-3 flex flex-row gap-2">
-            <button
-              type="button"
-              className={cn(
-                "nav-drawer-nav-item flex-1",
-                workspace === 'chat' && "active"
-              )}
-              onClick={() => {
-                setWorkspace('chat');
-                setNavDrawerOpen(false);
-              }}
-            >
-              <span className="material-symbols-rounded nav-drawer-nav-icon">chat</span>
-              <span>聊天</span>
-            </button>
+          <div className="px-3 py-3">
+            <nav className="nav-drawer-nav px-3 py-3 flex flex-row gap-2" >
+              <button
+                type="button"
+                className={cn(
+                  "nav-drawer-nav-item flex-1",
+                  workspace === 'chat' && "active"
+                )}
+                onClick={() => {
+                  setWorkspace('chat');
+                  setNavDrawerOpen(false);
+                }}
+              >
+                <span className="material-symbols-rounded nav-drawer-nav-icon">chat</span>
+                <span>聊天</span>
+              </button>
 
-            <button
-              type="button"
-              className={cn(
-                "nav-drawer-nav-item flex-1",
-                workspace === 'friend' && "active"
-              )}
-              onClick={() => {
-                setWorkspace('friend');
-                setNavDrawerOpen(false);
-              }}
-            >
-              <span className="material-symbols-rounded nav-drawer-nav-icon">group</span>
-              <span>好友</span>
-            </button>
-          </nav>
+              <button
+                type="button"
+                className={cn(
+                  "nav-drawer-nav-item flex-1",
+                  workspace === 'friend' && "active"
+                )}
+                onClick={() => {
+                  setWorkspace('friend');
+                  setNavDrawerOpen(false);
+                }}
+              >
+                <span className="material-symbols-rounded nav-drawer-nav-icon">group</span>
+                <span>好友</span>
+              </button>
+            </nav>
+          </div>
 
-          <Separator className="my-1 mx-4" />
 
           {/* 快捷设置区 - 主题切换 */}
           <div className="px-4 border-b border-border">
@@ -350,8 +351,6 @@ export function App(): JSX.Element {
               </button>
             </div>
           </div>
-
-          <Separator className="my-1 mx-4" />
 
           {/* 底部功能区 */}
           <div className="mt-auto px-3 py-3">
