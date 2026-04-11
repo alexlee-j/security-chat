@@ -360,7 +360,7 @@
   --accent-foreground: 0 0% 100%;
   --destructive: 4 90% 58%;
   --destructive-foreground: 0 0% 100%;
-  --border: 0 0% 23%;
+  --border: 213 17% 29%;
   --input: 208 27% 14%;
   --ring: 251 49% 64%;
 
@@ -453,7 +453,7 @@
   --fab-bg: #8777d1;
   --fab-shadow: rgba(0, 0, 0, 0.4);
   --composer-bg: #182533;
-  --composer-input-bg: #3a3a3c;
+  --composer-input-bg: #2d3a47;
   --composer-tool-color: #8b9aa3;
   --composer-placeholder: #8b9aa3;
   --message-shadow: none;
