@@ -17,6 +17,7 @@ export function EmojiPicker(props: EmojiPickerProps): JSX.Element {
         theme="light"
         previewPosition="none"
         skinTonePosition="preview"
+        locale="zh"
       />
     </div>
   );

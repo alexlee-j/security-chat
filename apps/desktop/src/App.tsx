@@ -15,6 +15,7 @@ import { ChatPanel } from './features/chat/chat-panel';
 import { ConversationSidebar } from './features/chat/conversation-sidebar';
 import { FriendPanel } from './features/friend/friend-panel';
 import { useChatClient } from './core/use-chat-client';
+import { useTheme } from './core/use-theme';
 import { getStoredCredentials, getRememberPassword, canAutoLogin } from './core/auth-storage';
 import { login as loginApi, setAuthToken } from './core/api';
 
@@ -25,6 +26,8 @@ import { login as loginApi, setAuthToken } from './core/api';
 export function App(): JSX.Element {
   // 聊天客户端状态管理：包含用户状态、消息、会话等核心数据
   const { state, actions, activeConversation, decodePayload } = useChatClient();
+  // 主题状态管理
+  const { theme, setTheme, resolvedTheme } = useTheme();
   // 当前工作区：'chat' 聊天界面 | 'friend' 好友界面
   const [workspace, setWorkspace] = useState<'chat' | 'friend'>('chat');
   // 导航抽屉开关状态
@@ -314,6 +317,27 @@ export function App(): JSX.Element {
           </nav>
 
           <div className="nav-drawer-divider" />
+
+          {/* 主题切换 */}
+          <div className="nav-drawer-theme">
+            <button
+              type="button"
+              className="theme-toggle-btn"
+              aria-label="切换主题"
+              onClick={() => {
+                const themes: ('light' | 'dark' | 'auto')[] = ['light', 'dark', 'auto'];
+                const currentIndex = themes.indexOf(theme);
+                setTheme(themes[(currentIndex + 1) % themes.length]);
+              }}
+            >
+              <span className="material-symbols-rounded">
+                {theme === 'light' ? 'wb_sunny' : theme === 'dark' ? 'dark_mode' : 'desktop_windows'}
+              </span>
+              <span className="theme-toggle-text">
+                {theme === 'light' ? '浅色' : theme === 'dark' ? '深色' : '自动'}
+              </span>
+            </button>
+          </div>
 
           <div className="nav-drawer-user">
             <p className="nav-drawer-user-label">当前用户</p>
