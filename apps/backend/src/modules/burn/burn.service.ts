@@ -45,7 +45,10 @@ export class BurnService {
 
     // 群聊不支持阅后即焚功能
     const conversation = await this.conversationService.findById(message.conversationId);
-    if (conversation?.type === 2) {
+    if (!conversation) {
+      throw new NotFoundException('Conversation not found');
+    }
+    if (conversation.type === 2) {
       throw new BadRequestException('Burn messages are not supported in group chats');
     }
 
