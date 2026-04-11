@@ -2506,7 +2506,7 @@ button:disabled {
   flex: 1;
   display: flex;
   align-items: center;
-  background: var(--input-bg);
+  background: var(--composer-input-bg, var(--input-bg));
   border-radius: 22px;
   padding: 0 16px;
   height: 44px;
