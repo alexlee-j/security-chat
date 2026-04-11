@@ -249,7 +249,7 @@
     --search-bg: #2d3a47;
 
     /* 消息气泡 */
-    --msg-in: #3a3a3c;
+    --msg-in: #2d3a42;
     --msg-out: #2d4a3e;
     --msg-reply-bar: #8777d1;
     --msg-reply-bg: #2d2d2d;
@@ -2052,16 +2052,14 @@ button:disabled {
   border: none;
   border-radius: var(--message-radius);
   padding: 12px;
-  background: var(--bg-message-in);
   box-shadow: var(--message-shadow);
   position: relative;
 }
 
 .message.self {
   align-self: flex-end;
-  background: var(--bg-message-out);
   box-shadow: none;
-  border-bottom-right-radius: var(--message-tail-radius);
+  border-top-right-radius: var(--message-tail-radius);
 }
 
 .message.focused {
@@ -2360,13 +2358,14 @@ button:disabled {
    消息气泡组件样式 (MessageBubble)
    ========================================================================== */
 .message-bubble {
+  position: relative;
   display: flex;
   flex-direction: column;
   max-width: 400px;
   padding: 10px 14px;
   border-radius: 8px 18px 18px 18px;
   background: var(--msg-in);
-  box-shadow: 0 1px 3px var(--shadow-light);
+  box-shadow: none;
 }
 
 .message-bubble.out {
@@ -2392,8 +2391,13 @@ button:disabled {
   color: var(--text-secondary);
 }
 
+/* 发送消息：时间和状态在左侧 */
+.message-bubble.out .bubble-meta {
+  justify-content: flex-start;
+}
+
 .bubble-meta .status-read {
-  color: var(--brand-primary);
+  color: #3390ec;
 }
 
 .burn-indicator {
@@ -2487,7 +2491,7 @@ button:disabled {
   padding: 14px 20px;
   min-height: 77px;
   display: flex;
-  align-items: center;
+  align-items: stretch;
   gap: 12px;
 }
 
@@ -4906,7 +4910,9 @@ button:disabled {
   flex: 1;
   display: flex;
   flex-direction: column;
-  min-width: 0;  /* 允许flex子元素收缩 */
+  min-width: 0;
+  height: 100%;
+  overflow: hidden;
 }
 
 .message-list {
