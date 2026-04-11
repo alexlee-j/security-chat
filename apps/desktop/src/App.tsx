@@ -18,6 +18,13 @@ import { useChatClient } from './core/use-chat-client';
 import { useTheme } from './core/use-theme';
 import { getStoredCredentials, getRememberPassword, canAutoLogin } from './core/auth-storage';
 import { login as loginApi, setAuthToken } from './core/api';
+import {
+  Sheet,
+  SheetContent,
+} from '@/components/ui/sheet';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Separator } from '@/components/ui/separator';
+import { cn } from '@/lib/utils';
 
 /**
  * 应用根组件
@@ -265,101 +272,138 @@ export function App(): JSX.Element {
         )}
       </div>
 
-      {/* 导航抽屉 */}
-      <div className={`nav-drawer ${navDrawerOpen ? 'nav-drawer-open' : ''}`}>
-        <div className="nav-drawer-content">
-          <div className="nav-drawer-header">
-            <button
-              type="button"
-              className="nav-drawer-close-btn"
-              aria-label="关闭菜单"
-              onClick={() => setNavDrawerOpen(false)}
-            >
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" fill="currentColor"/>
-              </svg>
-            </button>
-            <span className="nav-drawer-logo">SC</span>
-            <div>
-              <p className="nav-drawer-title">Security Chat</p>
-              <p className="nav-drawer-subtitle">Desktop</p>
+      {/* 导航抽屉 - 使用 shadcn/ui Sheet 组件 */}
+      <Sheet open={navDrawerOpen} onOpenChange={setNavDrawerOpen}>
+        <SheetContent side="left" className="nav-drawer-sheet w-[280px] p-0 flex flex-col">
+          {/* 用户区 - 包含头像、用户名、在线状态 */}
+          <div className="nav-drawer-header px-4 py-5 border-b border-border">
+            <div className="flex items-center gap-3">
+              <Avatar className="h-12 w-12">
+                <AvatarFallback className="bg-primary text-primary-foreground text-lg font-semibold">
+                  {state.auth?.userId?.slice(0, 2).toUpperCase() || 'U'}
+                </AvatarFallback>
+              </Avatar>
+              <div className="flex-1 min-w-0">
+                <p className="nav-drawer-username truncate">
+                  {state.auth?.userId || '用户'}
+                </p>
+                <p className="nav-drawer-status text-xs text-success flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-success inline-block" />
+                  在线
+                </p>
+              </div>
+              <button
+                type="button"
+                className="nav-drawer-settings-btn h-9 w-9 rounded-full hover:bg-accent flex items-center justify-center transition-colors"
+                aria-label="设置"
+              >
+                <span className="material-symbols-rounded text-xl text-muted-foreground">settings</span>
+              </button>
             </div>
           </div>
 
-          <nav className="nav-drawer-nav">
+          {/* 导航区 */}
+          <nav className="nav-drawer-nav px-3 py-3">
             <button
               type="button"
-              className="nav-drawer-item"
+              className={cn(
+                "nav-drawer-item w-full",
+                workspace === 'chat' && "active"
+              )}
               onClick={() => {
                 setWorkspace('chat');
                 setNavDrawerOpen(false);
               }}
             >
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z" fill="currentColor"/>
-              </svg>
+              <span className="material-symbols-rounded nav-drawer-icon">chat</span>
               <span>聊天</span>
             </button>
 
             <button
               type="button"
-              className="nav-drawer-item active"
+              className={cn(
+                "nav-drawer-item w-full",
+                workspace === 'friend' && "active"
+              )}
               onClick={() => {
                 setWorkspace('friend');
                 setNavDrawerOpen(false);
               }}
             >
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z" fill="currentColor"/>
-              </svg>
+              <span className="material-symbols-rounded nav-drawer-icon">group</span>
               <span>好友</span>
             </button>
           </nav>
 
-          <div className="nav-drawer-divider" />
+          <Separator className="my-1 mx-4" />
 
-          {/* 主题切换 */}
-          <div className="nav-drawer-theme">
+          {/* 快捷设置区 - 主题切换 Tabs 形式 */}
+          <div className="px-4 py-3">
+            <div className="flex items-center justify-between mb-2">
+              <span className="nav-drawer-section-label">显示模式</span>
+            </div>
+            <div className="nav-drawer-theme-tabs">
+              <button
+                type="button"
+                className={cn(
+                  "nav-drawer-theme-tab",
+                  theme === 'light' && "active"
+                )}
+                aria-label="浅色模式"
+                onClick={() => setTheme('light')}
+              >
+                <span className="material-symbols-rounded text-xl">wb_sunny</span>
+              </button>
+              <button
+                type="button"
+                className={cn(
+                  "nav-drawer-theme-tab",
+                  theme === 'dark' && "active"
+                )}
+                aria-label="深色模式"
+                onClick={() => setTheme('dark')}
+              >
+                <span className="material-symbols-rounded text-xl">dark_mode</span>
+              </button>
+              <button
+                type="button"
+                className={cn(
+                  "nav-drawer-theme-tab",
+                  theme === 'auto' && "active"
+                )}
+                aria-label="跟随系统"
+                onClick={() => setTheme('auto')}
+              >
+                <span className="material-symbols-rounded text-xl">desktop_windows</span>
+              </button>
+            </div>
+          </div>
+
+          <Separator className="my-1 mx-4" />
+
+          {/* 底部功能区 */}
+          <div className="mt-auto px-3 py-3">
             <button
               type="button"
-              className="theme-toggle-btn"
-              aria-label="切换主题"
+              className="nav-drawer-item w-full"
+            >
+              <span className="material-symbols-rounded nav-drawer-icon">settings</span>
+              <span>设置</span>
+            </button>
+            <button
+              type="button"
+              className="nav-drawer-item nav-drawer-logout w-full"
               onClick={() => {
-                const themes: ('light' | 'dark' | 'auto')[] = ['light', 'dark', 'auto'];
-                const currentIndex = themes.indexOf(theme);
-                setTheme(themes[(currentIndex + 1) % themes.length]);
+                actions.onLogout();
+                setNavDrawerOpen(false);
               }}
             >
-              <span className="material-symbols-rounded">
-                {theme === 'light' ? 'wb_sunny' : theme === 'dark' ? 'dark_mode' : 'desktop_windows'}
-              </span>
-              <span className="theme-toggle-text">
-                {theme === 'light' ? '浅色' : theme === 'dark' ? '深色' : '自动'}
-              </span>
+              <span className="material-symbols-rounded nav-drawer-icon">logout</span>
+              <span>退出登录</span>
             </button>
           </div>
-
-          <div className="nav-drawer-user">
-            <p className="nav-drawer-user-label">当前用户</p>
-            <p className="nav-drawer-user-id">{state.auth.userId}</p>
-          </div>
-
-          <button
-            type="button"
-            className="nav-drawer-item nav-drawer-logout"
-            onClick={() => {
-              actions.onLogout();
-              setNavDrawerOpen(false);
-            }}
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z" fill="currentColor"/>
-            </svg>
-            <span>退出登录</span>
-          </button>
-        </div>
-        <div className="nav-drawer-overlay" onClick={() => setNavDrawerOpen(false)} aria-hidden="true" />
-      </div>
+        </SheetContent>
+      </Sheet>
     </main>
   );
 }

@@ -314,7 +314,7 @@ export function ConversationSidebar(props: Props): JSX.Element {
           aria-label="菜单"
           onClick={() => props.onNavDrawerOpen?.()}
         >
-          <span className="text-2xl text-muted-foreground">☰</span>
+          <span className="material-symbols-rounded text-2xl text-muted-foreground">menu</span>
         </button>
 
         {/* 搜索框 */}

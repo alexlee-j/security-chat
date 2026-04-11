@@ -53,7 +53,7 @@ export function FabMenu(props: FabMenuProps): JSX.Element {
               setOpen(false);
             }}
           >
-            <span className="w-5 h-5 rounded shrink-0" style={{ background: '#3390ec' }} />
+            <span className="material-symbols-rounded fab-menu-icon fab-menu-icon-new-group">group_add</span>
             <span className="text-foreground">新建群聊</span>
           </button>
           <button
@@ -65,7 +65,7 @@ export function FabMenu(props: FabMenuProps): JSX.Element {
               setOpen(false);
             }}
           >
-            <span className="w-5 h-5 rounded shrink-0" style={{ background: '#707579' }} />
+            <span className="material-symbols-rounded fab-menu-icon fab-menu-icon-add-friend">person_add</span>
             <span className="text-foreground">添加好友</span>
           </button>
         </div>
