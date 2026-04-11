@@ -24,7 +24,13 @@ function applyTheme(theme: Theme): void {
   root.classList.remove('light-mode', 'dark-mode', 'auto-mode');
 
   if (theme === 'auto') {
-    root.removeAttribute('data-theme');
+    // Auto 模式：根据系统主题设置 data-theme
+    const systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    if (systemDark) {
+      root.setAttribute('data-theme', 'dark');
+    } else {
+      root.removeAttribute('data-theme');
+    }
     root.classList.add('auto-mode');
   } else if (theme === 'light') {
     root.removeAttribute('data-theme');
