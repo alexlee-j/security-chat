@@ -452,7 +452,7 @@
   --online-indicator: #4caf50;
   --fab-bg: #8777d1;
   --fab-shadow: rgba(0, 0, 0, 0.4);
-  --composer-bg: #2c2c2e;
+  --composer-bg: #182533;
   --composer-input-bg: #3a3a3c;
   --composer-tool-color: #8b9aa3;
   --composer-placeholder: #8b9aa3;
@@ -466,7 +466,7 @@
   --search-icon-color: #dfe1e5;
 
   /* 卡片背景 */
-  --card-bg: #2c2c2e;
+  --card-bg: #182533;
 
   /* 阴影色 */
   --shadow-light: #00000033;
