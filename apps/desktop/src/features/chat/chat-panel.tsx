@@ -1097,47 +1097,6 @@ export function ChatPanel(props: Props): JSX.Element {
               </button>
             </div>
           ) : null}
-          <button
-            type="button"
-            className="composer-tool-btn"
-            disabled={!hasActiveConversation || props.mediaUploading}
-            aria-label="附加"
-            onClick={() => fileInputRef.current?.click()}
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path
-                d="M15.5 5a4.5 4.5 0 0 1 0 9H8.8a2.8 2.8 0 1 1 0-5.6h6.4v1.8H8.8a1 1 0 1 0 0 2h6.7a2.7 2.7 0 1 0 0-5.4H8.2A4.2 4.2 0 1 0 8.2 15h7.1v1.8H8.2a6 6 0 1 1 0-12h7.3Z"
-                fill="currentColor"
-              />
-            </svg>
-          </button>
-          <button
-            type="button"
-            className="composer-tool-btn"
-            disabled={!hasActiveConversation}
-            aria-label="表情"
-            onClick={() => setEmojiOpen((v) => !v)}
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path
-                d="M12 4a8 8 0 1 0 8 8 8 8 0 0 0-8-8Zm0 14a6 6 0 1 1 6-6 6 6 0 0 1-6 6Zm-3-7a1 1 0 1 0-1-1 1 1 0 0 0 1 1Zm6 0a1 1 0 1 0-1-1 1 1 0 0 0 1 1Zm-6.2 2.6a4.1 4.1 0 0 0 6.4 0l1.6 1a6 6 0 0 1-9.6 0l1.6-1Z"
-                fill="currentColor"
-              />
-            </svg>
-          </button>
-          <button
-            type="button"
-            className="composer-tool-btn"
-            disabled={!hasActiveConversation}
-            aria-label="麦克风"
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path
-                d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3Zm-1-9c0-.55.45-1 1-1s1 .45 1 1v6c0 .55-.45 1-1 1s-1-.45-1-1V5Zm6 6c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2Z"
-                fill="currentColor"
-              />
-            </svg>
-          </button>
           <div className="composer-input-wrapper">
             <textarea
               value={props.messageText}
@@ -1175,6 +1134,49 @@ export function ChatPanel(props: Props): JSX.Element {
             </button>
           </div>
         </form>
+        <div className="composer-tools">
+          <button
+            type="button"
+            className="composer-tool-btn"
+            disabled={!hasActiveConversation || props.mediaUploading}
+            aria-label="附加"
+            onClick={() => fileInputRef.current?.click()}
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M16.5 6v11.5a4 4 0 0 1-8 0V5a2.5 2.5 0 0 1 5 0v10a3.5 3.5 0 0 0 7 0V6a4.5 4.5 0 0 0-9 0v10.5A5.5 5.5 0 0 0 19 22h.5a5.5 5.5 0 0 0 .5-11V6H16.5Z"
+                fill="currentColor"
+              />
+            </svg>
+          </button>
+          <button
+            type="button"
+            className="composer-tool-btn"
+            disabled={!hasActiveConversation}
+            aria-label="表情"
+            onClick={() => setEmojiOpen((v) => !v)}
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M12 2a8 8 0 1 0 8 8 8 8 0 0 0-8-8Zm0 14a6 6 0 1 1 6-6 6 6 0 0 1-6 6Zm-3-7a1 1 0 1 0-1-1 1 1 0 0 0 1 1Zm6 0a1 1 0 1 0-1-1 1 1 0 0 0 1 1Zm-6.2 2.6a4.1 4.1 0 0 0 6.4 0l1.6 1a6 6 0 0 1-9.6 0l1.6-1Z"
+                fill="currentColor"
+              />
+            </svg>
+          </button>
+          <button
+            type="button"
+            className="composer-tool-btn"
+            disabled={!hasActiveConversation}
+            aria-label="麦克风"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 13 11h2Z"
+                fill="currentColor"
+              />
+            </svg>
+          </button>
+        </div>
         {emojiOpen ? (
           <>
             <div className="emoji-picker-overlay" onClick={() => setEmojiOpen(false)} />

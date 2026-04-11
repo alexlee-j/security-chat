@@ -2541,6 +2541,12 @@ button:disabled {
   color: var(--text-primary);
 }
 
+.composer-tools {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 .composer-tool-btn {
   width: 28px;
   height: 28px;
