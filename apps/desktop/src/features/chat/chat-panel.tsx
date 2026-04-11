@@ -1104,7 +1104,6 @@ export function ChatPanel(props: Props): JSX.Element {
               placeholder="输入消息，按 Enter 发送"
               onFocus={props.onStartTyping}
               onBlur={props.onStopTyping}
-              rows={1}
               onKeyDown={(event: KeyboardEvent<HTMLTextAreaElement>) => {
                 if (event.key !== 'Enter') {
                   return;

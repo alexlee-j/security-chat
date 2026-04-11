@@ -2485,7 +2485,7 @@ button:disabled {
   background: var(--card-bg);
   border-top: 1px solid var(--border);
   padding: 14px 20px;
-  height: 77px;
+  min-height: 77px;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -2503,13 +2503,14 @@ button:disabled {
 }
 
 .composer-input-wrapper {
-  flex: 1;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   background: var(--composer-input-bg, var(--input-bg));
   border-radius: 22px;
-  padding: 0 16px;
-  height: 44px;
+  padding: 0;
+  min-height: 40px;
+  max-height: 100px;
+  overflow: hidden;
 }
 
 .composer-input-wrapper textarea {
@@ -2520,8 +2521,19 @@ button:disabled {
   color: var(--text-primary);
   outline: none;
   resize: none;
-  padding: 0;
+  padding: 10px 16px;
   font-family: inherit;
+  line-height: 20px;
+  field-sizing: content;
+  min-height: 40px;
+  max-height: 100px;
+  overflow-y: auto;
+  box-sizing: border-box;
+}
+
+.composer-input-wrapper textarea:focus {
+  outline: none;
+  box-shadow: none;
 }
 
 .composer-input-wrapper textarea::placeholder {
