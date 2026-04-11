@@ -12,10 +12,18 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     configService: ConfigService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {
+    const isProduction = configService.get<string>('NODE_ENV') === 'production';
+    const secret = configService.get<string>('JWT_SECRET');
+
+    // 生产环境必须配置 JWT_SECRET
+    if (isProduction && !secret) {
+      throw new Error('JWT_SECRET environment variable is required in production');
+    }
+
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
-      secretOrKey: configService.get<string>('JWT_SECRET', 'dev_secret_change_me'),
+      secretOrKey: secret || 'dev_secret_change_me',
     });
   }
 
