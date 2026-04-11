@@ -1,8 +1,15 @@
+/**
+ * 会话侧边栏组件
+ * 设计规范：2026-04-07-ui-redesign.md
+ */
 import { FormEvent, MouseEvent, useEffect, useMemo, useState } from 'react';
 import * as React from 'react';
 import { ConversationListItem } from '../../core/types';
 import { ConversationContextMenu } from './conversation-context-menu';
 import { FabMenu } from './fab-menu';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Badge } from '@/components/ui/badge';
+import { cn } from '@/lib/utils';
 
 type Props = {
   userId: string;
@@ -173,7 +180,7 @@ export function ConversationSidebar(props: Props): JSX.Element {
     }
   }
 
-  function openConversationMenu(event: MouseEvent<HTMLButtonElement>, conversationId: string): void {
+  function openConversationMenu(event: MouseEvent<HTMLDivElement>, conversationId: string): void {
     event.preventDefault();
     setMenu({
       x: event.clientX,
@@ -184,6 +191,7 @@ export function ConversationSidebar(props: Props): JSX.Element {
 
   function renderConversationRow(row: ConversationListItem): JSX.Element {
     const displayName = getDisplayName(row);
+    const isActive = row.conversationId === props.activeConversationId;
     const isPinned = pinnedSet.has(row.conversationId);
     const isMuted = mutedSet.has(row.conversationId);
     const draft = props.messageDrafts[row.conversationId]?.trim() ?? '';
@@ -198,77 +206,143 @@ export function ConversationSidebar(props: Props): JSX.Element {
         : previewBase;
 
     return (
-      <button
-        type="button"
+      <div
         key={row.conversationId}
-        className={row.conversationId === props.activeConversationId ? 'conversation active' : 'conversation'}
+        className={cn(
+          'conversation-card flex items-center gap-3 p-3 h-[72px] rounded-xl cursor-pointer',
+          'transition-colors duration-150',
+          isActive
+            ? 'bg-primary text-primary-foreground'
+            : 'bg-card hover:bg-accent text-foreground'
+        )}
         onClick={() => props.onSelectConversation(row.conversationId)}
         onContextMenu={(event) => openConversationMenu(event, row.conversationId)}
+        role="button"
+        tabIndex={0}
       >
-        <span className="avatar-wrapper">
-          <span className="avatar" style={{ background: `var(--avatar-gradient-${(getAvatarColorIndex(displayName) % 5) + 1})` }}>{getInitials(displayName)}</span>
-          {row.peerUser?.isOnline ? <span className="status-dot" /> : null}
-        </span>
-        <div className="conversation-main">
-          <div className="conversation-row">
-            <div className="conversation-title">
-              {displayName}
-              {isMuted ? <span className="conversation-muted-tag">静音</span> : null}
-            </div>
-            <small className="conversation-time">{formatTime(row.lastMessage?.createdAt)}</small>
-          </div>
-          <small className={draft ? 'conversation-meta conversation-meta-draft' : 'conversation-meta'}>
-            {previewText}
-          </small>
+        {/* 头像 */}
+        <div className="relative shrink-0">
+          <Avatar className="h-10 w-10">
+            <AvatarFallback
+              className="text-sm font-semibold"
+              style={isActive
+                ? { background: 'white', color: 'var(--primary)' }
+                : { background: `var(--avatar-gradient-${(getAvatarColorIndex(displayName) % 5) + 1}` }
+              }
+            >
+              {getInitials(displayName)}
+            </AvatarFallback>
+          </Avatar>
+          {/* 在线状态点 */}
+          {row.peerUser?.isOnline && !isActive && (
+            <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-success rounded-full border-2 border-card" />
+          )}
         </div>
-        {isPinned ? <span className="conversation-flag">置顶</span> : null}
-        {!isMuted && row.unreadCount > 0 ? (
-          <span className="conversation-unread">{row.unreadCount}</span>
-        ) : (
-          <span className="conversation-unread-placeholder" />
-        )}
-      </button>
+
+        {/* 中间内容 */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center justify-between gap-2 mb-1">
+            <span className={cn(
+              'font-semibold text-sm truncate',
+              isActive ? 'text-primary-foreground' : 'text-foreground'
+            )}>
+              {displayName}
+            </span>
+            <span className={cn(
+              'text-xs shrink-0',
+              isActive ? 'text-primary-foreground/70' : 'text-muted-foreground'
+            )}>
+              {formatTime(row.lastMessage?.createdAt)}
+            </span>
+          </div>
+          <div className="flex items-center justify-between gap-2">
+            <span className={cn(
+              'text-xs truncate',
+              draft ? 'text-primary font-medium' : '',
+              isActive ? 'text-primary-foreground/70' : 'text-muted-foreground'
+            )}>
+              {previewText}
+            </span>
+          </div>
+        </div>
+
+        {/* 右侧元素 */}
+        <div className="flex flex-col items-end gap-1 shrink-0">
+          {/* 静音标签 */}
+          {isMuted && (
+            <span className={cn(
+              'text-[10px] px-1.5 py-0.5 rounded-full font-medium',
+              isActive ? 'bg-white/20 text-primary-foreground' : 'bg-muted text-muted-foreground'
+            )}>
+              静音
+            </span>
+          )}
+          {/* 置顶标识 */}
+          {isPinned && !isMuted && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-accent text-primary">
+              置顶
+            </span>
+          )}
+          {/* 未读数 */}
+          {!isMuted && row.unreadCount > 0 && (
+            <Badge
+              variant="destructive"
+              className={cn(
+                'h-5 min-w-5 px-1.5 rounded-full text-xs font-bold',
+                isActive && 'bg-primary-foreground text-primary'
+              )}
+            >
+              {row.unreadCount > 99 ? '99+' : row.unreadCount}
+            </Badge>
+          )}
+          {(!isMuted && row.unreadCount === 0) || isMuted ? (
+            <span className="w-5 h-5" />
+          ) : null}
+        </div>
+      </div>
     );
   }
 
   return (
-    <aside className="sidebar card telegram-sidebar">
-      <header className="sidebar-toolbar">
-        <div className="sidebar-nav-menu">
-          <button
-            type="button"
-            className="nav-menu-btn"
-            aria-label="菜单"
-            onClick={() => props.onNavDrawerOpen?.()}
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M4 6h16v2H4V6Zm0 5h16v2H4v-2Zm0 5h16v2H4v-2Z" fill="currentColor" />
-            </svg>
-          </button>
-        </div>
-        <div className="sidebar-search-shell">
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path
-              d="M11 4a7 7 0 1 0 4.41 12.44l4.08 4.08 1.41-1.41-4.08-4.08A7 7 0 0 0 11 4Zm0 2a5 5 0 1 1 0 10 5 5 0 0 1 0-10Z"
-              fill="currentColor"
-            />
-          </svg>
+    <aside className="sidebar flex flex-col w-[280px] min-w-[280px] h-screen bg-sidebar-background">
+      {/* 顶部工具栏 */}
+      <header className="h-16 px-3 flex items-center gap-3 bg-sidebar-background">
+        {/* 汉堡菜单按钮 */}
+        <button
+          type="button"
+          className="nav-menu-btn flex items-center justify-center w-9 h-9 rounded-full border-none bg-transparent cursor-pointer transition-all duration-150 hover:bg-accent"
+          aria-label="菜单"
+          onClick={() => props.onNavDrawerOpen?.()}
+        >
+          <span className="text-2xl text-muted-foreground">☰</span>
+        </button>
+
+        {/* 搜索框 */}
+        <div className="search-shell flex-1 flex items-center gap-2 bg-search-bg rounded-2xl px-3 h-8">
+          <span className="material-symbols-rounded text-lg text-muted-foreground shrink-0">search</span>
           <input
-            className="sidebar-search-input"
+            className="sidebar-search-input flex-1 bg-transparent border-none outline-none text-sm text-foreground placeholder:text-muted-foreground"
             value={keyword}
             onChange={(e) => setKeyword(e.target.value)}
-            placeholder="搜索聊天"
+            placeholder="搜索"
           />
         </div>
       </header>
 
-      <div className="conversation-list">
+      {/* 会话列表 */}
+      <div className="flex-1 overflow-y-auto px-3 pb-3">
         {filteredConversations.length === 0 ? (
-          <div className="empty-state">暂无会话</div>
+          <div className="flex items-center justify-center h-32 text-muted-foreground text-sm">
+            暂无会话
+          </div>
         ) : (
-          filteredConversations.map((row) => renderConversationRow(row))
+          <div className="flex flex-col gap-1">
+            {filteredConversations.map((row) => renderConversationRow(row))}
+          </div>
         )}
       </div>
+
+      {/* 右键菜单 */}
       {menu ? (
         <ConversationContextMenu
           x={menu.x}
@@ -283,6 +357,8 @@ export function ConversationSidebar(props: Props): JSX.Element {
           onClose={() => setMenu(null)}
         />
       ) : null}
+
+      {/* FAB 菜单 */}
       <FabMenu
         onNewGroup={() => props.onNewGroup?.()}
         onNewChat={() => {

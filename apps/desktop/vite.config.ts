@@ -1,7 +1,7 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
-import { writeFileSync, readFileSync } from 'fs';
-import { join } from 'path';
+import path from 'path';
+import { writeFileSync, readFileSync, existsSync, readdirSync } from 'fs';
 
 export default defineConfig({
   plugins: [
@@ -10,17 +10,35 @@ export default defineConfig({
     {
       name: 'fix-relative-paths',
       closeBundle() {
-        const indexPath = join(__dirname, 'dist', 'index.html');
-        let content = readFileSync(indexPath, 'utf-8');
-        // 替换绝对路径为相对路径
-        content = content.replace(/src="\/assets\//g, 'src="./assets/');
-        content = content.replace(/href="\/assets\//g, 'href="./assets/');
-        content = content.replace(/href="\/favicon/g, 'href="./favicon');
-        writeFileSync(indexPath, content);
-        console.log('[fix-relative-paths] Fixed asset paths to relative');
+        const indexPath = path.join(__dirname, 'dist', 'index.html');
+        let htmlContent = readFileSync(indexPath, 'utf-8');
+        // 替换 HTML 中的绝对路径为相对路径
+        htmlContent = htmlContent.replace(/src="\/assets\//g, 'src="./assets/');
+        htmlContent = htmlContent.replace(/href="\/assets\//g, 'href="./assets/');
+        htmlContent = htmlContent.replace(/href="\/favicon/g, 'href="./favicon');
+        writeFileSync(indexPath, htmlContent);
+
+        // 修复 CSS 中的 url() 路径
+        const assetsDir = path.join(__dirname, 'dist', 'assets');
+        const cssFiles = readdirSync(assetsDir).filter(f => f.endsWith('.css'));
+        for (const cssFile of cssFiles) {
+          const cssPath = path.join(assetsDir, cssFile);
+          let cssContent = readFileSync(cssPath, 'utf-8');
+          const before = cssContent;
+          cssContent = cssContent.replace(/url\(\/assets\//g, 'url(./assets/');
+          if (cssContent !== before) {
+            writeFileSync(cssPath, cssContent);
+            console.log(`[fix-relative-paths] Fixed asset paths in ${cssFile}`);
+          }
+        }
       },
     },
   ],
+  resolve: {
+    alias: {
+      '@': path.resolve(__dirname, './src'),
+    },
+  },
   server: {
     port: 4173,
   },

@@ -1,22 +1,84 @@
 /**
  * 文件名：styles.css
  * 所属模块：桌面端-全局样式
- * 核心作用：基于 Telegram Desktop 设计语言的现代化 UI 样式系统，包含颜色变量、
- *          组件样式、动画效果、响应式布局等完整样式定义
- * 核心依赖：CSS3变量、Flexbox布局、CSS动画
+ * 核心作用：基于 shadcn/ui + Tailwind CSS 的现代化 UI 样式系统
+ *          包含 shadcn/ui 设计系统变量、Telegram 风格配色、组件样式
+ * 核心依赖：Tailwind CSS、CSS 变量系统
  * 创建时间：2024-01-01
- * 更新说明：2026-03-14 添加消息引用样式、转发对话框样式、Toast提示样式、右键菜单样式
+ * 更新说明：2026-04-09 引入 Tailwind CSS + shadcn/ui 设计系统
  */
 
-/* ==========================================================================
-   Security Chat Desktop - Telegram Style UI
-   基于 Telegram Desktop 设计语言的现代化 UI 样式
-   ========================================================================== */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
 /* ==========================================================================
-   CSS 变量定义 - Security Chat 风格配色系统
+   shadcn/ui 标准 CSS 变量 + Security Chat 品牌色
    ========================================================================== */
+
 :root {
+  /* === shadcn/ui 标准变量 (Light Mode) === */
+  --background: 0 0% 100%;
+  --foreground: 0 0% 10%;
+  --card: 0 0% 100%;
+  --card-foreground: 0 0% 10%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 220 14% 10%;
+  --primary: 210 83% 56%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 210 17% 98%;
+  --secondary-foreground: 0 0% 10%;
+  --muted: 210 17% 98%;
+  --muted-foreground: 207 4% 46%;
+  --accent: 210 17% 98%;
+  --accent-foreground: 0 0% 10%;
+  --destructive: 4 90% 58%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 220 10% 89%;
+  --input: 210 17% 98%;
+  --ring: 210 83% 56%;
+
+  /* 品牌渐变 */
+  --brand-start: #4da3f0;
+  --brand-end: #3390ec;
+
+  /* 页面背景 */
+  --page-background: #e8f4f8;
+  --sidebar-background: #f8f9fa;
+  --chat-background: #e8f4f8;
+
+  /* 搜索框 */
+  --search-bg: #eef0f2;
+
+  /* 消息气泡 */
+  --msg-in: #ffffff;
+  --msg-out: #e6ffde;
+  --msg-reply-bar: #3390ec;
+  --msg-reply-bg: #f0f0f0;
+
+  /* 阴影 */
+  --shadow: 0 0% 8%;
+  --shadow-md: 0 0% 10%;
+  --shadow-lg: 0 0% 13%;
+
+  /* 在线状态 */
+  --success: #4caf50;
+
+  /* 阅后即焚 */
+  --burn: #ff9800;
+
+  /* 圆角 */
+  --radius: 0.875rem;
+
+  /* 通话 */
+  --call-overlay: 0 0% 0% / 0.6;
+  --call-card: 0 0% 100%;
+
+  /* 文件图标 */
+  --file-in-icon: #4caf50;
+  --file-out-icon: #3390ec;
+
+  /* === 原有设计变量保持向后兼容 === */
   /* 主色调 - 设计稿 #3390ec */
   --brand-primary: #3390ec;
   --brand-hover: #2b7fd4;
@@ -148,10 +210,69 @@
 }
 
 /* ==========================================================================
-   深色模式配色变量
+   深色模式配色变量 (prefers-color-scheme)
    ========================================================================== */
 @media (prefers-color-scheme: dark) {
   :root {
+    /* === shadcn/ui 标准变量 (Dark Mode) === */
+    --background: 224 26% 9%;
+    --foreground: 0 0% 100%;
+    --card: 222 26% 14%;
+    --card-foreground: 0 0% 100%;
+    --popover: 222 26% 14%;
+    --popover-foreground: 0 0% 100%;
+    --primary: 255 52% 69%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 213 22% 18%;
+    --secondary-foreground: 0 0% 100%;
+    --muted: 213 22% 18%;
+    --muted-foreground: 215 11% 61%;
+    --accent: 213 22% 18%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 4 90% 58%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 213 22% 23%;
+    --input: 213 22% 18%;
+    --ring: 255 52% 69%;
+
+    /* 品牌渐变 */
+    --brand-start: #9b8bd9;
+    --brand-end: #8777d1;
+
+    /* 页面背景 */
+    --page-background: #202530;
+    --sidebar-background: #182533;
+    --chat-background: #202530;
+
+    /* 搜索框 */
+    --search-bg: #2d3a47;
+
+    /* 消息气泡 */
+    --msg-in: #2d3a47;
+    --msg-out: #8777d1;
+    --msg-reply-bar: #8777d1;
+    --msg-reply-bg: #2d2d2d;
+
+    /* 阴影 */
+    --shadow: 0 0% 20%;
+    --shadow-md: 0 0% 30%;
+    --shadow-lg: 0 0% 32%;
+
+    /* 在线状态 */
+    --success: #4caf50;
+
+    /* 阅后即焚 */
+    --burn: #ff9800;
+
+    /* 通话 */
+    --call-overlay: 0 0% 0% / 0.8;
+    --call-card: 222 26% 14%;
+
+    /* 文件图标 */
+    --file-in-icon: #4caf50;
+    --file-out-icon: #8777d1;
+
+    /* === 原有设计变量保持向后兼容 === */
     /* 主色调 - 设计稿 #8777d1 */
     --brand-primary: #8777d1;
     --brand-hover: #9b8cd9;
@@ -168,7 +289,7 @@
     --bg-message-out: #8777d1;
     --bg-message-hover: rgba(255, 255, 255, 0.04);
 
-    /* 导航栏深色主题 - 更深的配色 */
+    /* 导航栏深色主题 */
     --rail-bg: #181820;
     --rail-border: #2A2A3C;
     --rail-text: #E4E4E7;
@@ -177,18 +298,18 @@
     --rail-active: rgba(135, 119, 209, 0.12);
     --rail-active-indicator: #8777d1;
 
-    /* 文本色系统 - 深色 */
+    /* 文本色系统 */
     --text-primary: #E4E4E7;
     --text-secondary: #A1A1AA;
     --text-muted: #71717A;
     --text-inverse: #181820;
 
-    /* 边框和分割线 - 深色 */
+    /* 边框和分割线 */
     --border-light: #2d3a47;
     --border-softer: #27272A;
     --border-divider: rgba(255, 255, 255, 0.08);
 
-    /* 聊天界面配色 - 设计稿 Dark 模式 */
+    /* 聊天界面配色 */
     --chat-bg: #202530;
     --sidebar-bg: #182533;
     --topbar-bg: #182533;
@@ -208,7 +329,7 @@
     --composer-placeholder: #8b9aa3;
     --message-shadow: none;
 
-    /* 搜索框配色 - 设计稿 Dark 模式 */
+    /* 搜索框配色 */
     --search-bg: #2d3a47;
     --search-text: #ffffff;
     --search-placeholder: #8b9aa3;
@@ -221,6 +342,65 @@
    Dark Mode - data-theme 属性切换（优先级高于 prefers-color-scheme）
    ========================================================================== */
 [data-theme="dark"] {
+  /* === shadcn/ui 标准变量 (Dark Mode) === */
+  --background: 221 20% 16%;
+  --foreground: 0 0% 100%;
+  --card: 221 21% 17%;
+  --card-foreground: 0 0% 100%;
+  --popover: 221 21% 17%;
+  --popover-foreground: 0 0% 100%;
+  --primary: 251 49% 64%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 210 22% 23%;
+  --secondary-foreground: 0 0% 100%;
+  --muted: 210 22% 23%;
+  --muted-foreground: 203 12% 59%;
+  --accent: 210 22% 23%;
+  --accent-foreground: 0 0% 100%;
+  --destructive: 4 90% 58%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 210 18% 29%;
+  --input: 208 27% 14%;
+  --ring: 251 49% 64%;
+
+  /* 品牌渐变 */
+  --brand-start: #9b8bd9;
+  --brand-end: #8777d1;
+
+  /* 页面背景 */
+  --page-background: #202530;
+  --sidebar-background: #182533;
+  --chat-background: #202530;
+
+  /* 搜索框 */
+  --search-bg: #2d3a47;
+
+  /* 消息气泡 */
+  --msg-in: #2d3a47;
+  --msg-out: #8777d1;
+  --msg-reply-bar: #8777d1;
+  --msg-reply-bg: #2d2d2d;
+
+  /* 阴影 */
+  --shadow: 0 0% 20%;
+  --shadow-md: 0 0% 30%;
+  --shadow-lg: 0 0% 31%;
+
+  /* 在线状态 */
+  --success: #4caf50;
+
+  /* 阅后即焚 */
+  --burn: #ff9800;
+
+  /* 通话 */
+  --call-overlay: 0 0% 0% / 0.8;
+  --call-card: 221 21% 17%;
+
+  /* 文件图标 */
+  --file-in-icon: #4caf50;
+  --file-out-icon: #8777d1;
+
+  /* === 原有设计变量保持向后兼容 === */
   /* 主色调 - 设计稿 #8777d1 */
   --brand-primary: #8777d1;
   --brand-hover: #9b8cd9;
@@ -237,7 +417,7 @@
   --bg-message-out: #8777d1;
   --bg-message-hover: rgba(255, 255, 255, 0.04);
 
-  /* 导航栏深色主题 - 更深的配色 */
+  /* 导航栏深色主题 */
   --rail-bg: #181820;
   --rail-border: #2A2A3C;
   --rail-text: #E4E4E7;
@@ -246,18 +426,18 @@
   --rail-active: rgba(135, 119, 209, 0.12);
   --rail-active-indicator: #8777d1;
 
-  /* 文本色系统 - 深色 */
+  /* 文本色系统 */
   --text-primary: #E4E4E7;
   --text-secondary: #a0aec0;
   --text-muted: #71717A;
   --text-inverse: #181820;
 
-  /* 边框和分割线 - 深色 */
+  /* 边框和分割线 */
   --border-light: #2d3a47;
   --border-softer: #27272A;
   --border-divider: rgba(255, 255, 255, 0.08);
 
-  /* 聊天界面配色 - 设计稿 Dark 模式 */
+  /* 聊天界面配色 */
   --chat-bg: #202530;
   --sidebar-bg: #182533;
   --topbar-bg: #182533;
@@ -277,17 +457,17 @@
   --composer-placeholder: #8b9aa3;
   --message-shadow: none;
 
-  /* 搜索框配色 - 设计稿 Dark 模式 */
+  /* 搜索框配色 */
   --search-bg: #2d3748;
   --search-text: #ffffff;
   --search-placeholder: #8b9aa3;
   --search-focus-bg: #3d4a57;
   --search-icon-color: #dfe1e5;
 
-  /* 卡片背景 - Dark Mode */
+  /* 卡片背景 */
   --card-bg: #2d3748;
 
-  /* 阴影色 - Dark Mode */
+  /* 阴影色 */
   --shadow-light: #00000033;
   --shadow-medium: #0000004d;
 }
@@ -391,29 +571,6 @@ input:disabled, textarea:disabled, select:disabled {
   opacity: 0.6;
   cursor: not-allowed;
   background: var(--bg-surface-soft);
-}
-
-/* 按钮基础样式 */
-button {
-  border: none;
-  border-radius: var(--radius-md);
-  padding: 10px 16px;
-  min-height: 40px;
-  background: var(--brand-primary);
-  color: var(--text-inverse);
-  font-weight: 500;
-  cursor: pointer;
-  transition: all var(--transition-fast);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-}
-
-button:hover:not(:disabled):not(.auth-link):not(.auth-button) {
-  background: var(--bg-surface-soft);
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-sm);
 }
 
 button:active:not(:disabled) {
@@ -758,7 +915,7 @@ button:disabled {
   min-height: 40px;
   border-radius: 50%;
   border: none;
-  color: var(--text-secondary);
+  color: var(--muted-foreground);
   background: transparent;
   padding: 0;
   display: inline-flex;
@@ -769,8 +926,8 @@ button:disabled {
 }
 
 .nav-menu-btn:hover {
-  background: var(--hover-overlay);
-  color: var(--text-primary);
+  background: var(--accent);
+  color: var(--foreground);
   transform: scale(1.05);
 }
 
@@ -951,6 +1108,40 @@ button:disabled {
   margin: 8px 0;
 }
 
+/* 抽屉栏主题切换 */
+.nav-drawer-theme {
+  padding: 16px;
+  background: var(--rail-hover);
+  border-radius: var(--radius-lg);
+  margin: 8px 0;
+}
+
+.theme-toggle-btn {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px;
+  border: none;
+  background: var(--card-bg);
+  border-radius: 8px;
+  cursor: pointer;
+  color: var(--text-primary);
+  transition: all var(--transition-fast);
+}
+
+.theme-toggle-btn:hover {
+  background: var(--search-bg);
+}
+
+.theme-toggle-btn .material-symbols-rounded {
+  font-size: 24px;
+}
+
+.theme-toggle-text {
+  font-size: 14px;
+}
+
 .nav-drawer-user {
   padding: 16px;
   background: var(--rail-hover);
@@ -1035,32 +1226,40 @@ button:disabled {
 }
 
 /* 搜索框 - 设计稿规格 */
-.sidebar-search-shell {
+.search-shell {
   flex: 1;
   display: flex;
   align-items: center;
   gap: 8px;
   background: var(--search-bg);
   border-radius: 16px;
-  padding: 0 10px;
+  padding: 0 12px;
   height: 32px;
 }
-  gap: 10px;
-  min-height: 32px;
-  border-radius: 16px;
-  border: none;
-  background: var(--search-bg);
-  color: var(--search-icon-color);
-  padding: 0 12px;
-  margin: 0 12px 8px;
-  transition: all var(--transition-fast);
+
+.search-shell svg {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  color: var(--muted-foreground);
 }
 
-.sidebar-search-shell svg {
-  width: 24px;
-  height: 24px;
-  flex-shrink: 0;
-  color: var(--search-icon-color);
+.sidebar-search-input {
+  width: 100%;
+  min-height: 32px;
+  border: none;
+  background: transparent;
+  padding: 0;
+  color: var(--foreground);
+  font-size: 14px;
+}
+
+.sidebar-search-input::placeholder {
+  color: var(--muted-foreground);
+}
+
+.sidebar-search-input:focus-visible {
+  outline: none;
 }
 
 .sidebar-search-input {
@@ -1189,32 +1388,31 @@ button:disabled {
   padding: 12px;
   height: 72px;
   border-radius: 12px;
-  background: var(--card-bg);
-  box-shadow: 0 1px 4px var(--shadow-light);
+  background: var(--card);
   margin-bottom: 4px;
   cursor: pointer;
   transition: background 0.15s;
   text-align: left;
   border: none;
-  color: var(--text-primary);
+  color: var(--foreground);
   position: relative;
   overflow: hidden;
 }
 
 .conversation:hover:not(.active) {
-  background: var(--search-bg);
+  background: var(--accent);
 }
 
 /* Active 会话项 */
 .conversation.active {
-  background: var(--card-active);
-  color: white;
+  background: var(--primary);
+  color: var(--primary-foreground);
 }
 
 .conversation.active .conversation-title,
 .conversation.active .conversation-meta,
 .conversation.active .conversation-time {
-  color: var(--text-inverse);
+  color: var(--primary-foreground);
 }
 
 /* Active + Hover 状态 - 确保 active 优先级更高 */
@@ -1261,7 +1459,7 @@ button:disabled {
   height: 10px;
   background: var(--success);
   border-radius: 50%;
-  border: 2px solid var(--card-bg);
+  border: 2px solid var(--card);
 }
 
 /* 头像 - 设计稿: 40x40 (侧边栏和聊天头部用) */
@@ -1274,8 +1472,8 @@ button:disabled {
   justify-content: center;
   font-size: 14px;
   font-weight: 600;
-  color: var(--text-inverse);
-  background: var(--avatar-gradient-1);
+  color: var(--primary-foreground);
+  background: var(--primary);
   flex-shrink: 0;
   position: relative;
 }
@@ -1300,9 +1498,9 @@ button:disabled {
   position: absolute;
   width: 10px;
   height: 10px;
-  background: var(--online-indicator);
+  background: var(--success);
   border-radius: 50%;
-  border: 2px solid var(--chat-item-bg);
+  border: 2px solid var(--card);
   bottom: -1px;
   right: -1px;
 }
@@ -1329,7 +1527,7 @@ button:disabled {
 .conversation-title {
   font-weight: 600;
   font-size: 15px;
-  color: var(--text-primary);
+  color: var(--foreground);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1340,8 +1538,8 @@ button:disabled {
 
 .conversation-muted-tag {
   font-size: 10px;
-  color: var(--text-muted);
-  background: var(--bg-surface-soft);
+  color: var(--muted-foreground);
+  background: var(--muted);
   border-radius: var(--radius-full);
   padding: 2px 7px;
   font-weight: 600;
@@ -1349,16 +1547,16 @@ button:disabled {
 
 .conversation.active .conversation-muted-tag {
   background: rgba(255, 255, 255, 0.2);
-  color: var(--text-inverse);
+  color: var(--primary-foreground);
 }
 
 .conversation.active:hover .conversation-muted-tag {
   background: rgba(255, 255, 255, 0.2);
-  color: var(--text-inverse);
+  color: var(--primary-foreground);
 }
 
 .conversation-time {
-  color: var(--text-muted);
+  color: var(--muted-foreground);
   font-size: 12px;
   min-width: 48px;
   text-align: right;
@@ -1367,7 +1565,7 @@ button:disabled {
 
 .conversation-meta {
   display: block;
-  color: var(--text-secondary);
+  color: var(--muted-foreground);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1384,14 +1582,13 @@ button:disabled {
   min-width: 20px;
   height: 20px;
   border-radius: var(--radius-full);
-  color: var(--text-inverse);
+  color: var(--destructive-foreground);
   font-size: 11px;
   font-weight: 700;
-  background: var(--error);
+  background: var(--destructive);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
   transition: transform var(--transition-fast);
 }
 
@@ -1400,13 +1597,13 @@ button:disabled {
 }
 
 .conversation.active .conversation-unread {
-  background: var(--text-inverse);
-  color: var(--brand-primary);
+  background: var(--primary-foreground);
+  color: var(--primary);
 }
 
 .conversation.active:hover .conversation-unread {
-  background: var(--text-inverse);
-  color: var(--brand-primary);
+  background: var(--primary-foreground);
+  color: var(--primary);
   transform: scale(1.05);
 }
 
@@ -1420,8 +1617,8 @@ button:disabled {
   min-width: 36px;
   padding: 2px 10px;
   border-radius: var(--radius-full);
-  background: var(--brand-light);
-  color: var(--brand-primary);
+  background: var(--accent);
+  color: var(--primary);
   font-size: 11px;
   font-weight: 700;
   text-align: center;
@@ -1429,12 +1626,12 @@ button:disabled {
 
 .conversation.active .conversation-flag {
   background: rgba(255, 255, 255, 0.2);
-  color: var(--text-inverse);
+  color: var(--primary-foreground);
 }
 
 .conversation.active:hover .conversation-flag {
   background: rgba(255, 255, 255, 0.2);
-  color: var(--text-inverse);
+  color: var(--primary-foreground);
 }
 
 /* ==========================================================================
@@ -2796,9 +2993,9 @@ button:disabled {
   /* 链接色 - 设计稿 */
   --auth-link-color: #3390ec;
 
-  /* 复选框 - 设计稿 */
-  --auth-checkbox-bg: #f8f9fa;
-  --auth-checkbox-border: #dfe1e5;
+  /* 复选框 - Light 模式 */
+  --auth-checkbox-bg: #1a242d;
+  --auth-checkbox-border: #3d4a57;
   --auth-checkbox-checked: #3390ec;
   --auth-checkbox-label: #8b9aa3;
 
@@ -2846,9 +3043,9 @@ button:disabled {
     /* 链接色 - 设计稿 */
     --auth-link-color: #8777d1;
 
-    /* 复选框 - 设计稿 */
-    --auth-checkbox-bg: #1a242d;
-    --auth-checkbox-border: #3d4a57;
+    /* 复选框 - Dark 模式 */
+    --auth-checkbox-bg: #f8f9fa;
+    --auth-checkbox-border: #dfe1e5;
     --auth-checkbox-checked: #8777d1;
     --auth-checkbox-label: #8b9aa3;
 
@@ -2873,21 +3070,11 @@ button:disabled {
   }
 
   .auth-button:hover:not(:disabled) {
-    background: linear-gradient(
-      90deg,
-      var(--auth-btn-gradient-start) 0%,
-      var(--auth-btn-gradient-end) 100%
-    );
     transform: none;
-    box-shadow: 0 6px 16px var(--auth-btn-shadow);
+    box-shadow: 0 8px 20px var(--auth-btn-shadow);
   }
 
   .auth-button:active:not(:disabled) {
-    background: linear-gradient(
-      90deg,
-      var(--auth-btn-gradient-start) 0%,
-      var(--auth-btn-gradient-end) 100%
-    );
     transform: none;
     box-shadow: 0 6px 16px var(--auth-btn-shadow);
   }
@@ -3281,21 +3468,11 @@ button:disabled {
 
 /* 覆盖全局 button:hover 样式，确保按钮悬停无变化 */
 .auth-button:hover:not(:disabled) {
-  background: linear-gradient(
-    90deg,
-    var(--auth-btn-gradient-start) 0%,
-    var(--auth-btn-gradient-end) 100%
-  );
   transform: none;
-  box-shadow: 0 6px 16px var(--auth-btn-shadow);
+  box-shadow: 0 8px 20px var(--auth-btn-shadow);
 }
 
 .auth-button:active:not(:disabled) {
-  background: linear-gradient(
-    90deg,
-    var(--auth-btn-gradient-start) 0%,
-    var(--auth-btn-gradient-end) 100%
-  );
   transform: none;
   box-shadow: 0 6px 16px var(--auth-btn-shadow);
 }
@@ -4552,19 +4729,26 @@ button:disabled {
   width: 56px;
   height: 56px;
   border-radius: 28px;
-  background: var(--fab-bg);
-  color: white;
+  background: #338fee;
+  color: #ffffff;
   border: none;
   font-size: 28px;
+  font-weight: 300;
   cursor: pointer;
-  box-shadow: 0 4px 8px var(--shadow-light);
   display: flex;
   align-items: center;
   justify-content: center;
+  transition: opacity 0.15s;
 }
 
 .fab-button:hover {
-  background: var(--brand-hover);
+  opacity: 0.9;
+}
+
+.dark .fab-button,
+[data-theme="dark"] .fab-button {
+  background: #8777d1;
+  color: #ffffff;
 }
 
 .fab-menu-dropdown {
@@ -4572,10 +4756,15 @@ button:disabled {
   bottom: 64px;
   right: 0;
   width: 200px;
-  background: var(--card-bg);
+  background: #ffffff;
   border-radius: 12px;
-  box-shadow: 0 4px 12px var(--shadow-medium);
+  box-shadow: 0 4px 12px var(--shadow-lg);
   padding: 8px;
+}
+
+[data-theme="dark"] .fab-menu-dropdown,
+.dark .fab-menu-dropdown {
+  background: #232736;
 }
 
 .fab-menu-item {
@@ -4583,17 +4772,26 @@ button:disabled {
   align-items: center;
   gap: 12px;
   width: 100%;
-  padding: 12px;
+  height: 44px;
+  padding: 0 12px;
   border: none;
   background: none;
   border-radius: 8px;
   cursor: pointer;
   font-size: 14px;
-  color: var(--text-primary);
+  color: var(--foreground);
 }
 
 .fab-menu-item:hover {
-  background: var(--search-bg);
+  background: var(--accent);
+}
+
+.fab-menu-item-icon-new-group {
+  color: var(--primary);
+}
+
+.fab-menu-item-icon-start-chat {
+  color: var(--muted-foreground);
 }
 
 .fab-menu-icon {
@@ -4606,15 +4804,14 @@ button:disabled {
 .fab-icon {
   font-size: 28px;
   font-weight: 300;
-  color: white;
   line-height: 1;
 }
 
 .conversation-context-menu {
   position: fixed;
-  background: var(--card-bg);
+  background: var(--popover);
   border-radius: 8px;
-  box-shadow: 0 2px 8px var(--shadow-medium);
+  box-shadow: 0 2px 8px var(--shadow-md);
   padding: 8px;
   z-index: 1000;
   min-width: 160px;
@@ -4631,11 +4828,11 @@ button:disabled {
   border-radius: 6px;
   cursor: pointer;
   font-size: 14px;
-  color: var(--text-primary);
+  color: var(--popover-foreground);
 }
 
 .conversation-context-menu button:hover {
-  background: var(--search-bg);
+  background: var(--accent);
 }
 
 /* ==========================================================================
@@ -4647,9 +4844,9 @@ button:disabled {
   left: 50%;
   transform: translate(-50%, -50%);
   z-index: 1000;
-  background: var(--card-bg);
+  background: var(--popover);
   border-radius: 12px;
-  box-shadow: 0 4px 20px var(--shadow-medium);
+  box-shadow: 0 4px 20px var(--shadow-md);
   overflow: hidden;
 }
 

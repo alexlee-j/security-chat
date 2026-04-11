@@ -1,5 +1,10 @@
+/**
+ * FAB 菜单组件
+ * 设计规范：2026-04-07-ui-redesign.md
+ */
 import { useState, useEffect, useRef } from 'react';
 import * as React from 'react';
+import { cn } from '@/lib/utils';
 
 type FabMenuProps = {
   onNewGroup: () => void;
@@ -36,10 +41,11 @@ export function FabMenu(props: FabMenuProps): JSX.Element {
 
   return (
     <div className="fab-menu" ref={menuRef}>
+      {/* 展开菜单 */}
       {open && (
         <div className="fab-menu-dropdown" role="menu">
           <button
-            className="fab-menu-item"
+            className="fab-menu-item w-full flex items-center gap-3 h-11 px-3 border-none bg-transparent rounded-lg cursor-pointer text-sm text-foreground transition-colors hover:bg-accent"
             role="menuitem"
             aria-label="新建群聊"
             onClick={() => {
@@ -47,23 +53,25 @@ export function FabMenu(props: FabMenuProps): JSX.Element {
               setOpen(false);
             }}
           >
-            <span className="fab-menu-icon material-symbols-rounded" aria-hidden="true">group_add</span>
-            <span>新建群聊</span>
+            <span className="w-5 h-5 rounded shrink-0" style={{ background: '#3390ec' }} />
+            <span className="text-foreground">新建群聊</span>
           </button>
           <button
-            className="fab-menu-item"
+            className="fab-menu-item w-full flex items-center gap-3 h-11 px-3 border-none bg-transparent rounded-lg cursor-pointer text-sm text-foreground transition-colors hover:bg-accent"
             role="menuitem"
-            aria-label="发起私聊"
+            aria-label="添加好友"
             onClick={() => {
               props.onNewChat();
               setOpen(false);
             }}
           >
-            <span className="fab-menu-icon material-symbols-rounded" aria-hidden="true">person_add</span>
-            <span>发起私聊</span>
+            <span className="w-5 h-5 rounded shrink-0" style={{ background: '#707579' }} />
+            <span className="text-foreground">添加好友</span>
           </button>
         </div>
       )}
+
+      {/* FAB 按钮 */}
       <button
         className="fab-button"
         aria-expanded={open}
