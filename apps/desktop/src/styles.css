@@ -285,8 +285,8 @@
     --bg-gradient: linear-gradient(180deg, #1E1E2E 0%, #181820 100%);
     --bg-surface: #2A2A3C;
     --bg-surface-soft: #252536;
-    --bg-message-in: #2d3a42;
-    --bg-message-out: #8777d1;
+    --bg-message-in: #3a3a3c;
+    --bg-message-out: #2d4a3e;
     --bg-message-hover: rgba(255, 255, 255, 0.04);
 
     /* 导航栏深色主题 */
@@ -413,8 +413,8 @@
   --bg-gradient: linear-gradient(180deg, #1E1E2E 0%, #181820 100%);
   --bg-surface: #2A2A3C;
   --bg-surface-soft: #252536;
-  --bg-message-in: #2d3a42;
-  --bg-message-out: #8777d1;
+  --bg-message-in: #3a3a3c;
+  --bg-message-out: #2d4a3e;
   --bg-message-hover: rgba(255, 255, 255, 0.04);
 
   /* 导航栏深色主题 */
