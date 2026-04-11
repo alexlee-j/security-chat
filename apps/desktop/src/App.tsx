@@ -278,7 +278,7 @@ export function App(): JSX.Element {
           {/* 用户区 - 包含头像、用户名、在线状态 */}
           <div className="nav-drawer-header px-4 py-5 border-b border-border">
             <div className="flex items-center gap-3">
-              <Avatar className="h-12 w-12">
+              <Avatar className="h-12 w-12 shrink-0">
                 <AvatarFallback className="bg-primary text-primary-foreground text-lg font-semibold">
                   {state.auth?.userId?.slice(0, 2).toUpperCase() || 'U'}
                 </AvatarFallback>
@@ -330,46 +330,46 @@ export function App(): JSX.Element {
 
           <Separator className="my-1 mx-4" />
 
-          {/* 快捷设置区 - 主题切换 Tabs 形式 */}
+          {/* 快捷设置区 - 主题切换 */}
           <div className="px-4 py-3">
             <div className="flex items-center justify-between">
               <span className="nav-drawer-section-label">显示模式</span>
-              <div className="nav-drawer-theme-tabs">
-              <button
-                type="button"
-                className={cn(
-                  "nav-drawer-theme-tab",
-                  theme === 'light' && "active"
-                )}
-                aria-label="浅色模式"
-                onClick={() => setTheme('light')}
-              >
-                <span className="material-symbols-rounded text-xl">wb_sunny</span>
-              </button>
-              <button
-                type="button"
-                className={cn(
-                  "nav-drawer-theme-tab",
-                  theme === 'dark' && "active"
-                )}
-                aria-label="深色模式"
-                onClick={() => setTheme('dark')}
-              >
-                <span className="material-symbols-rounded text-xl">dark_mode</span>
-              </button>
-              <button
-                type="button"
-                className={cn(
-                  "nav-drawer-theme-tab",
-                  theme === 'auto' && "active"
-                )}
-                aria-label="跟随系统"
-                onClick={() => setTheme('auto')}
-              >
-                <span className="material-symbols-rounded text-xl">desktop_windows</span>
-              </button>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  className={cn(
+                    "nav-drawer-theme-tab",
+                    theme === 'light' && "active"
+                  )}
+                  aria-label="浅色模式"
+                  onClick={() => setTheme('light')}
+                >
+                  <span className="material-symbols-rounded text-xl">wb_sunny</span>
+                </button>
+                <button
+                  type="button"
+                  className={cn(
+                    "nav-drawer-theme-tab",
+                    theme === 'dark' && "active"
+                  )}
+                  aria-label="深色模式"
+                  onClick={() => setTheme('dark')}
+                >
+                  <span className="material-symbols-rounded text-xl">dark_mode</span>
+                </button>
+                <button
+                  type="button"
+                  className={cn(
+                    "nav-drawer-theme-tab",
+                    theme === 'auto' && "active"
+                  )}
+                  aria-label="跟随系统"
+                  onClick={() => setTheme('auto')}
+                >
+                  <span className="material-symbols-rounded text-xl">desktop_windows</span>
+                </button>
+              </div>
             </div>
-          </div>
           </div>
 
           <Separator className="my-1 mx-4" />

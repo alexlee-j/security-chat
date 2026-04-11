@@ -1020,6 +1020,9 @@ button:disabled {
   width: 22px;
   height: 22px;
   flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .nav-drawer-divider {
