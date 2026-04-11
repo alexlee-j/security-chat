@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { BadRequestException, Inject, forwardRef, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, Repository } from 'typeorm';
 import { unlink } from 'node:fs/promises';
@@ -69,7 +69,7 @@ export class MessageService implements OnModuleInit, OnModuleDestroy {
     private readonly mediaAssetRepository: Repository<MediaAsset>,
     private readonly dataSource: DataSource,
     private readonly conversationService: ConversationService,
-    private readonly messageGateway: MessageGateway,
+    @Inject(forwardRef(() => MessageGateway)) private readonly messageGateway: MessageGateway,
     private readonly notificationService: NotificationService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {}

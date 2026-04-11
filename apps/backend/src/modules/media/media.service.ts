@@ -21,6 +21,29 @@ type UploadFile = {
   buffer: Buffer;
 };
 
+/**
+ * 文件 magic bytes 签名定义
+ * 用于验证上传文件的真实类型
+ */
+const FILE_SIGNATURES: Record<string, { magic: number[]; offset?: number; kind: number }> = {
+  // JPEG - starts with FF D8 FF
+  'image/jpeg': { magic: [0xff, 0xd8, 0xff], kind: 2 },
+  // PNG - starts with 89 50 4E 47 0D 0A 1A 0A
+  'image/png': { magic: [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], kind: 2 },
+  // GIF87a - 47 49 46 38 37 61
+  'image/gif': { magic: [0x47, 0x49, 0x46, 0x38, 0x37, 0x61], kind: 2 },
+  // GIF89a - 47 49 46 38 39 61
+  'image/gif87a': { magic: [0x47, 0x49, 0x46, 0x38, 0x39, 0x61], kind: 2 },
+  // MP3 - starts with FF FB or FF F3 or FF F2 (MPEG audio frame)
+  'audio/mpeg': { magic: [0xff, 0xfb], offset: 0, kind: 3 },
+  // WAV - starts with RIFF....WAVE (52 49 46 46 ... 57 41 56 45)
+  'audio/wav': { magic: [0x52, 0x49, 0x46, 0x46], offset: 0, kind: 3 },
+  // WebM / MKV - starts with 1A 45 DF A3
+  'video/webm': { magic: [0x1a, 0x45, 0xdf, 0xa3], kind: 4 },
+  // MP4 - starts with 00 00 00 XX 66 74 79 70 (freebox mtyp)
+  'video/mp4': { magic: [0x66, 0x74, 0x79, 0x70], offset: 4, kind: 4 },
+};
+
 @Injectable()
 export class MediaService {
   private readonly mediaRoot: string;
@@ -59,6 +82,9 @@ export class MediaService {
     if (file.size <= 0 || file.size > this.maxBytes) {
       throw new BadRequestException(`file size must be between 1 and ${this.maxBytes} bytes`);
     }
+
+    // 验证文件 magic bytes 确保文件类型与声明的 MIME type 一致
+    this.validateMagicBytes(file.buffer, file.mimetype);
 
     const resolvedKind = mediaKind ?? this.resolveMediaKind(file.mimetype);
     if (![2, 3, 4].includes(resolvedKind)) {
@@ -202,5 +228,31 @@ export class MediaService {
       return 3;
     }
     return 4;
+  }
+
+  /**
+   * 验证文件 magic bytes 确保文件类型与声明的 MIME type 一致
+   * 防止攻击者上传恶意文件但声称是其他类型
+   */
+  private validateMagicBytes(buffer: Buffer, mimeType: string): void {
+    const signatures = Object.entries(FILE_SIGNATURES).filter(([key]) => key === mimeType);
+    if (signatures.length === 0) {
+      // 没有定义 magic bytes 验证的文件类型，跳过验证
+      return;
+    }
+
+    const [, config] = signatures[0];
+    const offset = config.offset ?? 0;
+
+    if (buffer.length < offset + config.magic.length) {
+      throw new BadRequestException('File is too small to validate');
+    }
+
+    const fileMagic = buffer.slice(offset, offset + config.magic.length);
+    const isMatch = config.magic.every((byte, index) => fileMagic[index] === byte);
+
+    if (!isMatch) {
+      throw new BadRequestException(`File content does not match declared MIME type: ${mimeType}`);
+    }
   }
 }

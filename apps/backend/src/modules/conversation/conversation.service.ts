@@ -394,24 +394,12 @@ export class ConversationService {
       }
     } else {
       // 群聊：获取群信息
-      try {
-        const groupResult = await this.dataSource.query(
-          `SELECT name FROM "groups" WHERE conversation_id = $1`,
-          [conversationId],
-        );
-        if (groupResult.length > 0) {
-          groupInfo = {
-            name: groupResult[0].name,
-            memberCount: members.length,
-          };
-        }
-      } catch (error) {
-        // groups 表可能不存在，返回基本信息
-        groupInfo = {
-          name: conversation.name ?? 'Group Chat',
-          memberCount: members.length,
-        };
-      }
+      // 注意：groups 表和 conversations 表目前没有建立关联
+      // 暂时使用 conversation.name 作为群组名称
+      groupInfo = {
+        name: conversation.name ?? 'Group Chat',
+        memberCount: members.length,
+      };
     }
 
     return {
@@ -637,7 +625,7 @@ export class ConversationService {
     // 批量查询私聊对方的在线状态
     const peerUserIds = rows
       .map((row: { peer_user_id: string | null; type: number }) => row.type === 1 ? row.peer_user_id : null)
-      .filter((id): id is string => id !== null);
+      .filter((id: string | null): id is string => id !== null);
     const onlineStatusMap = await this.getUsersOnlineStatus(peerUserIds);
 
     return rows.map(

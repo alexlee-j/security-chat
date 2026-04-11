@@ -10,11 +10,12 @@ import {
 } from '@nestjs/websockets';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
-import { Inject, UnauthorizedException } from '@nestjs/common';
+import { Inject, forwardRef, UnauthorizedException } from '@nestjs/common';
 import Redis from 'ioredis';
 import { Server, Socket } from 'socket.io';
 import { REDIS_CLIENT } from '../../../infra/redis/redis.module';
 import { ConversationService } from '../../conversation/conversation.service';
+import { MessageService } from '../message.service';
 import { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
 
 @WebSocketGateway({ namespace: '/ws', cors: true })
@@ -26,6 +27,7 @@ export class MessageGateway implements OnGatewayInit, OnGatewayConnection, OnGat
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly conversationService: ConversationService,
+    @Inject(forwardRef(() => MessageService)) private readonly messageService: MessageService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {}
 
@@ -196,6 +198,8 @@ export class MessageGateway implements OnGatewayInit, OnGatewayConnection, OnGat
         messageType: number;
         body: string;  // Base64 编码的密文
       };
+      isBurn?: boolean;
+      burnDuration?: number;
     },
   ): Promise<void> {
     const senderId = String(client.data.userId);
@@ -217,19 +221,49 @@ export class MessageGateway implements OnGatewayInit, OnGatewayConnection, OnGat
       return;
     }
 
-    // 转发给接收者（实时推送）
-    const recipientRoom = this.userRoom(recipientId);
-    this.server.to(recipientRoom).emit('message.received', {
-      senderId,
-      encryptedMessage: data.encryptedMessage,
-      timestamp: Date.now(),
-    });
+    try {
+      // 获取或创建与接收者的单聊会话
+      const { conversationId } = await this.conversationService.createDirectConversation(senderId, recipientId);
 
-    // 确认发送成功
-    client.emit('message.sent', {
-      status: 'sent',
-      timestamp: Date.now(),
-    });
+      // 构建消息 DTO
+      const sendMessageDto = {
+        conversationId,
+        messageType: data.encryptedMessage.messageType,
+        encryptedPayload: data.encryptedMessage.body,
+        nonce: `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        isBurn: data.isBurn,
+        burnDuration: data.burnDuration,
+      };
+
+      // 通过 MessageService 持久化消息（会触发事件推送）
+      const result = await this.messageService.sendMessage(senderId, sendMessageDto);
+
+      // 实时推送消息给接收者
+      const recipientRoom = this.userRoom(recipientId);
+      this.server.to(recipientRoom).emit('message.received', {
+        senderId,
+        conversationId,
+        messageId: result.messageId,
+        messageIndex: result.messageIndex,
+        encryptedMessage: data.encryptedMessage,
+        timestamp: Date.now(),
+      });
+
+      // 确认发送成功（消息已持久化）
+      client.emit('message.sent', {
+        status: 'sent',
+        conversationId,
+        messageId: result.messageId,
+        messageIndex: result.messageIndex,
+        timestamp: Date.now(),
+      });
+    } catch (error) {
+      console.error('Failed to send message via WebSocket:', error);
+      client.emit('message.error', {
+        code: 'SEND_FAILED',
+        message: error instanceof Error ? error.message : 'Failed to send message',
+      });
+    }
   }
 
   /**

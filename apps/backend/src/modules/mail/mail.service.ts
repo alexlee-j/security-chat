@@ -1,9 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as nodemailer from 'nodemailer';
 
 @Injectable()
-export class MailService {
+export class MailService implements OnModuleInit {
   private transporter: nodemailer.Transporter;
   private readonly logger = new Logger(MailService.name);
 
@@ -32,9 +32,11 @@ export class MailService {
     });
 
     this.transporter = nodemailer.createTransport(smtpConfig);
+  }
 
-    // 验证 SMTP 配置
-    this.verifyConnection();
+  async onModuleInit(): Promise<void> {
+    // 在模块初始化时验证 SMTP 连接
+    await this.verifyConnection();
   }
 
   private async verifyConnection(): Promise<void> {
@@ -60,19 +62,7 @@ export class MailService {
       subject: mailOptions.subject,
       html: mailOptions.html.substring(0, 100) + '...', // 只记录前100个字符
     });
-    
-    this.logger.log('SMTP Configuration:', {
-      host: this.configService.get<string>('SMTP_HOST'),
-      port: this.configService.get<string>('SMTP_PORT'),
-      secure: this.configService.get<boolean>('SMTP_SECURE'),
-      user: this.configService.get<string>('SMTP_USER'),
-      pass: '***', // 隐藏密码
-    });
-    
-    // 验证SMTP连接
-    await this.transporter.verify();
-    this.logger.log('SMTP connection verified successfully');
-    
+
     const info = await this.transporter.sendMail(mailOptions);
     this.logger.log(`Email sent successfully to ${to}`, {
       messageId: info.messageId,

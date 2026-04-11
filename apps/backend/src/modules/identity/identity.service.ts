@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+import { IsString, IsUUID, IsOptional, IsNumber, Min, Max } from 'class-validator';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { IdentityKey } from './identity.entity';
@@ -6,13 +7,31 @@ import { IdentityKey } from './identity.entity';
 /**
  * 身份密钥注册 DTO
  */
-export interface RegisterIdentityDto {
-  userId: string;
-  deviceId: string;
-  identityPublicKey: string;
-  fingerprint: string;
+export class RegisterIdentityDto {
+  @IsUUID()
+  userId!: string;
+
+  @IsUUID()
+  deviceId!: string;
+
+  @IsString()
+  identityPublicKey!: string;
+
+  @IsString()
+  fingerprint!: string;
+
+  @IsOptional()
+  @IsString()
   signedPrekeyPublic?: string;
+
+  @IsOptional()
+  @IsString()
   signedPrekeySignature?: string;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  @Max(65535)
   registrationId?: number;
 }
 
