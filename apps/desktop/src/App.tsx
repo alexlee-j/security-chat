@@ -292,13 +292,6 @@ export function App(): JSX.Element {
                   在线
                 </p>
               </div>
-              <button
-                type="button"
-                className="nav-drawer-settings-btn h-9 w-9 rounded-full hover:bg-accent flex items-center justify-center transition-colors"
-                aria-label="设置"
-              >
-                <span className="material-symbols-rounded text-xl text-muted-foreground">settings</span>
-              </button>
             </div>
           </div>
 
@@ -339,10 +332,9 @@ export function App(): JSX.Element {
 
           {/* 快捷设置区 - 主题切换 Tabs 形式 */}
           <div className="px-4 py-3">
-            <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center justify-between">
               <span className="nav-drawer-section-label">显示模式</span>
-            </div>
-            <div className="nav-drawer-theme-tabs">
+              <div className="nav-drawer-theme-tabs">
               <button
                 type="button"
                 className={cn(
@@ -377,6 +369,7 @@ export function App(): JSX.Element {
                 <span className="material-symbols-rounded text-xl">desktop_windows</span>
               </button>
             </div>
+          </div>
           </div>
 
           <Separator className="my-1 mx-4" />
