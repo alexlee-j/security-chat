@@ -20,10 +20,18 @@ function getStoredTheme(): Theme {
 
 function applyTheme(theme: Theme): void {
   const root = document.documentElement;
+  // 移除所有主题相关类
+  root.classList.remove('light-mode', 'dark-mode', 'auto-mode');
+
   if (theme === 'auto') {
     root.removeAttribute('data-theme');
+    root.classList.add('auto-mode');
+  } else if (theme === 'light') {
+    root.removeAttribute('data-theme');
+    root.classList.add('light-mode');
   } else {
-    root.setAttribute('data-theme', theme);
+    root.setAttribute('data-theme', 'dark');
+    root.classList.add('dark-mode');
   }
 }
 

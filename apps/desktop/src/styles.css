@@ -211,9 +211,10 @@
 
 /* ==========================================================================
    深色模式配色变量 (prefers-color-scheme)
+   仅在 auto-mode 类存在时生效，避免干扰手动主题切换
    ========================================================================== */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root.auto-mode {
     /* === shadcn/ui 标准变量 (Dark Mode) === */
     --background: 224 26% 9%;
     --foreground: 0 0% 100%;
@@ -2987,9 +2988,9 @@ button:disabled {
   --auth-ellipse-3-opacity: color-mix(in srgb, var(--auth-brand-primary) 12%, transparent);
 }
 
-/* Dark 模式 - 使用设计稿中的实际颜色 */
+/* Dark 模式 - 仅在 auto-mode 类存在时生效 */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root.auto-mode {
     /* 品牌色 - 设计稿 #8777d1 */
     --auth-brand-primary: #8777d1;
     --auth-brand-hover: #9b8bd9;
