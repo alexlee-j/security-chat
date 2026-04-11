@@ -1167,7 +1167,7 @@ button:disabled {
   display: flex;
   flex-direction: row;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 8px;
   padding: 8px 12px;
   border: none;
