@@ -1132,40 +1132,25 @@ button:disabled {
   font-weight: 500;
 }
 
-.nav-drawer-theme-tabs {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  background: var(--card);
-  border-radius: calc(var(--radius) * 2);
-  padding: 4px;
-}
-
-.nav-drawer-theme-tab {
-  flex: 1;
+.nav-drawer-theme-btn {
   height: 36px;
+  width: 36px;
   border: none;
-  background: transparent;
+  background: var(--card);
   border-radius: var(--radius);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--muted-foreground);
+  color: var(--foreground);
   transition: all var(--transition-fast);
 }
 
-.nav-drawer-theme-tab:hover {
-  color: var(--foreground);
+.nav-drawer-theme-btn:hover {
   background: var(--accent);
 }
 
-.nav-drawer-theme-tab.active {
-  background: var(--primary);
-  color: var(--primary-foreground);
-}
-
-.nav-drawer-theme-tab .material-symbols-rounded {
+.nav-drawer-theme-btn .material-symbols-rounded {
   font-size: 20px;
 }
 

@@ -334,41 +334,20 @@ export function App(): JSX.Element {
           <div className="px-4 py-3">
             <div className="flex items-center justify-between">
               <span className="nav-drawer-section-label">显示模式</span>
-              <div className="flex items-center gap-1">
-                <button
-                  type="button"
-                  className={cn(
-                    "nav-drawer-theme-tab",
-                    theme === 'light' && "active"
-                  )}
-                  aria-label="浅色模式"
-                  onClick={() => setTheme('light')}
-                >
-                  <span className="material-symbols-rounded text-xl">wb_sunny</span>
-                </button>
-                <button
-                  type="button"
-                  className={cn(
-                    "nav-drawer-theme-tab",
-                    theme === 'dark' && "active"
-                  )}
-                  aria-label="深色模式"
-                  onClick={() => setTheme('dark')}
-                >
-                  <span className="material-symbols-rounded text-xl">dark_mode</span>
-                </button>
-                <button
-                  type="button"
-                  className={cn(
-                    "nav-drawer-theme-tab",
-                    theme === 'auto' && "active"
-                  )}
-                  aria-label="跟随系统"
-                  onClick={() => setTheme('auto')}
-                >
-                  <span className="material-symbols-rounded text-xl">desktop_windows</span>
-                </button>
-              </div>
+              <button
+                type="button"
+                className="nav-drawer-theme-btn"
+                aria-label="切换主题"
+                onClick={() => {
+                  const themes: ('light' | 'dark' | 'auto')[] = ['light', 'dark', 'auto'];
+                  const currentIndex = themes.indexOf(theme);
+                  setTheme(themes[(currentIndex + 1) % themes.length]);
+                }}
+              >
+                <span className="material-symbols-rounded text-xl">
+                  {theme === 'light' ? 'wb_sunny' : theme === 'dark' ? 'dark_mode' : 'desktop_windows'}
+                </span>
+              </button>
             </div>
           </div>
 
