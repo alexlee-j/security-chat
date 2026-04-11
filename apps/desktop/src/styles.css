@@ -1181,13 +1181,15 @@ button:disabled {
 }
 
 .nav-drawer-nav-item:hover {
+  background: hsl(var(--primary) / 0.2);
   color: var(--primary);
   border-bottom-color: hsl(var(--primary) / 0.3);
 }
 
 .nav-drawer-nav-item.active {
+  background: hsl(var(--primary) / 0.2);
   color: var(--primary);
-  border-bottom-color: var(--primary);
+  border-bottom-color: hsl(var(--primary) / 0.3);
 }
 
 .nav-drawer-nav-icon {
