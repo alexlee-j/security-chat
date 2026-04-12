@@ -717,8 +717,9 @@ export function useChatClient(): {
       return;
     }
     // 优先使用传入的参数，否则使用状态中的值（用于兼容自动登录等场景）
-    const accountToUse = loginAccount ?? account;
-    const passwordToUse = loginPassword ?? password;
+    // 注意：使用 !== undefined 判断，因为空字符串是有效值，不应回退到状态
+    const accountToUse = loginAccount !== undefined ? loginAccount : account;
+    const passwordToUse = loginPassword !== undefined ? loginPassword : password;
     setAuthSubmitting(true);
     try {
       const result = await login(accountToUse, passwordToUse);
