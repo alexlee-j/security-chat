@@ -187,8 +187,8 @@ export type ChatClientActions = {
   toggleConversationMute: (conversationId: string) => void;
   deleteConversation: (conversationId: string) => Promise<boolean>;
   setFriendKeyword: (value: string) => void;
-  onLogin: (event: FormEvent<HTMLFormElement>) => Promise<void>;
-  onRegister: (event: FormEvent<HTMLFormElement>) => Promise<void>;
+  onLogin: (event: FormEvent<HTMLFormElement>, loginAccount?: string, loginPassword?: string) => Promise<void>;
+  onRegister: (username: string, email: string, password: string) => Promise<void>;
   onSendLoginCode: () => Promise<void>;
   onLoginWithCode: (event: FormEvent<HTMLFormElement>) => Promise<void>;
   onLogout: () => Promise<void>;
@@ -711,14 +711,17 @@ export function useChatClient(): {
     }, 5000);
   }
 
-  async function onLogin(event: FormEvent<HTMLFormElement>): Promise<void> {
+  async function onLogin(event: FormEvent<HTMLFormElement>, loginAccount?: string, loginPassword?: string): Promise<void> {
     event.preventDefault();
     if (authSubmitting) {
       return;
     }
+    // 优先使用传入的参数，否则使用状态中的值（用于兼容自动登录等场景）
+    const accountToUse = loginAccount ?? account;
+    const passwordToUse = loginPassword ?? password;
     setAuthSubmitting(true);
     try {
-      const result = await login(account, password);
+      const result = await login(accountToUse, passwordToUse);
       setAuthToken(result.accessToken);
       setAuth({ token: result.accessToken, userId: result.userId });
 
@@ -737,22 +740,22 @@ export function useChatClient(): {
         await clearAutoLogin();
       }
 
-      // 登录后获取设备列表并更新本地设备ID（与注册流程一致）
-      try {
-        const devices = await import('./api').then(api => api.getDevices());
-        if (devices && devices.length > 0) {
-          const primaryDevice = devices[0];
-          // 使用公共方法设置设备ID
-          const keyManager = new (await import('./signal/key-management')).KeyManager();
-          await keyManager.setDeviceId(primaryDevice.deviceId);
-        }
-      } catch (deviceError) {
-        console.error('[Login] Failed to get devices:', deviceError);
-      }
-
       // 登录后初始化 Signal 协议并检查预密钥
+      // 注意：initialize() 必须在 setDeviceId() 之前调用，因为 initialize() 会创建 KeyManager 实例
       try {
         await signalActions.initialize();
+
+        // 登录后获取设备列表并更新本地设备ID（在 initialize 之后）
+        try {
+          const devices = await import('./api').then(api => api.getDevices());
+          if (devices && devices.length > 0) {
+            const primaryDevice = devices[0];
+            // 使用 Signal actions 设置设备ID
+            await signalActions.setDeviceId(primaryDevice.deviceId);
+          }
+        } catch (deviceError) {
+          console.error('[Login] Failed to get devices:', deviceError);
+        }
 
         // 检查并补充预密钥
         const prekeysStatus = signalState.prekeysStatus;
@@ -809,16 +812,30 @@ export function useChatClient(): {
       setAuthToken(result.accessToken);
       setAuth({ token: result.accessToken, userId: result.userId });
 
-      // 登录后获取设备列表并更新本地设备ID（与注册流程一致）
+      // 登录后初始化 Signal 协议并检查预密钥
+      // 注意：initialize() 必须在 setDeviceId() 之前调用，因为 initialize() 会创建 KeyManager 实例
       try {
-        const devices = await import('./api').then(api => api.getDevices());
-        if (devices && devices.length > 0) {
-          const primaryDevice = devices[0];
-          const keyManager = new (await import('./signal/key-management')).KeyManager();
-          await keyManager.setDeviceId(primaryDevice.deviceId);
+        await signalActions.initialize();
+
+        // 登录后获取设备列表并更新本地设备ID（在 initialize 之后）
+        try {
+          const devices = await import('./api').then(api => api.getDevices());
+          if (devices && devices.length > 0) {
+            const primaryDevice = devices[0];
+            await signalActions.setDeviceId(primaryDevice.deviceId);
+          }
+        } catch (deviceError) {
+          console.error('[LoginWithCode] Failed to get devices:', deviceError);
         }
-      } catch (deviceError) {
-        console.error('[LoginWithCode] Failed to get devices:', deviceError);
+
+        // 检查并补充预密钥
+        const prekeysStatus = signalState.prekeysStatus;
+        if (prekeysStatus && (!prekeysStatus.hasSignedPrekeys || !prekeysStatus.hasOneTimePrekeys || prekeysStatus.oneTimePrekeysCount < 100)) {
+          await signalActions.replenishPrekeys();
+        }
+      } catch (signalError) {
+        console.error('[LoginWithCode] Failed to initialize Signal protocol:', signalError);
+        // Signal 初始化失败不影响登录
       }
 
       await Promise.all([loadConversations(), loadFriendData()]);
@@ -829,26 +846,25 @@ export function useChatClient(): {
     }
   }
 
-  async function onRegister(event: FormEvent<HTMLFormElement>): Promise<void> {
-    event.preventDefault();
+  async function onRegister(username: string, email: string, password: string): Promise<void> {
     if (authSubmitting) {
       return;
     }
     setAuthSubmitting(true);
 
-    const username = account.trim();
-    const email = registerEmail.trim();
-    const pwd = password.trim();
+    const trimmedUsername = username.trim();
+    const trimmedEmail = email.trim();
+    const trimmedPassword = password.trim();
 
     // 基础非空验证
-    if (!username || !email || !pwd) {
+    if (!trimmedUsername || !trimmedEmail || !trimmedPassword) {
       showToast('请完整填写账号、邮箱和密码', 'error');
       setAuthSubmitting(false);
       return;
     }
 
     // 用户名格式验证（3-50字符）
-    if (username.length < 3 || username.length > 50) {
+    if (trimmedUsername.length < 3 || trimmedUsername.length > 50) {
       showToast('账号长度需在 3-50 个字符之间', 'error');
       setAuthSubmitting(false);
       return;
@@ -856,14 +872,14 @@ export function useChatClient(): {
 
     // 邮箱格式验证
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
+    if (!emailRegex.test(trimmedEmail)) {
       showToast('请输入有效的邮箱地址', 'error');
       setAuthSubmitting(false);
       return;
     }
 
     // 密码长度验证（8-64字符）
-    if (pwd.length < 8 || pwd.length > 64) {
+    if (trimmedPassword.length < 8 || trimmedPassword.length > 64) {
       showToast('密码长度需在 8-64 个字符之间', 'error');
       setAuthSubmitting(false);
       return;
@@ -892,10 +908,10 @@ export function useChatClient(): {
       const signedPreKeySignature = btoa(String.fromCharCode(...signedPrekey.signature));
 
       const result = await register({
-        username,
-        email,
+        username: trimmedUsername,
+        email: trimmedEmail,
         phone: '', // 移除手机号输入，传入空字符串
-        password: pwd,
+        password: trimmedPassword,
         deviceName: 'desktop-client',
         deviceType,
         identityPublicKey,
@@ -927,7 +943,8 @@ export function useChatClient(): {
       await keyManager.generateOneTimePrekeys(100);
       try {
         const { messageEncryptionService } = await import('./signal/message-encryption');
-        await messageEncryptionService.uploadPrekeys();
+        // 使用在注册流程中创建的 keyManager，确保上传正确的预密钥
+        await messageEncryptionService.uploadPrekeysWithKeyManager(keyManager);
       } catch (uploadError) {
         console.error('Failed to upload prekeys after registration:', uploadError);
         // 预密钥上传失败不影响注册成功，可以后续补充

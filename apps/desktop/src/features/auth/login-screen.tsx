@@ -62,8 +62,8 @@ type Props = {
   onPasswordChange: (value: string) => void;
   onRememberPasswordChange: (value: boolean) => void;
   onAutoLoginChange: (value: boolean) => void;
-  onLogin: (event: FormEvent<HTMLFormElement>) => Promise<void>;
-  onRegister: (event: FormEvent<HTMLFormElement>) => Promise<void>;
+  onLogin: (event: FormEvent<HTMLFormElement>, loginAccount?: string, loginPassword?: string) => Promise<void>;
+  onRegister: (username: string, email: string, password: string) => Promise<void>;
   onSendLoginCode: () => Promise<void>;
   onLoginWithCode: (event: FormEvent<HTMLFormElement>) => Promise<void>;
   onSendForgotCode: (event: FormEvent<HTMLFormElement>) => Promise<void>;
@@ -78,24 +78,20 @@ export function LoginScreen(props: Props): JSX.Element {
 
   // Wrapper for login form submit - convert form values to match old interface
   const handleLogin = async (values: LoginFormData) => {
-    // Update state to match expected values for old handler
+    // 更新状态（用于 UI 同步）
     props.onAccountChange(values.username);
     props.onPasswordChange(values.password);
     props.onRememberPasswordChange(values.remember);
     props.onAutoLoginChange(values.autoLogin);
-    // Create mock event for original handler
+    // 直接传递账号密码给 onLogin，避免状态异步问题
     const mockEvent = { preventDefault: () => {} } as unknown as FormEvent<HTMLFormElement>;
-    await props.onLogin(mockEvent);
+    await props.onLogin(mockEvent, values.username, values.password);
   };
 
   // Wrapper for register form submit
   const handleRegister = async (values: RegisterFormData) => {
-    props.onAccountChange(values.username);
-    props.onRegisterEmailChange(values.email);
-    props.onPasswordChange(values.password);
-    props.onForgotConfirmPasswordChange(values.confirmPassword);
-    const mockEvent = { preventDefault: () => {} } as unknown as FormEvent<HTMLFormElement>;
-    await props.onRegister(mockEvent);
+    // 同步调用 onRegister，直接传递表单值
+    await props.onRegister(values.username, values.email, values.password);
   };
 
   // Wrapper for code login form submit
