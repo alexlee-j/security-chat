@@ -2,7 +2,8 @@ import { test, expect } from '@playwright/test';
 
 test.describe('Signal Protocol E2E', () => {
   test.beforeEach(async ({ page }) => {
-    // 清理本地存储
+    // 先加载页面，再清理本地存储
+    await page.goto('/');
     await page.evaluate(() => localStorage.clear());
   });
 
