@@ -93,74 +93,77 @@ impl SignalProtocol {
     }
 
     #[wasm_bindgen]
-    pub fn generate_identity_key_pair(&mut self) -> Result<IdentityKeyPair, JsValue> {
-        use x25519_dalek::StaticSecret;
-        use x25519_dalek::PublicKey;
+    pub fn generate_identity_key_pair(&mut self) -> Result<JsValue, JsValue> {
+        use x25519_dalek::{StaticSecret, PublicKey};
 
-        let private = StaticSecret::new(rand::thread_rng());
+        let private = StaticSecret::random_from_rng(rand::thread_rng());
         let public = PublicKey::from(&private);
 
-        Ok(IdentityKeyPair {
+        let key_pair = IdentityKeyPair {
             public_key: public.to_bytes().to_vec(),
             private_key: private.to_bytes().to_vec(),
-        })
+        };
+
+        serde_wasm_bindgen::to_value(&key_pair)
+            .map_err(|e| JsValue::from_str(&format!("{:?}", e)))
     }
 
     #[wasm_bindgen]
-    pub fn set_identity_key_pair(&mut self, key_pair: IdentityKeyPair) {
+    pub fn set_identity_key_pair(&mut self, key_pair: JsValue) -> Result<(), JsValue> {
+        let key_pair: IdentityKeyPair = serde_wasm_bindgen::from_value(key_pair)
+            .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
         self.identity_key_pair = Some(key_pair);
+        Ok(())
     }
 
     #[wasm_bindgen]
-    pub fn initiate_session(
-        &self,
-        prekey_bundle: JsValue,
-    ) -> Result<SessionState, JsValue> {
+    pub fn initiate_session(&self, prekey_bundle: JsValue) -> Result<JsValue, JsValue> {
         let bundle: PrekeyBundle = serde_wasm_bindgen::from_value(prekey_bundle)
             .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
 
-        x3dh::initiate_session(&self.identity_key_pair, &bundle)
+        let session = x3dh::initiate_session(&self.identity_key_pair, &bundle)
+            .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
+
+        serde_wasm_bindgen::to_value(&session)
             .map_err(|e| JsValue::from_str(&format!("{:?}", e)))
     }
 
     #[wasm_bindgen]
-    pub fn accept_session(
-        &self,
-        prekey_message: JsValue,
-    ) -> Result<SessionState, JsValue> {
+    pub fn accept_session(&self, prekey_message: JsValue) -> Result<JsValue, JsValue> {
         let message: EncryptedMessage = serde_wasm_bindgen::from_value(prekey_message)
             .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
 
-        x3dh::accept_session(&self.identity_key_pair, &message)
+        let session = x3dh::accept_session(&self.identity_key_pair, &message)
+            .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
+
+        serde_wasm_bindgen::to_value(&session)
             .map_err(|e| JsValue::from_str(&format!("{:?}", e)))
     }
 
     #[wasm_bindgen]
-    pub fn encrypt_message(
-        &self,
-        session: JsValue,
-        plaintext: &str,
-    ) -> Result<EncryptedMessage, JsValue> {
+    pub fn encrypt_message(&self, session: JsValue, plaintext: &str) -> Result<JsValue, JsValue> {
         let mut session: SessionState = serde_wasm_bindgen::from_value(session)
             .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
 
-        double_ratchet::encrypt(&mut session, plaintext.as_bytes())
+        let encrypted = double_ratchet::encrypt(&mut session, plaintext.as_bytes())
+            .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
+
+        serde_wasm_bindgen::to_value(&encrypted)
             .map_err(|e| JsValue::from_str(&format!("{:?}", e)))
     }
 
     #[wasm_bindgen]
-    pub fn decrypt_message(
-        &self,
-        session: JsValue,
-        encrypted: JsValue,
-    ) -> Result<DecryptedMessage, JsValue> {
+    pub fn decrypt_message(&self, session: JsValue, encrypted: JsValue) -> Result<JsValue, JsValue> {
         let mut session: SessionState = serde_wasm_bindgen::from_value(session)
             .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
 
         let encrypted: EncryptedMessage = serde_wasm_bindgen::from_value(encrypted)
             .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
 
-        double_ratchet::decrypt(&mut session, &encrypted)
+        let decrypted = double_ratchet::decrypt(&mut session, &encrypted)
+            .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
+
+        serde_wasm_bindgen::to_value(&decrypted)
             .map_err(|e| JsValue::from_str(&format!("{:?}", e)))
     }
 }
