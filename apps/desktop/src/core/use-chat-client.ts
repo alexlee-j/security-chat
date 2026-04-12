@@ -758,6 +758,14 @@ export function useChatClient(): {
           console.error('[Login] Failed to get devices:', deviceError);
         }
 
+        // 上传预密钥（必须在 setDeviceId 之后调用）
+        try {
+          await signalActions.uploadPrekeys();
+        } catch (uploadError) {
+          console.error('[Login] Failed to upload prekeys:', uploadError);
+          // 预密钥上传失败不影响登录
+        }
+
         // 检查并补充预密钥
         const prekeysStatus = signalState.prekeysStatus;
         if (prekeysStatus && (!prekeysStatus.hasSignedPrekeys || !prekeysStatus.hasOneTimePrekeys || prekeysStatus.oneTimePrekeysCount < 100)) {
@@ -828,6 +836,13 @@ export function useChatClient(): {
           }
         } catch (deviceError) {
           console.error('[LoginWithCode] Failed to get devices:', deviceError);
+        }
+
+        // 上传预密钥（必须在 setDeviceId 之后调用）
+        try {
+          await signalActions.uploadPrekeys();
+        } catch (uploadError) {
+          console.error('[LoginWithCode] Failed to upload prekeys:', uploadError);
         }
 
         // 检查并补充预密钥

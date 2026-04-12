@@ -35,6 +35,7 @@ export type SignalState = {
  */
 export type SignalActions = {
   initialize: (userId?: string) => Promise<void>;
+  uploadPrekeys: () => Promise<void>;
   encryptMessage: (recipientUserId: string, recipientDeviceId: string, plaintext: string) => Promise<string>;
   decryptMessage: (senderUserId: string, senderDeviceId: string, encryptedMessage: string) => Promise<string>;
   verifyKey: (userId: string, deviceId: string, fingerprint: string, isVerified: boolean) => Promise<void>;
@@ -158,17 +159,10 @@ export function useSignal(): { state: SignalState; actions: SignalActions } {
           const newStatus = await checkPrekeysStatus(keyManager);
           setState(prev => ({ ...prev, prekeysStatus: newStatus }));
         }
-
-        // 上传预密钥到服务器（使用同一个 keyManager）
-        // 仅在有认证令牌时才上传
-        const authToken = localStorage.getItem('auth-token');
-        if (authToken && authToken.trim() !== '') {
-          await messageEncryptionService.uploadPrekeysWithKeyManager(keyManager);
-          setState(prev => ({ ...prev, prekeysUploaded: true }));
-        }
+        // 注意：预密钥上传现在由调用者在 setDeviceId 之后显式调用
+        // 这是为了确保设备 ID 在上传预密钥之前已经正确设置
       } catch (error) {
-        console.error('[Signal] Failed to upload prekeys:', error);
-        // 上传预密钥失败不影响初始化
+        console.error('[Signal] Failed to initialize keys:', error);
       }
 
       // 更新状态
@@ -352,10 +346,35 @@ export function useSignal(): { state: SignalState; actions: SignalActions } {
     }
   };
 
+  /**
+   * 上传预密钥到服务器
+   * 必须在 setDeviceId() 之后调用，确保设备 ID 已设置
+   */
+  const uploadPrekeys = async (): Promise<void> => {
+    if (!keyManagerRef.current) {
+      throw new Error('KeyManager not initialized');
+    }
+
+    const authToken = localStorage.getItem('auth-token');
+    if (!authToken || authToken.trim() === '') {
+      console.log('[Signal] No auth token, skipping prekey upload');
+      return;
+    }
+
+    try {
+      await messageEncryptionService.uploadPrekeysWithKeyManager(keyManagerRef.current);
+      setState(prev => ({ ...prev, prekeysUploaded: true }));
+    } catch (error) {
+      console.error('[Signal] Failed to upload prekeys:', error);
+      throw error;
+    }
+  };
+
   return {
     state,
     actions: {
       initialize,
+      uploadPrekeys,
       encryptMessage,
       decryptMessage,
       verifyKey,

@@ -260,6 +260,13 @@ export class MessageEncryptionService {
       // 获取当前设备 ID（从本地存储或登录响应获取）
       const deviceId = await this.getCurrentDeviceIdWithKeyManager(keyManager);
 
+      // 如果设备 ID 是本地生成的（未注册到服务器），跳过上传
+      // 这发生在 setDeviceId 还没有被调用时
+      if (!deviceId) {
+        console.log('[MessageEncryption] No device ID available, skipping prekey upload');
+        return;
+      }
+
       // 准备上传数据
       const data = {
         deviceId,
