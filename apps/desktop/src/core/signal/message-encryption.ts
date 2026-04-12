@@ -17,7 +17,8 @@ export class MessageEncryptionService {
 
   constructor() {
     this.signal = new SignalProtocol();
-    this.keyManager = new KeyManager();
+    // 使用单例确保与 use-signal.ts 使用同一个 KeyManager 实例
+    this.keyManager = KeyManager.getInstance();
   }
 
   /**
