@@ -21,6 +21,8 @@ import { login as loginApi, setAuthToken } from './core/api';
 import {
   Sheet,
   SheetContent,
+  SheetHeader,
+  SheetTitle,
 } from '@/components/ui/sheet';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
@@ -210,6 +212,7 @@ export function App(): JSX.Element {
               onToggleMute={actions.toggleConversationMute}
               onDeleteConversation={actions.deleteConversation}
               onNavDrawerOpen={() => setNavDrawerOpen(true)}
+              onWorkspaceChange={setWorkspace}
               onLogout={() => void actions.onLogout()}
               currentUserId={state.auth.userId}
             />
@@ -275,8 +278,8 @@ export function App(): JSX.Element {
       {/* 导航抽屉 - 使用 shadcn/ui Sheet 组件 */}
       <Sheet open={navDrawerOpen} onOpenChange={setNavDrawerOpen}>
         <SheetContent side="left" className="nav-drawer-sheet w-[280px] p-0 flex flex-col">
-          {/* 用户区 - 包含头像、用户名、在线状态 */}
-          <div className="nav-drawer-header px-4 py-5 border-b border-border">
+          <SheetHeader className="nav-drawer-header px-4 py-5 border-b border-border">
+            {/* 用户区 - 包含头像、用户名、在线状态 */}
             <div className="flex items-center gap-3">
               <Avatar className="h-12 w-12 shrink-0">
                 <AvatarFallback className="bg-primary text-primary-foreground text-lg font-semibold">
@@ -284,16 +287,16 @@ export function App(): JSX.Element {
                 </AvatarFallback>
               </Avatar>
               <div className="flex-1 min-w-0">
-                <p className="nav-drawer-username truncate">
+                <SheetTitle className="nav-drawer-username truncate">
                   {state.auth?.userId || '用户'}
-                </p>
+                </SheetTitle>
                 <p className="nav-drawer-status text-xs text-success flex items-center gap-1.5">
                   <span className="w-2 h-2 rounded-full bg-success inline-block" />
                   在线
                 </p>
               </div>
             </div>
-          </div>
+          </SheetHeader>
 
           {/* 导航区 */}
           <div className="px-3 py-3">
