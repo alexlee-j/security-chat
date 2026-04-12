@@ -30,6 +30,7 @@ type Props = {
   onDeleteConversation: (conversationId: string) => Promise<boolean>;
   onNavDrawerOpen?: () => void;
   onLogout?: () => void;
+  onWorkspaceChange?: (workspace: 'chat' | 'friend') => void;
   currentUserId?: string;
   onNewGroup?: () => void;
   onNewChat?: () => void;
@@ -363,7 +364,7 @@ export function ConversationSidebar(props: Props): JSX.Element {
         onNewGroup={() => props.onNewGroup?.()}
         onNewChat={() => {
           props.onPeerUserIdChange('');
-          props.onNewChat?.();
+          props.onWorkspaceChange?.('friend');
         }}
       />
     </aside>
