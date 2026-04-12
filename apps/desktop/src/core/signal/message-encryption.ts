@@ -243,7 +243,13 @@ export class MessageEncryptionService {
    */
   async uploadPrekeysWithKeyManager(keyManager: KeyManager): Promise<void> {
     try {
+      // 确保 keyManager 已初始化
       const identityKeyPair = await keyManager.getIdentityKeyPair();
+      if (!identityKeyPair) {
+        console.log('[MessageEncryption] KeyManager not initialized, initializing now...');
+        await keyManager.initialize();
+      }
+
       const signedPrekeys = await keyManager.getSignedPrekeys();
       const oneTimePrekeys = await keyManager.getOneTimePrekeys();
 
@@ -360,6 +366,13 @@ export class MessageEncryptionService {
    * 返回是否进行了补充
    */
   async checkAndReplenishPrekeys(): Promise<boolean> {
+    // 确保 keyManager 已初始化
+    const identityKeyPair = await this.keyManager.getIdentityKeyPair();
+    if (!identityKeyPair) {
+      console.log('[MessageEncryption] KeyManager not initialized, initializing now...');
+      await this.keyManager.initialize();
+    }
+
     const status = await this.keyManager.getPrekeysStatus();
 
     // 如果签名预密钥或一次性预密钥不足，触发补充

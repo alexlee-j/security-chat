@@ -1042,7 +1042,7 @@ export function ChatPanel(props: Props): JSX.Element {
                       </svg>
                       {burnCountdown}s
                     </span>
-                  ) : row.isBurn && !isRevoked ? (
+                  ) : row.isBurn && !isRevoked && !isOut ? (
                     <button type="button" className="message-burn-btn" onClick={() => void props.onTriggerBurn(row.id)}>
                       焚毁
                     </button>

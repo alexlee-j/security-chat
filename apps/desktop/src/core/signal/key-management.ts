@@ -250,8 +250,29 @@ export class Prekeys {
     const signal = new SignalProtocol();
     const identityKeys = new IdentityKeys(this.storage);
     const identityKeyPair = await identityKeys.getKeyPair();
+    console.log('[KeyManager] generateSignedPrekeys - identityKeyPair:', identityKeyPair ? 'found' : 'NOT FOUND');
     if (!identityKeyPair) {
-      throw new Error('Identity key pair not found');
+      // 尝试重新初始化 identity keys
+      console.log('[KeyManager] Attempting to re-initialize identity keys...');
+      await identityKeys.initialize();
+      const retryKeyPair = await identityKeys.getKeyPair();
+      if (!retryKeyPair) {
+        throw new Error('Identity key pair not found');
+      }
+      console.log('[KeyManager] Retry got identityKeyPair: success');
+      // 使用重试后的密钥对
+      const signedPrekeys = await this.getSignedPrekeys();
+      const newPrekeys: SignedPrekey[] = [];
+
+      for (let i = 0; i < count; i++) {
+        const keyId = signedPrekeys.size + i + 1;
+        const prekey = await signal.generateSignedPrekey(retryKeyPair, keyId);
+        signedPrekeys.set(keyId, prekey);
+        newPrekeys.push(prekey);
+      }
+
+      await this.saveSignedPrekeys(signedPrekeys);
+      return newPrekeys;
     }
 
     const signedPrekeys = await this.getSignedPrekeys();

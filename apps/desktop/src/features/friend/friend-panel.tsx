@@ -5,6 +5,7 @@ import {
   Sheet,
   SheetContent,
   SheetHeader,
+  SheetTitle,
 } from '@/components/ui/sheet';
 
 type Props = {
@@ -445,10 +446,10 @@ export function FriendPanel(props: Props): JSX.Element {
       <Sheet open={navDrawerOpen} onOpenChange={setNavDrawerOpen}>
         <SheetContent side="left" className="nav-drawer-sheet w-[280px] p-0">
           <SheetHeader className="nav-drawer-header px-4 pb-6 pt-6">
+            <SheetTitle className="nav-drawer-title">Security Chat</SheetTitle>
             <div className="flex items-center gap-3">
               <span className="nav-drawer-logo">SC</span>
               <div>
-                <p className="nav-drawer-title">Security Chat</p>
                 <p className="nav-drawer-subtitle">Desktop</p>
               </div>
             </div>

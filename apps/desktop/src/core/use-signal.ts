@@ -7,7 +7,7 @@
  * 更新时间：2026-03-18 - 优化预密钥检查和补充机制
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { SignalProtocol } from './signal';
 import { KeyManager } from './signal/key-management';
 import { messageEncryptionService } from './signal/message-encryption';
@@ -42,6 +42,7 @@ export type SignalActions = {
   getIdentityKeyInfo: (userId: string) => Promise<any>;
   replenishPrekeys: () => Promise<void>;
   clearAll: () => Promise<void>;
+  setDeviceId: (deviceId: string) => Promise<void>;
 };
 
 /**
@@ -324,10 +325,15 @@ export function useSignal(): { state: SignalState; actions: SignalActions } {
     }
   };
 
-  // 初始化
-  useEffect(() => {
-    void initialize();
-  }, []);
+  /**
+   * 设置当前设备ID
+   * 用于在登录后将从服务器获取的设备ID设置到KeyManager
+   */
+  const setDeviceId = async (deviceId: string): Promise<void> => {
+    if (keyManagerRef.current) {
+      await keyManagerRef.current.setDeviceId(deviceId);
+    }
+  };
 
   return {
     state,
@@ -340,6 +346,7 @@ export function useSignal(): { state: SignalState; actions: SignalActions } {
       getIdentityKeyInfo,
       replenishPrekeys,
       clearAll,
+      setDeviceId,
     },
   };
 }

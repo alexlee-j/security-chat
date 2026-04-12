@@ -20,15 +20,21 @@ export default defineConfig({
 
         // 修复 CSS 中的 url() 路径
         const assetsDir = path.join(__dirname, 'dist', 'assets');
-        const cssFiles = readdirSync(assetsDir).filter(f => f.endsWith('.css'));
-        for (const cssFile of cssFiles) {
-          const cssPath = path.join(assetsDir, cssFile);
-          let cssContent = readFileSync(cssPath, 'utf-8');
-          const before = cssContent;
-          cssContent = cssContent.replace(/url\(\/assets\//g, 'url(./assets/');
-          if (cssContent !== before) {
-            writeFileSync(cssPath, cssContent);
-            console.log(`[fix-relative-paths] Fixed asset paths in ${cssFile}`);
+        if (!existsSync(assetsDir)) {
+          console.warn('[fix-relative-paths] assets directory not found, skipping CSS path fixes');
+        } else {
+          const cssFiles = readdirSync(assetsDir).filter(f => f.endsWith('.css'));
+          for (const cssFile of cssFiles) {
+            const cssPath = path.join(assetsDir, cssFile);
+            let cssContent = readFileSync(cssPath, 'utf-8');
+            const before = cssContent;
+            // 修复 /assets/ 开头和 ./assets/ 的字体路径
+            cssContent = cssContent.replace(/url\(\/assets\//g, 'url(./');
+            cssContent = cssContent.replace(/url\(\.\/assets\//g, 'url(./');
+            if (cssContent !== before) {
+              writeFileSync(cssPath, cssContent);
+              console.log(`[fix-relative-paths] Fixed asset paths in ${cssFile}`);
+            }
           }
         }
       },
