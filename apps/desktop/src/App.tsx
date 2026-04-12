@@ -56,6 +56,9 @@ export function App(): JSX.Element {
    * 启动时检查自动登录和记住密码状态
    */
   useEffect(() => {
+    // 使用 AbortController 防止竞态条件
+    const abortController = new AbortController();
+
     async function checkAuthState(): Promise<void> {
       // 如果已有认证状态，或已经尝试过自动登录，无需再次检查
       if (state.auth || autoLoginAttemptedRef.current) {
@@ -63,44 +66,68 @@ export function App(): JSX.Element {
       }
       autoLoginAttemptedRef.current = true;
 
-      // 检查是否可以自动登录
-      if (await canAutoLogin()) {
-        const credentials = await getStoredCredentials();
-        if (credentials?.account && credentials?.encryptedPassword) {
-          // 自动填充凭证并设置选项
-          actionsRef.current.setAccount(credentials.account);
-          actionsRef.current.setPassword(credentials.encryptedPassword);
-          actionsRef.current.setRememberPassword(true);
-          actionsRef.current.setAutoLogin(true);
+      try {
+        // 检查是否可以自动登录
+        if (await canAutoLogin()) {
+          const credentials = await getStoredCredentials();
+          // 检查中止信号
+          if (abortController.signal.aborted) return;
 
-          // 直接调用 login API 进行自动登录
-          try {
+          if (credentials?.account && credentials?.encryptedPassword) {
+            // 验证凭证格式（与后端验证一致）
+            if (credentials.account.length < 3 || credentials.encryptedPassword.length < 8) {
+              console.warn('[App] Stored credentials invalid, clearing');
+              actionsRef.current.setRememberPassword(false);
+              actionsRef.current.setAutoLogin(false);
+              return;
+            }
+
+            // 自动填充凭证并设置选项
+            actionsRef.current.setAccount(credentials.account);
+            actionsRef.current.setPassword(credentials.encryptedPassword);
+            actionsRef.current.setRememberPassword(true);
+            actionsRef.current.setAutoLogin(true);
+
+            // 直接调用 login API 进行自动登录
             const result = await loginApi(credentials.account, credentials.encryptedPassword);
+            if (abortController.signal.aborted) return;
+
             setAuthToken(result.accessToken);
             actionsRef.current.setAuth({ token: result.accessToken, userId: result.userId });
-          } catch (error) {
-            console.error('[App] Auto login failed:', error);
-            // 自动登录失败，清除凭证
-            actionsRef.current.setRememberPassword(false);
-            actionsRef.current.setAutoLogin(false);
+            return;
           }
-          return;
         }
-      }
 
-      // 检查是否记住密码
-      const rememberPassword = await getRememberPassword();
-      if (rememberPassword) {
-        const credentials = await getStoredCredentials();
-        if (credentials?.account && credentials?.encryptedPassword) {
-          actionsRef.current.setAccount(credentials.account);
-          actionsRef.current.setPassword(credentials.encryptedPassword);
-          actionsRef.current.setRememberPassword(true);
+        // 检查是否记住密码
+        const rememberPassword = await getRememberPassword();
+        if (abortController.signal.aborted) return;
+
+        if (rememberPassword) {
+          const credentials = await getStoredCredentials();
+          if (credentials?.account && credentials?.encryptedPassword) {
+            // 验证凭证格式
+            if (credentials.account.length >= 3 && credentials.encryptedPassword.length >= 8) {
+              actionsRef.current.setAccount(credentials.account);
+              actionsRef.current.setPassword(credentials.encryptedPassword);
+              actionsRef.current.setRememberPassword(true);
+            }
+          }
         }
+      } catch (error) {
+        if (abortController.signal.aborted) return;
+        console.error('[App] Auto login failed:', error);
+        // 自动登录失败，清除凭证
+        actionsRef.current.setRememberPassword(false);
+        actionsRef.current.setAutoLogin(false);
       }
     }
 
     void checkAuthState();
+
+    // 清理函数：组件卸载或重新运行时中止之前的操作
+    return () => {
+      abortController.abort();
+    };
   }, [state.auth]);
 
   /**
