@@ -358,13 +358,14 @@ export function useChatClient(): {
     if (payloadCacheRef.current.has(payload)) {
       return payloadCacheRef.current.get(payload)!;
     }
-    
-    // 未缓存的 payload，检查是否是 Signal 加密格式（包含 :）
-    const parts = payload.split(':');
-    const isSignalEncrypted = parts.length === 3;
-    
-    if (isSignalEncrypted && signalState.initialized) {
-      // Signal 加密的消息，触发异步解密
+
+    // 检测是否是 Signal 加密的 JSON 格式
+    // Signal 加密消息格式：{"version":3,"baseKey":"...","ciphertext":"...",...}
+    const trimmedPayload = payload.trim();
+    const isSignalJsonFormat = trimmedPayload.startsWith('{');
+
+    if (isSignalJsonFormat && signalState.initialized) {
+      // Signal 加密的 JSON 消息，触发异步解密
       setTimeout(() => {
         if (!payloadCacheRef.current.has(payload)) {
           const message = messagesRef.current.find(m => m.encryptedPayload === payload);
@@ -376,18 +377,17 @@ export function useChatClient(): {
       // 返回占位符，避免显示加密内容
       return '';
     }
-    
-    // 尝试同步解密（仅支持 Base64 格式）
+
+    // 尝试同步解密（仅支持旧版 Base64 格式）
     try {
-      if (parts.length !== 3) {
-        const decrypted = decodeURIComponent(escape(atob(payload)));
-        payloadCacheRef.current.set(payload, decrypted);
-        return decrypted;
-      }
+      const decrypted = decodeURIComponent(escape(atob(trimmedPayload)));
+      payloadCacheRef.current.set(payload, decrypted);
+      return decrypted;
     } catch {
-      // Ignore errors
+      // Base64 解密失败
     }
-    
+
+    // 如果都不是，返回原始 payload
     return payload;
   };
 
@@ -741,9 +741,10 @@ export function useChatClient(): {
       }
 
       // 登录后初始化 Signal 协议并检查预密钥
-      // 注意：initialize() 必须在 setDeviceId() 之前调用，因为 initialize() 会创建 KeyManager 实例
+      // 注意：initialize() 必须在 setDeviceId() 之前调用
+      // 重要：通过 userId 参数隔离密钥存储（必须在 initialize 之前设置）
       try {
-        await signalActions.initialize();
+        await signalActions.initialize(result.userId);
 
         // 登录后获取设备列表并更新本地设备ID（在 initialize 之后）
         try {
@@ -813,9 +814,10 @@ export function useChatClient(): {
       setAuth({ token: result.accessToken, userId: result.userId });
 
       // 登录后初始化 Signal 协议并检查预密钥
-      // 注意：initialize() 必须在 setDeviceId() 之前调用，因为 initialize() 会创建 KeyManager 实例
+      // 注意：initialize() 必须在 setDeviceId() 之前调用
+      // 重要：通过 userId 参数隔离密钥存储（必须在 initialize 之前设置）
       try {
-        await signalActions.initialize();
+        await signalActions.initialize(result.userId);
 
         // 登录后获取设备列表并更新本地设备ID（在 initialize 之后）
         try {

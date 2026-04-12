@@ -34,7 +34,7 @@ export type SignalState = {
  * Signal 协议操作类型定义
  */
 export type SignalActions = {
-  initialize: () => Promise<void>;
+  initialize: (userId?: string) => Promise<void>;
   encryptMessage: (recipientUserId: string, recipientDeviceId: string, plaintext: string) => Promise<string>;
   decryptMessage: (senderUserId: string, senderDeviceId: string, encryptedMessage: string) => Promise<string>;
   verifyKey: (userId: string, deviceId: string, fingerprint: string, isVerified: boolean) => Promise<void>;
@@ -43,6 +43,7 @@ export type SignalActions = {
   replenishPrekeys: () => Promise<void>;
   clearAll: () => Promise<void>;
   setDeviceId: (deviceId: string) => Promise<void>;
+  setUserId: (userId: string) => void;
 };
 
 /**
@@ -110,8 +111,9 @@ export function useSignal(): { state: SignalState; actions: SignalActions } {
 
   /**
    * 初始化 Signal 协议
+   * @param userId 可选的用户 ID，如果在 initialize 之前没有调用 setUserId，可以通过此参数传递
    */
-  const initialize = async () => {
+  const initialize = async (userId?: string) => {
     if (initializedRef.current || state.initializing) {
       return;
     }
@@ -122,9 +124,14 @@ export function useSignal(): { state: SignalState; actions: SignalActions } {
       // 创建 Signal 协议实例
       signalRef.current = new SignalProtocol();
 
-      // 获取密钥管理器（使用单例）
-      const keyManager = new KeyManager();
+      // 获取密钥管理器（使用单例，确保用户 ID 隔离）
+      const keyManager = KeyManager.getInstance();
       keyManagerRef.current = keyManager;
+
+      // 如果调用者传递了 userId，立即设置（必须在 initialize 之前）
+      if (userId) {
+        keyManager.setUserId(userId);
+      }
 
       // 初始化密钥管理（这会生成身份密钥对和预密钥）
       await keyManager.initialize();
@@ -335,6 +342,16 @@ export function useSignal(): { state: SignalState; actions: SignalActions } {
     }
   };
 
+  /**
+   * 设置当前用户 ID，用于密钥隔离
+   * 必须在 initialize() 之后调用
+   */
+  const setUserId = (userId: string): void => {
+    if (keyManagerRef.current) {
+      keyManagerRef.current.setUserId(userId);
+    }
+  };
+
   return {
     state,
     actions: {
@@ -347,6 +364,7 @@ export function useSignal(): { state: SignalState; actions: SignalActions } {
       replenishPrekeys,
       clearAll,
       setDeviceId,
+      setUserId,
     },
   };
 }

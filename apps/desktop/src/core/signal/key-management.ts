@@ -23,17 +23,36 @@ export interface SecureStorage {
   set(key: string, value: any): Promise<void>;
   remove(key: string): Promise<void>;
   clear(): Promise<void>;
+  setUserId?(userId: string): void;
 }
 
 /**
  * 本地安全存储实现
+ * 支持按用户 ID 隔离密钥存储
  */
 export class LocalSecureStorage implements SecureStorage {
   private prefix = 'security-chat-';
+  private userId: string | null = null;
+
+  /**
+   * 设置当前用户 ID，用于密钥隔离
+   */
+  setUserId(userId: string): void {
+    this.userId = userId;
+  }
+
+  /**
+   * 获取完整的存储 key
+   */
+  private getFullKey(key: string): string {
+    return this.userId
+      ? `${this.prefix}${this.userId}/${key}`
+      : `${this.prefix}${key}`;
+  }
 
   async get(key: string): Promise<any> {
     try {
-      const value = localStorage.getItem(this.prefix + key);
+      const value = localStorage.getItem(this.getFullKey(key));
       return value ? JSON.parse(value) : null;
     } catch (error) {
       console.error('Error getting from storage:', error);
@@ -44,8 +63,7 @@ export class LocalSecureStorage implements SecureStorage {
   async set(key: string, value: any): Promise<void> {
     try {
       const stringValue = JSON.stringify(value);
-      const fullKey = this.prefix + key;
-      localStorage.setItem(fullKey, stringValue);
+      localStorage.setItem(this.getFullKey(key), stringValue);
     } catch (error) {
       console.error('Error setting to storage:', error);
     }
@@ -53,7 +71,7 @@ export class LocalSecureStorage implements SecureStorage {
 
   async remove(key: string): Promise<void> {
     try {
-      localStorage.removeItem(this.prefix + key);
+      localStorage.removeItem(this.getFullKey(key));
     } catch (error) {
       console.error('Error removing from storage:', error);
     }
@@ -61,9 +79,11 @@ export class LocalSecureStorage implements SecureStorage {
 
   async clear(): Promise<void> {
     try {
+      // 只清除当前用户的密钥
+      const pattern = this.getFullKey('');
       for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i);
-        if (key && key.startsWith(this.prefix)) {
+        if (key && key.startsWith(pattern)) {
           localStorage.removeItem(key);
         }
       }
@@ -613,18 +633,42 @@ export class SessionStore {
 
 /**
  * 密钥管理主类
+ * 支持单例模式，确保用户 ID 隔离时密钥管理的一致性
  */
 export class KeyManager {
+  private static instance: KeyManager | null = null;
   private secureStorage: SecureStorage;
   private sessionStore: SessionStore;
   private identityKeys: IdentityKeys;
   private prekeys: Prekeys;
+  private userId: string | null = null;
 
   constructor(storage?: SecureStorage) {
     this.secureStorage = storage || new LocalSecureStorage();
     this.sessionStore = new SessionStore(this.secureStorage);
     this.identityKeys = new IdentityKeys(this.secureStorage);
     this.prekeys = new Prekeys(this.secureStorage);
+  }
+
+  /**
+   * 获取 KeyManager 单例实例
+   */
+  static getInstance(): KeyManager {
+    if (!KeyManager.instance) {
+      KeyManager.instance = new KeyManager();
+    }
+    return KeyManager.instance;
+  }
+
+  /**
+   * 设置当前用户 ID，用于密钥隔离
+   * 必须在 initialize() 之前调用，确保密钥按用户隔离
+   */
+  setUserId(userId: string): void {
+    this.userId = userId;
+    if (this.secureStorage && 'setUserId' in this.secureStorage) {
+      (this.secureStorage as LocalSecureStorage).setUserId(userId);
+    }
   }
 
   /**
