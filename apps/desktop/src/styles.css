@@ -2052,7 +2052,6 @@ button:disabled {
   border: none;
   border-radius: var(--message-radius);
   padding: 12px;
-  box-shadow: var(--message-shadow);
   position: relative;
 }
 

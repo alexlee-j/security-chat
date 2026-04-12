@@ -1018,7 +1018,7 @@ export function ChatPanel(props: Props): JSX.Element {
                   key={row.id}
                   data-msg-id={row.id}
                   data-msg-type={row.messageType}
-                  className={`${isOut ? 'message self' : 'message'}${focusedMessageId === row.id ? ' focused' : ''}${isBurning ? ' message-burning' : ''}${isRevoked ? ' message-revoked' : ''}`}
+                  // className={`${isOut ? 'message self' : 'message'}${focusedMessageId === row.id ? ' focused' : ''}${isBurning ? ' message-burning' : ''}${isRevoked ? ' message-revoked' : ''}`}
                   onContextMenu={(e) => openContextMenu(e, row, isOut)}
                 >
                   <MessageBubble
