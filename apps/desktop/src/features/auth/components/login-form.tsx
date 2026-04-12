@@ -13,8 +13,10 @@ import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 
 const loginSchema = z.object({
-  username: z.string().min(1, '请输入用户名'),
-  password: z.string().min(1, '请输入密码'),
+  username: z.string()
+    .min(3, '账号长度至少3个字符'),
+  password: z.string()
+    .min(8, '密码长度至少8个字符'),
   remember: z.boolean(),
   autoLogin: z.boolean(),
 });
