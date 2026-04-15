@@ -1,4 +1,14 @@
-import { randomUUID } from 'node:crypto';
+// Node.js 18+ 需要显式设置 crypto 全局对象
+// @nestjs/typeorm 内部使用 crypto.randomUUID()
+import { randomUUID, crypto as nodeCrypto } from 'node:crypto';
+if (typeof globalThis.crypto === 'undefined') {
+  Object.defineProperty(globalThis, 'crypto', {
+    value: nodeCrypto,
+    writable: true,
+    configurable: true,
+  });
+}
+
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
