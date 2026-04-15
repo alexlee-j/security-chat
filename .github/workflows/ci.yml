@@ -58,7 +58,7 @@ jobs:
       - name: Build backend
         run: pnpm build:backend
 
-      - name: Start backend and run tests
+      - name: Build and start backend for tests
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/security-chat-test
           REDIS_URL: redis://localhost:6379
@@ -70,8 +70,11 @@ jobs:
           DB_NAME: security-chat-test
           DB_SYNC: 'true'
         run: |
-          # Start backend in background
-          pnpm start:backend &
+          # Build backend first (must complete before starting)
+          pnpm build:backend
+
+          # Start backend in background from the correct directory
+          cd apps/backend && pnpm start &
           BACKEND_PID=$!
           echo "Backend PID: $BACKEND_PID"
 
@@ -127,7 +130,7 @@ jobs:
       - name: Install system dependencies for Tauri
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libglib2.0-dev libwebkit2gtk-4.1-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev
+          sudo apt-get install -y libgtk-3-dev libglib2.0-dev libwebkit2gtk-4.1-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev protobuf-compiler
 
       - name: Install dependencies
         run: pnpm install
