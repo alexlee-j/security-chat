@@ -73,8 +73,8 @@ jobs:
           # Build backend first (must complete before starting)
           pnpm build:backend
 
-          # Start backend in background from the correct directory
-          cd apps/backend && pnpm start &
+          # Start backend in background - use pnpm exec to properly resolve node_modules
+          cd apps/backend && pnpm exec node dist/main.js &
           BACKEND_PID=$!
           echo "Backend PID: $BACKEND_PID"
 
