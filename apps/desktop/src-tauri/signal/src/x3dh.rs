@@ -81,12 +81,43 @@ pub fn initiate_session(
     })
 }
 
+/// 接收方 X3DH 实现
+///
+/// # 设计说明
+///
+/// 完整的接收方 X3DH 需要访问本地签名预密钥的私钥，但当前数据结构设计
+/// 无法支持这一点。正确的实现需要：
+/// 1. 存储结构包含本地签名预密钥的私钥
+/// 2. 消息格式需要包含接收方公钥信息
+///
+/// 当前 `EncryptedMessage` 包含发送方的公钥，但缺少接收方使用的公钥信息。
+/// 接收方需要这些公钥来重新计算 DH。
+///
+/// # 解决方案
+///
+/// 有两种方式修复：
+/// 1. **修改消息格式**：在 PreKeyMessage 中包含接收方使用的公钥
+/// 2. **使用密钥仓库**：存储本地私钥，通过 prekey_id 查找
+///
+/// 当前实现返回错误直到完成完整设计。
 pub fn accept_session(
     _local_identity: &Option<IdentityKeyPair>,
     _prekey_message: &super::EncryptedMessage,
 ) -> Result<SessionState, X3DHError> {
-    // 接收方 X3DH 实现
-    // 与 initiate_session 类似但使用接收方的密钥
+    // TODO: 实现完整的接收方 X3DH
+    //
+    // 需要：
+    // 1. 从 prekey_message 提取发送方公钥 (identity_key, base_key)
+    // 2. 查找本地签名预密钥私钥（通过 prekey_id）
+    // 3. 执行 DH 计算：
+    //    - DH1 = DH(SPK_B_private, EK_A_public)  // 接收方签名预密钥私钥 × 发送方临时公钥
+    //    - DH2 = DH(IK_B_private, EK_A_public)   // 接收方身份私钥 × 发送方临时公钥
+    //    - DH3 = DH(SPK_B_private, EK_A_public)  // 同 DH1
+    //    - DH4 = DH(OPK_B_private, EK_A_public)  // 如果使用一次性预密钥
+    // 4. 合并 DH 输出并通过 HKDF 生成根密钥和链密钥
+    //
+    // 当前数据结构不支持步骤 2，需要重构 IdentityKeyPair 或存储结构
+
     Err(X3DHError::InvalidPrekeyBundle)
 }
 
