@@ -22,7 +22,7 @@ pub fn encrypt(session: &mut SessionState, plaintext: &[u8]) -> Result<Encrypted
     use generic_array::GenericArray;
     use rand::RngCore;
 
-    type AegGcm256 = Aes256Gcm;
+    type AesGcm256 = Aes256Gcm;
 
     // 1. 生成消息密钥
     let (message_key, next_chain_key) = derive_message_key(&session.sending_chain_key)?;
@@ -31,7 +31,7 @@ pub fn encrypt(session: &mut SessionState, plaintext: &[u8]) -> Result<Encrypted
     session.sending_chain_key = next_chain_key;
 
     // 3. 加密消息
-    let cipher = AegGcm256::new_from_slice(&message_key)
+    let cipher = AesGcm256::new_from_slice(&message_key)
         .map_err(|_| RatchetError::DecryptionFailed)?;
 
     let mut nonce_bytes = [0u8; 12];
@@ -67,7 +67,7 @@ pub fn decrypt(session: &mut SessionState, encrypted: &EncryptedMessage) -> Resu
     use aes_gcm::aead::{Aead, KeyInit};
     use generic_array::GenericArray;
 
-    type AegGcm256 = Aes256Gcm;
+    type AesGcm256 = Aes256Gcm;
 
     // 1. 推进链（如果需要）
     while session.receiving_index < encrypted.message_number {
@@ -82,7 +82,7 @@ pub fn decrypt(session: &mut SessionState, encrypted: &EncryptedMessage) -> Resu
         .map_err(|_| RatchetError::InvalidMessageKey)?;
 
     // 3. 解密
-    let cipher = AegGcm256::new_from_slice(&message_key)
+    let cipher = AesGcm256::new_from_slice(&message_key)
         .map_err(|_| RatchetError::DecryptionFailed)?;
 
     if encrypted.ciphertext.len() < 12 {

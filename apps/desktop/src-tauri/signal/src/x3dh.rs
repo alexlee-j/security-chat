@@ -9,15 +9,13 @@ pub enum X3DHError {
     MissingIdentityKey,
     #[error("Invalid prekey bundle")]
     InvalidPrekeyBundle,
-    #[error("DH failure")]
-    DhFailure,
 }
 
 pub fn initiate_session(
     local_identity: &Option<IdentityKeyPair>,
     bundle: &PrekeyBundle,
 ) -> Result<SessionState, X3DHError> {
-    let local_identity = local_identity.as_ref().ok_or(X3DHError::MissingIdentityKey)?;
+    let _local_identity = local_identity.as_ref().ok_or(X3DHError::MissingIdentityKey)?;
 
     use x25519_dalek::{PublicKey, StaticSecret};
 
