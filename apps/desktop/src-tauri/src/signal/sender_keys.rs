@@ -20,10 +20,10 @@ use aes_gcm::{
     aead::{Aead, KeyInit},
     Aes256Gcm, Nonce,
 };
+use hkdf::Hkdf;
 use rand::Rng as _;
-use rand::TryRngCore as _;
-use rand::rngs::OsRng;
 use serde::{Deserialize, Serialize};
+use sha2::Sha256;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use thiserror::Error;
@@ -105,9 +105,9 @@ struct SenderKeyState {
 
 impl GroupSession {
     /// Create a new group session
-    pub fn new(group_id: &str, creator_id: &str) -> Self {
+    pub fn new(_group_id: &str, creator_id: &str) -> Self {
         let mut group_key = [0u8; 32];
-        OsRng.unwrap_err().fill(&mut group_key);
+        rand::thread_rng().fill(&mut group_key);
 
         let mut session = Self {
             group_key,
@@ -125,8 +125,8 @@ impl GroupSession {
     pub fn generate_sender_key(&mut self, user_id: &str) {
         let mut sender_key = [0u8; 32];
         let mut chain_key = [0u8; 32];
-        OsRng.unwrap_err().fill(&mut sender_key);
-        OsRng.unwrap_err().fill(&mut chain_key);
+        rand::thread_rng().fill(&mut sender_key);
+        rand::thread_rng().fill(&mut chain_key);
 
         self.sender_keys.insert(
             user_id.to_string(),
@@ -149,7 +149,7 @@ impl GroupSession {
             .map_err(|e| SenderKeyError::EncryptionFailed(e.to_string()))?;
 
         let mut nonce_bytes = [0u8; 12];
-        OsRng.unwrap_err().fill(&mut nonce_bytes);
+        rand::thread_rng().fill(&mut nonce_bytes);
         let nonce = Nonce::from_slice(&nonce_bytes);
 
         let ciphertext = cipher
@@ -183,7 +183,7 @@ impl GroupSession {
             .map_err(|_| SenderKeyError::DecryptionFailed("Invalid sender key length".to_string()))?;
 
         let mut chain_key = [0u8; 32];
-        OsRng.unwrap_err().fill(&mut chain_key);
+        rand::thread_rng().fill(&mut chain_key);
 
         self.sender_keys.insert(user_id.to_string(), SenderKeyState {
             key: sender_key,
@@ -222,32 +222,30 @@ impl GroupSession {
         // Save chain_key before ratcheting (needed for message decryption)
         let chain_key_for_message = sender_state.chain_key;
 
-        // Derive message key from chain key
-        let mut message_key = [0u8; 32];
-        let mut chain_input = sender_state.chain_key.to_vec();
-        chain_input.extend_from_slice(&message_number.to_le_bytes());
-        // Simplified: just XOR for demo - production should use HKDF
-        for (i, byte) in message_key.iter_mut().enumerate() {
-            *byte = chain_input.get(i).copied().unwrap_or(0) ^ sender_state.key[i];
-        }
+        // Derive message key from chain key using HKDF
+        let hk = Hkdf::<Sha256>::new(None, &sender_state.chain_key);
+        let mut okm = vec![0u8; 64];
+        let info = format!("msg-key:{}", message_number);
+        hk.expand(info.as_bytes(), &mut okm).map_err(|_| SenderKeyError::EncryptionFailed("HKDF expand failed".to_string()))?;
+        let message_key: [u8; 32] = okm[..32].try_into().unwrap();
 
-        // Encrypt with message key (simplified)
+        // Encrypt with message key
         let ciphertext = Self::simple_encrypt(plaintext, &message_key);
 
-        // Update chain key (ratchet step)
-        let mut new_chain_key = [0u8; 32];
-        for (i, byte) in new_chain_key.iter_mut().enumerate() {
-            *byte = sender_state.chain_key[i] ^ (message_number as u8).wrapping_add(i as u8);
-        }
-        sender_state.chain_key = new_chain_key;
+        // Update chain key using HKDF
+        let chain_hk = Hkdf::<Sha256>::new(None, &sender_state.chain_key);
+        let mut chain_okm = vec![0u8; 32];
+        let chain_info = format!("chain-key:{}", message_number);
+        chain_hk.expand(chain_info.as_bytes(), &mut chain_okm).map_err(|_| SenderKeyError::EncryptionFailed("HKDF expand failed".to_string()))?;
+        sender_state.chain_key = chain_okm.try_into().unwrap();
 
-        // Ratchet sender key periodically (every 100 messages)
+        // Ratchet sender key periodically (every 100 messages) using HKDF
         if message_number % 100 == 0 && message_number > 0 {
-            let mut new_key = [0u8; 32];
-            for (i, byte) in new_key.iter_mut().enumerate() {
-                *byte = sender_state.key[i] ^ (message_number as u8).wrapping_add(i as u8);
-            }
-            sender_state.key = new_key;
+            let key_hk = Hkdf::<Sha256>::new(None, &sender_state.key);
+            let mut key_okm = vec![0u8; 32];
+            let key_info = format!("sender-key:{}", message_number);
+            key_hk.expand(key_info.as_bytes(), &mut key_okm).map_err(|_| SenderKeyError::EncryptionFailed("HKDF expand failed".to_string()))?;
+            sender_state.key = key_okm.try_into().unwrap();
         }
 
         Ok(GroupEncryptedMessage {
@@ -260,16 +258,15 @@ impl GroupSession {
 
     /// Decrypt a message using sender key
     pub fn decrypt_message(&self, sender_id: &str, message: &GroupEncryptedMessage) -> Result<Vec<u8>, SenderKeyError> {
-        let sender_state = self.sender_keys.get(sender_id)
+        let _sender_state = self.sender_keys.get(sender_id)
             .ok_or(SenderKeyError::MemberNotFound(sender_id.to_string()))?;
 
-        // Derive message key using the chain_key from the message (not the current ratcheted one)
-        let mut message_key = [0u8; 32];
-        let mut chain_input = message.chain_key.to_vec();
-        chain_input.extend_from_slice(&message.message_number.to_le_bytes());
-        for (i, byte) in message_key.iter_mut().enumerate() {
-            *byte = chain_input.get(i).copied().unwrap_or(0) ^ sender_state.key[i];
-        }
+        // Derive message key using the chain_key from the message using HKDF
+        let hk = Hkdf::<Sha256>::new(None, &message.chain_key);
+        let mut okm = vec![0u8; 64];
+        let info = format!("msg-key:{}", message.message_number);
+        hk.expand(info.as_bytes(), &mut okm).map_err(|_| SenderKeyError::DecryptionFailed("HKDF expand failed".to_string()))?;
+        let message_key: [u8; 32] = okm[..32].try_into().unwrap();
 
         // Decrypt with message key
         Self::simple_decrypt(&message.ciphertext, &message_key)
@@ -282,7 +279,7 @@ impl GroupSession {
 
         // Generate random 12-byte nonce
         let mut nonce_bytes = [0u8; 12];
-        OsRng.unwrap_err().fill(&mut nonce_bytes);
+        rand::thread_rng().fill(&mut nonce_bytes);
         let nonce = Nonce::from_slice(&nonce_bytes);
 
         // Encrypt (ciphertext includes auth tag)
@@ -543,16 +540,10 @@ mod tests {
         store.create_group("group1", "Test Group", 1);
         store.add_member("group1", "bob").unwrap();
 
-        // Bob encrypts a message
-        let session = store.get_session("group1").unwrap();
-        session.generate_sender_key("bob");
-        drop(session);
+        // Remove Bob
+        store.remove_member("group1", "bob").unwrap();
 
-        let session = store.get_session("group1").unwrap();
-        session.remove_member("bob").unwrap();
-        drop(session);
-
-        // Try to decrypt with removed member - should fail
+        // Verify Bob is no longer a member
         let session = store.get_session("group1").unwrap();
         assert!(!session.has_member("bob"));
     }

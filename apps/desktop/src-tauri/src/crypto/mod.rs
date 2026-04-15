@@ -5,5 +5,3 @@
 pub mod mac_keychain;
 pub mod keychain;
 
-pub use mac_keychain::MacKeychain;
-pub use keychain::{KeyType, SecureKeychain, SecureKeychainHandle, create_secure_keychain};

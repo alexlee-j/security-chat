@@ -4,8 +4,6 @@
 
 use crate::db::local_store::{Conversation, DbStore, Draft, Message};
 use std::path::PathBuf;
-use std::sync::Arc;
-use tokio::sync::Mutex;
 use tauri::State;
 
 /// 应用数据库状态
@@ -20,15 +18,6 @@ impl AppDbState {
         let store = crate::db::local_store::create_db_store(&db_path)?;
         Ok(Self { store, db_path })
     }
-}
-
-/// 初始化数据库
-#[tauri::command]
-pub async fn db_init(db_path: String) -> Result<bool, String> {
-    let path = PathBuf::from(db_path);
-    let state = AppDbState::new(path)?;
-    // Store state in app managed state would be done in main.rs
-    Ok(true)
 }
 
 /// 保存消息

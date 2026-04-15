@@ -53,6 +53,8 @@ dirs = "5"
 
 # 加密
 aes-gcm = "0.10"
+hkdf = "0.12"
+sha2 = "0.10"
 
 # macOS 安全存储 (Keychain)
 [target.'cfg(target_os = "macos")'.dependencies]

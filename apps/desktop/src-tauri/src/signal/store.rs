@@ -15,9 +15,7 @@ use libsignal_protocol::{
     DeviceId, KeyPair, kem, Timestamp,
     SignalProtocolError,
 };
-use rand::TryRngCore as _;
 use rand::Rng as _;
-use rand::rngs::OsRng;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
@@ -26,7 +24,7 @@ pub type AppStore = Arc<Mutex<InMemSignalProtocolStore>>;
 
 /// 创建新的 store
 pub fn create_store() -> Result<AppStore, SignalProtocolError> {
-    let mut rng = OsRng.unwrap_err();
+    let mut rng = rand::thread_rng();
     let identity_key_pair = IdentityKeyPair::generate(&mut rng);
     let registration_id: u32 = rng.random_range(1..65536);
     let store = InMemSignalProtocolStore::new(identity_key_pair, registration_id)?;
@@ -41,7 +39,7 @@ pub async fn initialize_store(store: &AppStore) -> Result<(), SignalProtocolErro
         let mut store_guard = store_clone.lock()
             .map_err(|_| SignalProtocolError::InvalidState("store", "poisoned lock".to_string()))?;
         
-        let mut rng = OsRng.unwrap_err();
+        let mut rng = rand::thread_rng();
 
         // 生成预密钥 (100 个)
         for i in 1..=100 {
