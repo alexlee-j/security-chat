@@ -1,6 +1,6 @@
 // apps/desktop/src-tauri/signal/src/double_ratchet.rs
 
-use super::{EncryptedMessage, DecryptedMessage, SessionState};
+use super::{EncryptedMessage, DecryptedMessage, SessionState, PreKeyMessage};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -16,13 +16,15 @@ pub enum RatchetError {
 const MESSAGE_KEY_SIZE: usize = 32;
 const CHAIN_KEY_SIZE: usize = 32;
 
-pub fn encrypt(session: &mut SessionState, plaintext: &[u8]) -> Result<EncryptedMessage, RatchetError> {
+/// 加密消息
+/// pre_key_message: 如果是第一条消息（sending_index == 0），需要传入 X3DH 数据
+pub fn encrypt(session: &mut SessionState, plaintext: &[u8], pre_key_message: Option<&PreKeyMessage>) -> Result<EncryptedMessage, RatchetError> {
     use aes_gcm::Aes256Gcm;
     use aes_gcm::aead::{Aead, KeyInit};
     use generic_array::GenericArray;
     use rand::RngCore;
 
-    type AegGcm256 = Aes256Gcm;
+    type AesGcm256 = Aes256Gcm;
 
     // 1. 生成消息密钥
     let (message_key, next_chain_key) = derive_message_key(&session.sending_chain_key)?;
@@ -31,7 +33,7 @@ pub fn encrypt(session: &mut SessionState, plaintext: &[u8]) -> Result<Encrypted
     session.sending_chain_key = next_chain_key;
 
     // 3. 加密消息
-    let cipher = AegGcm256::new_from_slice(&message_key)
+    let cipher = AesGcm256::new_from_slice(&message_key)
         .map_err(|_| RatchetError::DecryptionFailed)?;
 
     let mut nonce_bytes = [0u8; 12];
@@ -45,17 +47,30 @@ pub fn encrypt(session: &mut SessionState, plaintext: &[u8]) -> Result<Encrypted
     let mut result = nonce_bytes.to_vec();
     result.extend(ciphertext);
 
+    // 4. 如果是第一条消息，嵌入 X3DH 数据
+    let (identity_key, base_key, signed_prekey_id, pre_key_id) = if let Some(ref pkm) = pre_key_message {
+        (
+            Some(pkm.identity_key.clone()),
+            Some(pkm.ephemeral_key.clone()),
+            Some(pkm.signed_prekey_id),
+            pkm.one_time_prekey_id,
+        )
+    } else {
+        (None, None, None, None)
+    };
+
     let message = EncryptedMessage {
-        pre_key_id: None,
-        base_key: None,
-        identity_key: None,
+        identity_key,
+        base_key,
+        signed_prekey_id,
+        pre_key_id,
         message_number: session.sending_index,
         previous_sending_index: Some(session.previous_sending_index),
         ciphertext: result,
         dh_public_key: None,
     };
 
-    // 4. 推进 ratchet
+    // 5. 推进 ratchet
     session.previous_sending_index = session.sending_index;
     session.sending_index += 1;
 
@@ -67,7 +82,7 @@ pub fn decrypt(session: &mut SessionState, encrypted: &EncryptedMessage) -> Resu
     use aes_gcm::aead::{Aead, KeyInit};
     use generic_array::GenericArray;
 
-    type AegGcm256 = Aes256Gcm;
+    type AesGcm256 = Aes256Gcm;
 
     // 1. 推进链（如果需要）
     while session.receiving_index < encrypted.message_number {
@@ -82,7 +97,7 @@ pub fn decrypt(session: &mut SessionState, encrypted: &EncryptedMessage) -> Resu
         .map_err(|_| RatchetError::InvalidMessageKey)?;
 
     // 3. 解密
-    let cipher = AegGcm256::new_from_slice(&message_key)
+    let cipher = AesGcm256::new_from_slice(&message_key)
         .map_err(|_| RatchetError::DecryptionFailed)?;
 
     if encrypted.ciphertext.len() < 12 {
