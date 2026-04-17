@@ -394,3 +394,165 @@ describe('MessageService sendMessageV2', () => {
     expect(eventSpy).toHaveBeenCalled();
   });
 });
+
+describe('MessageService forwardMessage', () => {
+  let messageRepository: jest.Mocked<Repository<Message>>;
+  let messageEnvelopeRepository: jest.Mocked<Repository<MessageDeviceEnvelope>>;
+  let draftRepository: jest.Mocked<Repository<DraftMessage>>;
+  let revokeEventRepository: jest.Mocked<Repository<RevokeEvent>>;
+  let mediaAssetRepository: jest.Mocked<Repository<MediaAsset>>;
+  let dataSource: jest.Mocked<DataSource>;
+  let conversationService: jest.Mocked<ConversationService>;
+  let messageGateway: jest.Mocked<MessageGateway>;
+  let notificationService: jest.Mocked<NotificationService>;
+  let redis: jest.Mocked<Redis>;
+  let service: MessageService;
+
+  const userId = '22222222-2222-4222-8222-222222222222';
+  const originalMessageId = '77777777-7777-4777-8777-777777777777';
+
+  const buildManager = (overrides: {
+    originalMessage?: Message | null;
+  } = {}): MockManager => {
+    const query = jest.fn(async (sql: string, _params?: unknown[]) => {
+      if (sql.includes('SELECT pg_advisory_xact_lock')) {
+        return [];
+      }
+      if (sql.includes('SELECT COALESCE(MAX(message_index), 0) + 1 AS next_index')) {
+        return [{ next_index: 1 }];
+      }
+      throw new Error(`Unexpected SQL in test: ${sql}`);
+    });
+
+    const findOne = jest.fn(async (entity: unknown) => {
+      if (entity === Message) {
+        return overrides.originalMessage ?? null;
+      }
+      return null;
+    });
+
+    const create = jest.fn((_entity: unknown, payload: object) => ({ ...payload }));
+
+    const save = jest.fn(async (entity: unknown, payload: any) => {
+      if (entity === Message) {
+        return {
+          id: '99999999-9999-4999-8999-999999999999',
+          createdAt,
+          ...payload,
+        };
+      }
+      return payload;
+    });
+
+    return { create, findOne, query, save };
+  };
+
+  beforeEach(() => {
+    messageRepository = {
+      findOne: jest.fn(),
+    } as unknown as jest.Mocked<Repository<Message>>;
+    messageEnvelopeRepository = {} as jest.Mocked<Repository<MessageDeviceEnvelope>>;
+    draftRepository = {} as jest.Mocked<Repository<DraftMessage>>;
+    revokeEventRepository = {} as jest.Mocked<Repository<RevokeEvent>>;
+    mediaAssetRepository = {} as jest.Mocked<Repository<MediaAsset>>;
+    dataSource = {
+      transaction: jest.fn(),
+      query: jest.fn(),
+    } as unknown as jest.Mocked<DataSource>;
+    conversationService = {
+      assertMember: jest.fn().mockResolvedValue(undefined),
+    } as unknown as jest.Mocked<ConversationService>;
+    messageGateway = {} as jest.Mocked<MessageGateway>;
+    notificationService = {} as jest.Mocked<NotificationService>;
+    redis = {} as jest.Mocked<Redis>;
+
+    service = new MessageService(
+      messageRepository,
+      messageEnvelopeRepository,
+      draftRepository,
+      revokeEventRepository,
+      mediaAssetRepository,
+      dataSource,
+      conversationService,
+      messageGateway,
+      notificationService,
+      redis,
+    );
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('rejects forwarding a v2 message (encryptedPayload is null)', async () => {
+    const v2Message = {
+      id: originalMessageId,
+      conversationId,
+      senderId: 'aaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      messageType: 1,
+      encryptedPayload: null, // v2 message
+      mediaAssetId: null,
+      isBurn: false,
+      burnDuration: null,
+    } as Message;
+
+    const manager = buildManager({ originalMessage: v2Message });
+    dataSource.transaction.mockImplementation(async (...args: unknown[]) => {
+      const callback = args.at(-1) as (em: EntityManager) => Promise<unknown>;
+      return callback(manager as unknown as EntityManager);
+    });
+
+    await expect(
+      service.forwardMessage(userId, {
+        conversationId,
+        originalMessageId,
+      }),
+    ).rejects.toThrow(
+      new BadRequestException('v2 消息不支持服务端转发，请在客户端重新加密后发送'),
+    );
+
+    expect(conversationService.assertMember).toHaveBeenCalledWith(conversationId, userId);
+  });
+
+  it('allows forwarding a legacy message (encryptedPayload is not null)', async () => {
+    const legacyMessage = {
+      id: originalMessageId,
+      conversationId,
+      senderId: 'aaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      messageType: 1,
+      encryptedPayload: 'legacy-ciphertext', // legacy message
+      mediaAssetId: null,
+      isBurn: false,
+      burnDuration: null,
+    } as Message;
+
+    const manager = buildManager({ originalMessage: legacyMessage });
+    dataSource.transaction.mockImplementation(async (...args: unknown[]) => {
+      const callback = args.at(-1) as (em: EntityManager) => Promise<unknown>;
+      return callback(manager as unknown as EntityManager);
+    });
+
+    const eventSpy = jest
+      .spyOn<any, any>(service as any, 'handleMessageSentEvent')
+      .mockResolvedValue(undefined);
+
+    const result = await service.forwardMessage(userId, {
+      conversationId,
+      originalMessageId,
+    });
+
+    expect(result.messageId).toBe('99999999-9999-4999-8999-999999999999');
+    expect(manager.save).toHaveBeenCalledWith(
+      Message,
+      expect.objectContaining({
+        conversationId,
+        senderId: userId,
+        messageType: 1,
+        encryptedPayload: 'legacy-ciphertext',
+        isForwarded: true,
+        originalMessageId,
+      }),
+    );
+    expect(eventSpy).toHaveBeenCalled();
+  });
+});
