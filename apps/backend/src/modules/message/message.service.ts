@@ -1158,6 +1158,14 @@ export class MessageService implements OnModuleInit, OnModuleDestroy {
       throw new NotFoundException('Original message not found');
     }
 
+    // v2 消息（encryptedPayload 为 null）不能通过服务端转发，因为需要重新加密
+    // 客户端必须：下载原始消息 -> 解密 -> 重新加密 -> 通过 send-v2 发送
+    if (originalMessage.encryptedPayload === null) {
+      throw new BadRequestException(
+        'v2 消息不支持服务端转发，请在客户端重新加密后发送',
+      );
+    }
+
     const sent = await this.dataSource.transaction(async (manager) => {
       const burnSettings = await this.resolveBurnSettings(
         manager,

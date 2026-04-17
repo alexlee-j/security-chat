@@ -243,6 +243,36 @@ export async function sendMessage(input: SendMessageInput): Promise<{ messageId:
   return res.data.data;
 }
 
+/**
+ * 发送消息输入参数（v2 版本，支持多设备信封）
+ */
+type SendMessageV2Input = {
+  conversationId: string;
+  messageType: 1 | 2 | 3 | 4;
+  nonce: string;
+  envelopes: Array<{
+    targetUserId: string;
+    targetDeviceId: string;
+    encryptedPayload: string;
+  }>;
+  mediaAssetId?: string;
+  isBurn: boolean;
+  burnDuration?: number;
+};
+
+export async function sendMessageV2(input: SendMessageV2Input): Promise<{ messageId: string; messageIndex: string }> {
+  const res = await http.post<ApiEnvelope<{ messageId: string; messageIndex: string }>>('/message/send-v2', {
+    conversationId: input.conversationId,
+    messageType: input.messageType,
+    nonce: input.nonce,
+    envelopes: input.envelopes,
+    mediaAssetId: input.mediaAssetId,
+    isBurn: input.isBurn,
+    burnDuration: input.isBurn ? input.burnDuration : undefined,
+  });
+  return res.data.data;
+}
+
 export async function uploadMedia(
   file: File,
   mediaKind?: 2 | 3 | 4,

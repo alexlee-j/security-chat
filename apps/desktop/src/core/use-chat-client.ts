@@ -326,23 +326,11 @@ export function useChatClient(): {
         if (senderId === authRef.current?.userId) {
           decrypted = decodePayloadApi(payload);
         } else {
-          try {
-            const senderDeviceId = sourceDeviceId || '1';
-            decrypted = await signalActions.decryptMessage(senderId, senderDeviceId, payload);
-          } catch (error) {
-            if (isExpectedSignalError(error)) {
-              // 预期的 Signal 错误（如会话不存在），降级到默认解密
-              console.warn('Signal decryption failed (expected), falling back to default:', error);
-              decrypted = decodePayloadApi(payload);
-            } else if (isSignalProtocolError(error)) {
-              // 其他 Signal 协议错误，记录并降级
-              console.error('Signal protocol error:', error);
-              decrypted = decodePayloadApi(payload);
-            } else {
-              // 非 Signal 错误（如网络错误、编程错误），抛出
-              throw error;
-            }
+          // Rust-only 模式：sourceDeviceId 是必填的，不再接受 '1' 作为回退
+          if (!sourceDeviceId) {
+            throw new Error('sourceDeviceId is required for Signal decryption in Rust-only mode');
           }
+          decrypted = await signalActions.decryptMessage(senderId, sourceDeviceId, payload);
         }
       } else {
         // 使用默认解密
@@ -1298,38 +1286,56 @@ export function useChatClient(): {
         return;
       }
 
-      // 使用Signal协议加密消息
-      let encryptedPayload: string;
-      let currentDeviceId: string | undefined;
+      // 初始化 Signal 协议
       if (!signalState.initialized) {
         await signalActions.initialize(authRef.current?.userId);
       }
+
+      // 获取当前设备 ID
+      let currentDeviceId: string | undefined;
       currentDeviceId = await import('./signal/key-management').then(({ KeyManager }) =>
         KeyManager.getInstance().getDeviceId(),
       ) ?? undefined;
-      const devices = await getDevicesByUserIds([recipientUserId]);
-      const recipientDevice = devices[0]?.devices?.[0];
-      if (!recipientDevice) {
+
+      // 获取接收方所有设备
+      const deviceInfoList = await getDevicesByUserIds([recipientUserId]);
+      const recipientDevices = deviceInfoList[0]?.devices ?? [];
+      if (recipientDevices.length === 0) {
         throw new Error('无法获取接收方设备信息');
       }
-      const recipientDeviceId = recipientDevice.deviceId;
-      encryptedPayload = await signalActions.encryptMessage(recipientUserId, recipientDeviceId, messageText);
+
+      // 对接收方所有设备进行加密（fan-out）
+      const nonce = crypto.randomUUID().replace(/-/g, '').slice(0, 24);
+      const envelopes: Array<{ targetUserId: string; targetDeviceId: string; encryptedPayload: string }> = [];
+      for (const recipientDevice of recipientDevices) {
+        const encryptedPayload = await signalActions.encryptMessage(
+          recipientUserId,
+          recipientDevice.deviceId,
+          messageText,
+        );
+        envelopes.push({
+          targetUserId: recipientUserId,
+          targetDeviceId: recipientDevice.deviceId,
+          encryptedPayload,
+        });
+      }
 
       // 对于自己发送的消息，预先缓存明文，避免解密时无法显示
-      payloadCacheRef.current.set(encryptedPayload, messageText);
+      // 注意：这里缓存的是同一份明文，因为所有 envelope 都是同一个 messageText 加密的
+      for (const envelope of envelopes) {
+        payloadCacheRef.current.set(envelope.encryptedPayload, messageText);
+      }
 
-      await sendMessage({
+      // 调用 send-v2 接口，提交所有设备信封
+      const { sendMessageV2 } = await import('./api');
+      await sendMessageV2({
         conversationId: activeConversationIdRef.current,
         messageType,
-        text,
-        mediaUrl: messageType === 1 ? undefined : mediaUrl.trim() || undefined,
-        fileName: messageType === 4 ? (mediaUrl.trim() || 'file') : undefined,
+        nonce,
+        envelopes,
         mediaAssetId: messageType === 1 ? undefined : pendingMediaAssetIdRef.current ?? undefined,
         isBurn: isBurnForThisMessage,
         burnDuration: isBurnForThisMessage ? burnDuration : undefined,
-        replyTo,
-        sourceDeviceId: currentDeviceId,
-        encryptedPayload, // 使用 Signal 加密后的 payload
       });
       setMessageText('');
       setReplyToMessage(null);
