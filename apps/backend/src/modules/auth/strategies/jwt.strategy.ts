@@ -8,6 +8,8 @@ import { JwtPayload } from '../interfaces/jwt-payload.interface';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
+  private readonly allowLegacyDeviceLessTokens: boolean;
+
   constructor(
     configService: ConfigService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
@@ -20,22 +22,31 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new Error('JWT_SECRET environment variable is required in production');
     }
 
+    const allowLegacyDeviceLessTokens =
+      configService.get<string>('AUTH_ALLOW_LEGACY_DEVICELESS_TOKENS', 'true') === 'true';
+
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
       secretOrKey: secret || 'dev_secret_change_me',
     });
+
+    this.allowLegacyDeviceLessTokens = allowLegacyDeviceLessTokens;
   }
 
   async validate(payload: JwtPayload): Promise<{
     userId: string;
     jti: string;
     tokenType: 'access' | 'refresh';
+    deviceId?: string;
     iat: number;
     exp: number;
   }> {
     if (payload.type !== 'access') {
       throw new UnauthorizedException('Invalid token type');
+    }
+    if (!payload.deviceId && !this.allowLegacyDeviceLessTokens) {
+      throw new UnauthorizedException('Invalid token payload');
     }
 
     const key = `token:blacklist:${payload.jti}`;
@@ -55,6 +66,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       userId: payload.sub,
       jti: payload.jti,
       tokenType: payload.type,
+      deviceId: payload.deviceId,
       iat: payload.iat,
       exp: payload.exp,
     };

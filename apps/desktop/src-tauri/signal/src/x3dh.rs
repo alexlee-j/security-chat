@@ -1,6 +1,6 @@
 // apps/desktop/src-tauri/signal/src/x3dh.rs
 
-use super::{IdentityKeyPair, PrekeyBundle, SessionState};
+use super::{EncryptedMessage, IdentityKeyPair, PrekeyBundle, PrekeyStore, PreKeyMessage, SessionState};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -9,13 +9,25 @@ pub enum X3DHError {
     MissingIdentityKey,
     #[error("Invalid prekey bundle")]
     InvalidPrekeyBundle,
+    #[error("Missing signed prekey")]
+    MissingSignedPrekey,
+    #[error("Missing one-time prekey")]
+    MissingOneTimePrekey,
+    #[error("Invalid public key")]
+    InvalidPublicKey,
+}
+
+/// X3DH 发起方结果
+pub struct X3DHResult {
+    pub pre_key_message: PreKeyMessage,
+    pub session_state: SessionState,
 }
 
 pub fn initiate_session(
     local_identity: &Option<IdentityKeyPair>,
     bundle: &PrekeyBundle,
-) -> Result<SessionState, X3DHError> {
-    let _local_identity = local_identity.as_ref().ok_or(X3DHError::MissingIdentityKey)?;
+) -> Result<X3DHResult, X3DHError> {
+    let local_identity = local_identity.as_ref().ok_or(X3DHError::MissingIdentityKey)?;
 
     use x25519_dalek::{PublicKey, StaticSecret};
 
@@ -24,12 +36,10 @@ pub fn initiate_session(
     let ephemeral_public = PublicKey::from(&ephemeral_private);
 
     // 从 Bundle 获取接收方公钥
-    // identity_key 是 [u8; 32]
     let identity_key_array: [u8; 32] = bundle.identity_key.clone().try_into()
         .map_err(|_| X3DHError::InvalidPrekeyBundle)?;
     let recipient_identity_public = PublicKey::from(identity_key_array);
 
-    // signed_prekey public_key 也是 [u8; 32]
     let spk_array: [u8; 32] = bundle.signed_prekey.public_key.clone().try_into()
         .map_err(|_| X3DHError::InvalidPrekeyBundle)?;
     let recipient_signed_prekey_public = PublicKey::from(spk_array);
@@ -44,13 +54,13 @@ pub fn initiate_session(
     let dh3 = ephemeral_private.diffie_hellman(&recipient_signed_prekey_public);
 
     // 如果有一时预密钥，计算 DH4 = DH(EK_A, OPK_B)
-    let dh4 = if let Some(ref opk) = bundle.one_time_prekey {
+    let (dh4, opk_id) = if let Some(ref opk) = bundle.one_time_prekey {
         let opk_array: [u8; 32] = opk.public_key.clone().try_into()
             .map_err(|_| X3DHError::InvalidPrekeyBundle)?;
         let opk_public = PublicKey::from(opk_array);
-        Some(ephemeral_private.diffie_hellman(&opk_public))
+        (Some(ephemeral_private.diffie_hellman(&opk_public)), Some(opk.key_id))
     } else {
-        None
+        (None, None)
     };
 
     // 合并 DH 输出
@@ -65,12 +75,20 @@ pub fn initiate_session(
     // KDF 生成根密钥和链密钥
     let (root_key, chain_key) = hkdf_sha256(&combined, b"X3DH");
 
-    Ok(SessionState {
+    // 创建 PreKeyMessage（发送第一条消息时使用）
+    let pre_key_message = PreKeyMessage {
+        identity_key: local_identity.public_key.clone(),
+        ephemeral_key: ephemeral_public.to_bytes().to_vec(),
+        signed_prekey_id: bundle.signed_prekey.key_id,
+        one_time_prekey_id: opk_id,
+    };
+
+    let session_state = SessionState {
         session_id: format!("{:x}", rand::random::<u128>()),
         remote_user_id: String::new(),
         remote_device_id: String::new(),
-        sending_chain_key: chain_key,
-        receiving_chain_key: vec![],
+        sending_chain_key: chain_key.clone(),
+        receiving_chain_key: chain_key,
         sending_ratchet_key: ephemeral_public.to_bytes().to_vec(),
         receiving_ratchet_key: recipient_signed_prekey_public.to_bytes().to_vec(),
         sending_index: 0,
@@ -78,47 +96,114 @@ pub fn initiate_session(
         previous_sending_index: 0,
         root_key,
         remote_identity_key: bundle.identity_key.clone(),
+    };
+
+    Ok(X3DHResult {
+        pre_key_message,
+        session_state,
     })
 }
 
 /// 接收方 X3DH 实现
 ///
-/// # 设计说明
-///
-/// 完整的接收方 X3DH 需要访问本地签名预密钥的私钥，但当前数据结构设计
-/// 无法支持这一点。正确的实现需要：
-/// 1. 存储结构包含本地签名预密钥的私钥
-/// 2. 消息格式需要包含接收方公钥信息
-///
-/// 当前 `EncryptedMessage` 包含发送方的公钥，但缺少接收方使用的公钥信息。
-/// 接收方需要这些公钥来重新计算 DH。
-///
-/// # 解决方案
-///
-/// 有两种方式修复：
-/// 1. **修改消息格式**：在 PreKeyMessage 中包含接收方使用的公钥
-/// 2. **使用密钥仓库**：存储本地私钥，通过 prekey_id 查找
-///
-/// 当前实现返回错误直到完成完整设计。
+/// 当接收方（Bob）收到发送方（Alice）的 PreKeySignalMessage 时：
+/// 1. 从消息中提取 Alice 的公钥（identity_key, base_key）
+/// 2. 使用 Bob 的私钥（identity, signed_prekey, one_time_prekey）和 Alice 的公钥计算 DH
+/// 3. 合并 DH 输出，通过 HKDF 生成根密钥和链密钥
 pub fn accept_session(
-    _local_identity: &Option<IdentityKeyPair>,
-    _prekey_message: &super::EncryptedMessage,
+    local_identity: &Option<IdentityKeyPair>,
+    prekey_store: &PrekeyStore,
+    prekey_message: &EncryptedMessage,
 ) -> Result<SessionState, X3DHError> {
-    // TODO: 实现完整的接收方 X3DH
-    //
-    // 需要：
-    // 1. 从 prekey_message 提取发送方公钥 (identity_key, base_key)
-    // 2. 查找本地签名预密钥私钥（通过 prekey_id）
-    // 3. 执行 DH 计算：
-    //    - DH1 = DH(SPK_B_private, EK_A_public)  // 接收方签名预密钥私钥 × 发送方临时公钥
-    //    - DH2 = DH(IK_B_private, EK_A_public)   // 接收方身份私钥 × 发送方临时公钥
-    //    - DH3 = DH(SPK_B_private, EK_A_public)  // 同 DH1
-    //    - DH4 = DH(OPK_B_private, EK_A_public)  // 如果使用一次性预密钥
-    // 4. 合并 DH 输出并通过 HKDF 生成根密钥和链密钥
-    //
-    // 当前数据结构不支持步骤 2，需要重构 IdentityKeyPair 或存储结构
+    use x25519_dalek::{PublicKey, StaticSecret};
 
-    Err(X3DHError::InvalidPrekeyBundle)
+    // 1. 获取本地身份密钥
+    let local_identity = local_identity.as_ref().ok_or(X3DHError::MissingIdentityKey)?;
+
+    // 2. 从消息中提取发送方的公钥
+    let sender_identity_key = prekey_message.identity_key.as_ref()
+        .ok_or(X3DHError::InvalidPrekeyBundle)?;
+    let sender_ephemeral_key = prekey_message.base_key.as_ref()
+        .ok_or(X3DHError::InvalidPrekeyBundle)?;
+
+    let sender_identity_public = PublicKey::from(
+        <[u8; 32]>::try_from(sender_identity_key.as_slice())
+            .map_err(|_| X3DHError::InvalidPublicKey)?
+    );
+    let sender_ephemeral_public = PublicKey::from(
+        <[u8; 32]>::try_from(sender_ephemeral_key.as_slice())
+            .map_err(|_| X3DHError::InvalidPublicKey)?
+    );
+
+    // 3. 获取本地签名预密钥私钥
+    let signed_prekey = prekey_store.signed_prekey.as_ref()
+        .ok_or(X3DHError::MissingSignedPrekey)?;
+    let spk_private = StaticSecret::from(
+        <[u8; 32]>::try_from(signed_prekey.private_key.as_slice())
+            .map_err(|_| X3DHError::InvalidPublicKey)?
+    );
+    // 同时获取签名预密钥的公钥（用于接收方 ratchet）
+    let spk_public = PublicKey::from(
+        <[u8; 32]>::try_from(signed_prekey.public_key.as_slice())
+            .map_err(|_| X3DHError::InvalidPublicKey)?
+    );
+
+    // 4. 获取本地身份私钥
+    let ik_private = StaticSecret::from(
+        <[u8; 32]>::try_from(local_identity.private_key.as_slice())
+            .map_err(|_| X3DHError::InvalidPublicKey)?
+    );
+
+    // 5. 计算 DH
+    // DH1 = DH(SPK_B_private, EK_A_public)
+    let dh1 = spk_private.diffie_hellman(&sender_ephemeral_public);
+    // DH2 = DH(IK_B_private, EK_A_public)
+    let dh2 = ik_private.diffie_hellman(&sender_ephemeral_public);
+    // DH3 = DH(SPK_B_private, IK_A_public) - 用于接收链
+    let dh3 = spk_private.diffie_hellman(&sender_identity_public);
+
+    // 6. 如果使用了一次性预密钥，计算 DH4
+    let dh4 = if let Some(opk_id) = prekey_message.pre_key_id {
+        let opk = prekey_store.one_time_prekeys.iter()
+            .find(|opk| opk.key_id == opk_id)
+            .ok_or(X3DHError::MissingOneTimePrekey)?;
+        let opk_private = StaticSecret::from(
+            <[u8; 32]>::try_from(opk.private_key.as_slice())
+                .map_err(|_| X3DHError::InvalidPublicKey)?
+        );
+        Some(opk_private.diffie_hellman(&sender_ephemeral_public))
+    } else {
+        None
+    };
+
+    // 7. 合并 DH 输出
+    let mut combined = Vec::new();
+    combined.extend_from_slice(dh1.as_bytes());
+    combined.extend_from_slice(dh2.as_bytes());
+    combined.extend_from_slice(dh3.as_bytes());
+    if let Some(dh4_val) = dh4 {
+        combined.extend_from_slice(dh4_val.as_bytes());
+    }
+
+    // 8. KDF 生成根密钥和链密钥
+    let (root_key, chain_key) = hkdf_sha256(&combined, b"X3DH");
+
+    Ok(SessionState {
+        session_id: format!("{:x}", rand::random::<u128>()),
+        remote_user_id: String::new(),
+        remote_device_id: String::new(),
+        // 接收方发送链密钥与 X3DH 输出相同（用于初始化 Double Ratchet）
+        sending_chain_key: chain_key.clone(),
+        receiving_chain_key: chain_key,
+        // 接收方使用签名预密钥作为初始 ratchet 公钥
+        sending_ratchet_key: spk_public.to_bytes().to_vec(),
+        receiving_ratchet_key: sender_ephemeral_key.clone(),
+        sending_index: 0,
+        receiving_index: 0,
+        previous_sending_index: 0,
+        root_key,
+        remote_identity_key: sender_identity_key.clone(),
+    })
 }
 
 fn hkdf_sha256(ikm: &[u8], info: &[u8]) -> (Vec<u8>, Vec<u8>) {

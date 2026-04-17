@@ -178,7 +178,7 @@ export class MigrationPacker {
     // 简化实现：使用 HMAC-SHA256 签名
     const hmacKey = await crypto.subtle.importKey(
       'raw',
-      key,
+      Uint8Array.from(key),
       { name: 'HMAC', hash: 'SHA-256' },
       false,
       ['sign']

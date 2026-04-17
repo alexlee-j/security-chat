@@ -3,6 +3,7 @@ import { CurrentUser, RequestUser } from '../../common/decorators/current-user.d
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { MessageService } from './message.service';
 import { SendMessageDto } from './dto/send-message.dto';
+import { SendMessageV2Dto } from './dto/send-message-v2.dto';
 import { QueryMessagesDto } from './dto/query-messages.dto';
 import { AckDeliveredDto } from './dto/ack-delivered.dto';
 import { AckReadDto } from './dto/ack-read.dto';
@@ -27,9 +28,17 @@ export class MessageController {
     return this.messageService.sendMessage(user.userId, dto);
   }
 
+  @Post('send-v2')
+  sendV2(
+    @CurrentUser() user: RequestUser,
+    @Body() dto: SendMessageV2Dto,
+  ): Promise<{ messageId: string; messageIndex: string }> {
+    return this.messageService.sendMessageV2(user, dto);
+  }
+
   @Get('list')
   list(@CurrentUser() user: RequestUser, @Query() query: QueryMessagesDto): Promise<Message[]> {
-    return this.messageService.queryMessages(user.userId, query);
+    return this.messageService.queryMessages(user.userId, query, user.deviceId);
   }
 
   @Post('ack/delivered')

@@ -18,7 +18,8 @@ export async function initWasmSignal(): Promise<void> {
 
     // 动态导入 WASM 胶水代码
     // 这个路径是 wasm-pack --target web --out-dir 输出的位置
-    const wasm = await import('./wasm/signal_protocol');
+    const wasmModulePath = './wasm/signal_protocol';
+    const wasm = await import(/* @vite-ignore */ wasmModulePath);
     await wasm.default(); // 初始化 WASM
 
     // @ts-ignore - WASM 模块动态加载

@@ -14,6 +14,7 @@ import { Device } from './entities/device.entity';
 import { OneTimePrekey } from './entities/one-time-prekey.entity';
 import { User } from './entities/user.entity';
 import { KeyVerification } from './entities/key-verification.entity';
+import { KyberPreKey } from '../prekey/entities/prekey.entity';
 
 interface CreateUserInput {
   username: string;
@@ -55,6 +56,8 @@ export class UserService {
     private readonly oneTimePrekeyRepository: Repository<OneTimePrekey>,
     @InjectRepository(KeyVerification)
     private readonly keyVerificationRepository: Repository<KeyVerification>,
+    @InjectRepository(KyberPreKey)
+    private readonly kyberPrekeyRepository: Repository<KyberPreKey>,
     @Inject(REDIS_CLIENT)
     private readonly redis: Redis,
   ) {}
@@ -136,6 +139,7 @@ export class UserService {
     userId: string,
     deviceId: string,
     data: {
+      identityKey?: string;
       signedPrekey?: {
         keyId: number;
         publicKey: string;
@@ -145,6 +149,11 @@ export class UserService {
         keyId: number;
         publicKey: string;
       }>;
+      kyberPrekey?: {
+        keyId: number;
+        publicKey: string;
+        signature: string;
+      };
     },
   ): Promise<{ inserted: number; deviceId: string }> {
     await this.assertOwnDevice(userId, deviceId);
@@ -152,15 +161,16 @@ export class UserService {
     let insertedCount = 0;
 
     // 更新签名预密钥（如果提供）
-    if (data.signedPrekey) {
+    if (data.identityKey || data.signedPrekey) {
       await this.deviceRepository.update(
         { id: deviceId, userId },
         {
-          signedPreKey: data.signedPrekey.publicKey,
-          signedPreKeySignature: data.signedPrekey.signature,
+          identityPublicKey: data.identityKey,
+          signedPreKey: data.signedPrekey?.publicKey,
+          signedPreKeySignature: data.signedPrekey?.signature,
         },
       );
-      insertedCount++; // 计入签名预密钥的更新
+      insertedCount++;
     }
 
     // 插入一次性预密钥（如果提供）
@@ -176,6 +186,19 @@ export class UserService {
 
       await this.oneTimePrekeyRepository.save(rows);
       insertedCount += rows.length;
+    }
+
+    if (data.kyberPrekey) {
+      await this.kyberPrekeyRepository.save(
+        this.kyberPrekeyRepository.create({
+          userId,
+          kyberPreKeyId: data.kyberPrekey.keyId,
+          publicKey: data.kyberPrekey.publicKey,
+          signature: data.kyberPrekey.signature,
+          timestamp: Date.now(),
+        }),
+      );
+      insertedCount += 1;
     }
 
     return {
@@ -263,6 +286,7 @@ export class UserService {
   async getNextAvailablePrekey(deviceId: string): Promise<{
     preKeyId: string;
     deviceId: string;
+    keyId: number | null;
     publicKey: string;
   } | null> {
     const prekey = await this.oneTimePrekeyRepository.findOne({
@@ -277,6 +301,7 @@ export class UserService {
     return {
       preKeyId: prekey.id,
       deviceId: prekey.deviceId,
+      keyId: prekey.keyId,
       publicKey: prekey.publicKey,
     };
   }
@@ -324,13 +349,14 @@ export class UserService {
   async getAndConsumeNextPrekey(deviceId: string): Promise<{
     preKeyId: string;
     deviceId: string;
+    keyId: number | null;
     publicKey: string;
   } | null> {
     return this.oneTimePrekeyRepository.manager.transaction(async (manager) => {
       const rows = await manager.query(
         `
         WITH picked AS (
-          SELECT id, device_id, public_key
+          SELECT id, device_id, key_id, public_key
           FROM one_time_prekeys
           WHERE device_id = $1 AND is_used = false
           ORDER BY created_at ASC
@@ -341,7 +367,7 @@ export class UserService {
         SET is_used = true
         FROM picked
         WHERE otp.id = picked.id
-        RETURNING picked.id AS "preKeyId", picked.device_id AS "deviceId", picked.public_key AS "publicKey";
+        RETURNING picked.id AS "preKeyId", picked.device_id AS "deviceId", picked.key_id AS "keyId", picked.public_key AS "publicKey";
         `,
         [deviceId],
       );
@@ -355,7 +381,7 @@ export class UserService {
         return null;
       }
 
-      return first as { preKeyId: string; deviceId: string; publicKey: string };
+      return first as { preKeyId: string; deviceId: string; keyId: number | null; publicKey: string };
     });
   }
 
@@ -492,6 +518,11 @@ export class UserService {
       keyId: number;
       publicKey: string;
     };
+    kyberPrekey?: {
+      keyId: number;
+      publicKey: string;
+      signature: string;
+    };
   } | null> {
     // 获取设备信息
     const device = await this.deviceRepository.findOne({
@@ -505,6 +536,10 @@ export class UserService {
 
     // 获取并消耗一个一次性预密钥
     const oneTimePrekey = await this.getAndConsumeNextPrekey(deviceId);
+    const kyberPrekey = await this.kyberPrekeyRepository.findOne({
+      where: { userId },
+      order: { createdAt: 'DESC' },
+    });
 
     return {
       registrationId: device.registrationId || 0,
@@ -516,9 +551,16 @@ export class UserService {
       },
       oneTimePrekey: oneTimePrekey ? {
         preKeyId: oneTimePrekey.preKeyId,
-        keyId: 1, // 一次性预密钥的 keyId
+        keyId: oneTimePrekey.keyId ?? 1,
         publicKey: oneTimePrekey.publicKey,
       } : undefined,
+      kyberPrekey: kyberPrekey
+        ? {
+            keyId: kyberPrekey.kyberPreKeyId,
+            publicKey: kyberPrekey.publicKey,
+            signature: kyberPrekey.signature,
+          }
+        : undefined,
     };
   }
 
@@ -534,6 +576,7 @@ export class UserService {
       signature: string;
     };
     oneTimePrekeyAvailable: boolean;
+    kyberPrekeyAvailable: boolean;
   } | null> {
     const device = await this.deviceRepository.findOne({
       where: { id: deviceId, userId },
@@ -546,6 +589,10 @@ export class UserService {
 
     // 检查是否有可用的一次性预密钥
     const availablePrekey = await this.getNextAvailablePrekey(deviceId);
+    const kyberPrekey = await this.kyberPrekeyRepository.findOne({
+      where: { userId },
+      order: { createdAt: 'DESC' },
+    });
 
     return {
       registrationId: device.registrationId || 0,
@@ -556,6 +603,7 @@ export class UserService {
         signature: device.signedPreKeySignature,
       },
       oneTimePrekeyAvailable: !!availablePrekey,
+      kyberPrekeyAvailable: !!kyberPrekey,
     };
   }
 

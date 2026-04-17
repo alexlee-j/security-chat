@@ -44,6 +44,12 @@ function base64ToArray(base64: string): Uint8Array {
   return bytes;
 }
 
+function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  const copied = new Uint8Array(bytes.byteLength);
+  copied.set(bytes);
+  return copied.buffer;
+}
+
 /**
  * 将 SessionState 转换为可序列化格式
  *
@@ -88,7 +94,7 @@ export async function deserializeSessionState(
 ): Promise<any> {
   const localPublicKey = await crypto.subtle.importKey(
     'raw',
-    base64ToArray(data.localIdentityPublicKey),
+    toArrayBuffer(base64ToArray(data.localIdentityPublicKey)),
     { name: 'ECDH', namedCurve: 'P-256' },
     true,
     []
@@ -96,7 +102,7 @@ export async function deserializeSessionState(
 
   const localPrivateKey = await crypto.subtle.importKey(
     'pkcs8',
-    base64ToArray(data.localIdentityPrivateKey),
+    toArrayBuffer(base64ToArray(data.localIdentityPrivateKey)),
     { name: 'ECDH', namedCurve: 'P-256' },
     true,
     []
@@ -116,7 +122,7 @@ export async function deserializeSessionState(
     sendingRatchetKey: data.sendingRatchetPublicKey
       ? await crypto.subtle.importKey(
           'raw',
-          base64ToArray(data.sendingRatchetPublicKey),
+          toArrayBuffer(base64ToArray(data.sendingRatchetPublicKey)),
           { name: 'ECDH', namedCurve: 'P-256' },
           true,
           []
@@ -125,7 +131,7 @@ export async function deserializeSessionState(
     receivingRatchetKey: data.receivingRatchetPublicKey
       ? await crypto.subtle.importKey(
           'raw',
-          base64ToArray(data.receivingRatchetPublicKey),
+          toArrayBuffer(base64ToArray(data.receivingRatchetPublicKey)),
           { name: 'ECDH', namedCurve: 'P-256' },
           true,
           []

@@ -15,6 +15,10 @@ export class SendMessageDto {
 
   @IsOptional()
   @IsUUID()
+  sourceDeviceId?: string;
+
+  @IsOptional()
+  @IsUUID()
   mediaAssetId?: string;
 
   @IsOptional()

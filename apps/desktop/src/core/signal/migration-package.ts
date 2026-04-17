@@ -62,6 +62,12 @@ export interface MigrationAuthCode {
   targetDeviceId?: string;             // 目标设备ID（授权后填充）
 }
 
+function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  const copied = new Uint8Array(bytes.byteLength);
+  copied.set(bytes);
+  return copied.buffer;
+}
+
 /**
  * HKDF-SHA256 派生密钥
  */
@@ -72,7 +78,7 @@ export async function hkdf(
 ): Promise<Uint8Array> {
   const keyMaterial = await crypto.subtle.importKey(
     'raw',
-    masterKey,
+    toArrayBuffer(masterKey),
     'HKDF',
     false,
     ['deriveBits']
@@ -96,7 +102,7 @@ export async function hkdf(
  * SHA-256 哈希
  */
 export async function sha256(data: Uint8Array): Promise<string> {
-  const hash = await crypto.subtle.digest('SHA-256', data);
+  const hash = await crypto.subtle.digest('SHA-256', toArrayBuffer(data));
   return arrayToBase64(new Uint8Array(hash));
 }
 
@@ -125,7 +131,7 @@ export function base64ToArray(base64: string): Uint8Array {
 export async function importAesKey(key: Uint8Array): Promise<CryptoKey> {
   return crypto.subtle.importKey(
     'raw',
-    key,
+    toArrayBuffer(key),
     { name: 'AES-GCM' },
     false,
     ['encrypt', 'decrypt']
@@ -146,7 +152,7 @@ export async function encryptAesGcm(
   const ciphertext = await crypto.subtle.encrypt(
     { name: 'AES-GCM', iv },
     cryptoKey,
-    encoded
+    toArrayBuffer(encoded)
   );
 
   return {
@@ -168,9 +174,9 @@ export async function decryptAesGcm(
 
   const cryptoKey = await importAesKey(key);
   const decrypted = await crypto.subtle.decrypt(
-    { name: 'AES-GCM', iv },
+    { name: 'AES-GCM', iv: toArrayBuffer(iv) },
     cryptoKey,
-    ciphertext
+    toArrayBuffer(ciphertext)
   );
 
   return new TextDecoder().decode(decrypted);

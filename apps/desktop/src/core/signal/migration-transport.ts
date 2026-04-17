@@ -231,9 +231,14 @@ export class MigrationTransport {
     // 使用 qrcode.js 生成二维码
     // 返回 Data URL
     try {
-      // 动态导入 qrcode 库
-      const QRCode = await import('qrcode');
-      return QRCode.toDataURL(data, {
+      // 运行时动态导入，避免构建阶段强依赖 qrcode 包
+      const dynamicImport = new Function('m', 'return import(m)') as (m: string) => Promise<any>;
+      const QRCode = await dynamicImport('qrcode');
+      const toDataURL = QRCode?.toDataURL as ((text: string, options?: any) => Promise<string>) | undefined;
+      if (!toDataURL) {
+        return data;
+      }
+      return await toDataURL(data, {
         width: 300,
         margin: 2,
         color: {

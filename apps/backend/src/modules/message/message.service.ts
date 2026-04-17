@@ -1,6 +1,6 @@
 import { BadRequestException, Inject, forwardRef, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, EntityManager, Repository } from 'typeorm';
+import { DataSource, EntityManager, In, IsNull, Repository } from 'typeorm';
 import { unlink } from 'node:fs/promises';
 import { ConversationService } from '../conversation/conversation.service';
 import { Conversation } from '../conversation/entities/conversation.entity';
@@ -21,6 +21,10 @@ import { MessageGateway } from './gateways/message.gateway';
 import { NotificationService } from '../notification/notification.service';
 import Redis from 'ioredis';
 import { REDIS_CLIENT } from '../../infra/redis/redis.module';
+import { RequestUser } from '../../common/decorators/current-user.decorator';
+import { MessageDeviceEnvelope } from './entities/message-device-envelope.entity';
+import { SendMessageV2Dto } from './dto/send-message-v2.dto';
+import { SendMessageEnvelopeDto } from './dto/send-message-envelope.dto';
 
 type ExpiredBurnRow = {
   id: string;
@@ -61,6 +65,8 @@ export class MessageService implements OnModuleInit, OnModuleDestroy {
   constructor(
     @InjectRepository(Message)
     private readonly messageRepository: Repository<Message>,
+    @InjectRepository(MessageDeviceEnvelope)
+    private readonly messageEnvelopeRepository: Repository<MessageDeviceEnvelope>,
     @InjectRepository(DraftMessage)
     private readonly draftRepository: Repository<DraftMessage>,
     @InjectRepository(RevokeEvent)
@@ -94,10 +100,7 @@ export class MessageService implements OnModuleInit, OnModuleDestroy {
     dto: SendMessageDto,
   ): Promise<{ messageId: string; messageIndex: string }> {
     await this.conversationService.assertMember(dto.conversationId, senderId);
-
-    if (dto.messageType === 1 && dto.mediaAssetId) {
-      throw new BadRequestException('Text message must not include mediaAssetId');
-    }
+    this.assertMediaPayloadShape(dto.messageType, dto.mediaAssetId);
 
     const sent = await this.dataSource.transaction(async (manager) => {
       const burnSettings = await this.resolveBurnSettings(
@@ -127,12 +130,14 @@ export class MessageService implements OnModuleInit, OnModuleDestroy {
           conversationId: dto.conversationId,
           senderId,
           nonce: dto.nonce,
+          sourceDeviceId: dto.sourceDeviceId ?? IsNull(),
         },
       });
       if (existed) {
         const samePayload =
           existed.messageType === dto.messageType &&
           existed.encryptedPayload === dto.encryptedPayload &&
+          (existed.sourceDeviceId ?? null) === (dto.sourceDeviceId ?? null) &&
           (existed.mediaAssetId ?? null) === (mediaAssetId ?? null) &&
           existed.isBurn === burnSettings.isBurn &&
           (existed.burnDuration ?? null) === (burnSettings.burnDuration ?? null);
@@ -149,11 +154,22 @@ export class MessageService implements OnModuleInit, OnModuleDestroy {
         };
       }
 
+      if (dto.sourceDeviceId) {
+        const ownDevice = await manager.query(
+          'SELECT id FROM devices WHERE id = $1 AND user_id = $2 LIMIT 1;',
+          [dto.sourceDeviceId, senderId],
+        );
+        if (!Array.isArray(ownDevice) || ownDevice.length === 0) {
+          throw new BadRequestException('sourceDeviceId is invalid for current user');
+        }
+      }
+
       const nextIndex = String(result[0].next_index);
 
       const message = manager.create(Message, {
         conversationId: dto.conversationId,
         senderId,
+        sourceDeviceId: dto.sourceDeviceId ?? null,
         messageType: dto.messageType,
         encryptedPayload: dto.encryptedPayload,
         nonce: dto.nonce,
@@ -177,6 +193,121 @@ export class MessageService implements OnModuleInit, OnModuleDestroy {
     if (!sent.deduped) {
       // 异步处理WebSocket事件和通知，避免阻塞主流程
       void this.handleMessageSentEvent(sent, senderId);
+    }
+
+    return { messageId: sent.messageId, messageIndex: sent.messageIndex };
+  }
+
+  async sendMessageV2(
+    user: RequestUser,
+    dto: SendMessageV2Dto,
+  ): Promise<{ messageId: string; messageIndex: string }> {
+    const sourceDeviceId = this.assertAuthenticatedDeviceId(user);
+
+    await this.conversationService.assertMember(dto.conversationId, user.userId);
+    this.assertMediaPayloadShape(dto.messageType, dto.mediaAssetId);
+    this.assertEnvelopeSetIsWellFormed(dto.envelopes);
+
+    const sent = await this.dataSource.transaction(async (manager) => {
+      const burnSettings = await this.resolveBurnSettings(
+        manager,
+        dto.conversationId,
+        dto.messageType,
+        dto.isBurn,
+        dto.burnDuration,
+      );
+
+      const mediaAssetId = dto.mediaAssetId
+        ? await this.assertAndBindMediaAsset(manager, user.userId, dto.conversationId, dto.messageType, dto.mediaAssetId)
+        : null;
+
+      await this.assertSourceDeviceBelongsToSender(manager, user.userId, sourceDeviceId);
+      await this.assertEnvelopeTargetsBelongToConversation(
+        manager,
+        dto.conversationId,
+        user.userId,
+        dto.envelopes,
+      );
+
+      await manager.query(
+        'SELECT pg_advisory_xact_lock(hashtext($1));',
+        [dto.conversationId],
+      );
+
+      const result = await manager.query(
+        'SELECT COALESCE(MAX(message_index), 0) + 1 AS next_index FROM messages WHERE conversation_id = $1;',
+        [dto.conversationId],
+      );
+
+      const existed = await manager.findOne(Message, {
+        where: {
+          conversationId: dto.conversationId,
+          senderId: user.userId,
+          nonce: dto.nonce,
+          sourceDeviceId,
+        },
+      });
+      if (existed) {
+        const samePayload =
+          existed.messageType === dto.messageType &&
+          existed.encryptedPayload === null &&
+          (existed.sourceDeviceId ?? null) === sourceDeviceId &&
+          (existed.mediaAssetId ?? null) === (mediaAssetId ?? null) &&
+          existed.isBurn === burnSettings.isBurn &&
+          (existed.burnDuration ?? null) === (burnSettings.burnDuration ?? null) &&
+          await this.hasMatchingEnvelopeSet(manager, existed.id, sourceDeviceId, dto.envelopes);
+        if (!samePayload) {
+          throw new BadRequestException('Replay nonce conflict detected');
+        }
+        return {
+          conversationId: dto.conversationId,
+          messageId: existed.id,
+          messageIndex: String(existed.messageIndex),
+          senderId: user.userId,
+          createdAt: existed.createdAt.toISOString(),
+          deduped: true,
+        };
+      }
+
+      const nextIndex = String(result[0].next_index);
+
+      const message = manager.create(Message, {
+        conversationId: dto.conversationId,
+        senderId: user.userId,
+        sourceDeviceId,
+        messageType: dto.messageType,
+        encryptedPayload: null,
+        nonce: dto.nonce,
+        mediaAssetId,
+        messageIndex: nextIndex,
+        isBurn: burnSettings.isBurn,
+        burnDuration: burnSettings.burnDuration,
+      });
+
+      const saved = await manager.save(Message, message);
+      const envelopes = dto.envelopes.map((envelope) =>
+        manager.create(MessageDeviceEnvelope, {
+          messageId: saved.id,
+          targetUserId: envelope.targetUserId,
+          targetDeviceId: envelope.targetDeviceId,
+          sourceDeviceId,
+          encryptedPayload: envelope.encryptedPayload,
+        }),
+      );
+      await manager.save(MessageDeviceEnvelope, envelopes);
+
+      return {
+        conversationId: dto.conversationId,
+        messageId: saved.id,
+        messageIndex: nextIndex,
+        senderId: user.userId,
+        createdAt: saved.createdAt.toISOString(),
+        deduped: false,
+      };
+    });
+
+    if (!sent.deduped) {
+      void this.handleMessageSentEvent(sent, user.userId);
     }
 
     return { messageId: sent.messageId, messageIndex: sent.messageIndex };
@@ -219,7 +350,7 @@ export class MessageService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  async queryMessages(userId: string, query: QueryMessagesDto): Promise<Message[]> {
+  async queryMessages(userId: string, query: QueryMessagesDto, deviceId?: string): Promise<Message[]> {
     await this.conversationService.assertMember(query.conversationId, userId);
     // Optimized: Moved cleanup to background to improve query performance
     void this.cleanupExpiredBurnMessages(query.conversationId);
@@ -240,7 +371,9 @@ export class MessageService implements OnModuleInit, OnModuleDestroy {
         .orderBy('m.messageIndex', 'DESC')
         .limit(limit)
         .getMany();
-      return olderRows.reverse();
+      const rows = olderRows.reverse();
+      await this.resolveEnvelopePayloadsForDevice(rows, deviceId);
+      return rows;
     }
 
     if (afterIndex <= 0) {
@@ -251,10 +384,12 @@ export class MessageService implements OnModuleInit, OnModuleDestroy {
         .orderBy('m.messageIndex', 'DESC')
         .limit(limit)
         .getMany();
-      return latestRows.reverse();
+      const rows = latestRows.reverse();
+      await this.resolveEnvelopePayloadsForDevice(rows, deviceId);
+      return rows;
     }
 
-    return this.messageRepository
+    const rows = await this.messageRepository
       .createQueryBuilder('m')
       .where('m.conversationId = :conversationId', { conversationId: query.conversationId })
       .andWhere('m.messageIndex > :afterIndex', { afterIndex: String(afterIndex) })
@@ -262,6 +397,231 @@ export class MessageService implements OnModuleInit, OnModuleDestroy {
       .orderBy('m.messageIndex', 'ASC')
       .limit(limit)
       .getMany();
+    await this.resolveEnvelopePayloadsForDevice(rows, deviceId);
+    return rows;
+  }
+
+  private assertMediaPayloadShape(messageType: number, mediaAssetId?: string | null): void {
+    if (messageType === 1 && mediaAssetId) {
+      throw new BadRequestException('Text message must not include mediaAssetId');
+    }
+  }
+
+  private assertAuthenticatedDeviceId(user: RequestUser): string {
+    if (!user.deviceId) {
+      throw new BadRequestException('Authenticated deviceId is required for send-v2');
+    }
+    return user.deviceId;
+  }
+
+  private assertEnvelopeSetIsWellFormed(envelopes: SendMessageEnvelopeDto[]): void {
+    if (envelopes.length === 0) {
+      throw new BadRequestException('envelopes must not be empty');
+    }
+
+    const seen = new Set<string>();
+    for (const envelope of envelopes) {
+      const key = `${envelope.targetUserId}:${envelope.targetDeviceId}`;
+      if (seen.has(key)) {
+        throw new BadRequestException('duplicate target device envelope');
+      }
+      seen.add(key);
+    }
+  }
+
+  private async assertSourceDeviceBelongsToSender(
+    manager: EntityManager,
+    senderId: string,
+    sourceDeviceId: string,
+  ): Promise<void> {
+    const ownDevice = await manager.query(
+      'SELECT id FROM devices WHERE id = $1 AND user_id = $2 LIMIT 1;',
+      [sourceDeviceId, senderId],
+    );
+    if (!Array.isArray(ownDevice) || ownDevice.length === 0) {
+      throw new BadRequestException('Authenticated deviceId is invalid for current user');
+    }
+  }
+
+  private async assertEnvelopeTargetsBelongToConversation(
+    manager: EntityManager,
+    conversationId: string,
+    senderId: string,
+    envelopes: SendMessageEnvelopeDto[],
+  ): Promise<void> {
+    const conversation = await manager.findOne(Conversation, {
+      where: { id: conversationId },
+      select: ['id', 'type'],
+    });
+    if (!conversation) {
+      throw new NotFoundException('Conversation not found');
+    }
+    if (conversation.type !== 1) {
+      throw new BadRequestException('send-v2 currently supports direct conversations only');
+    }
+
+    const memberRows = await manager.query(
+      `SELECT user_id::text AS user_id FROM conversation_members WHERE conversation_id = $1;`,
+      [conversationId],
+    );
+    const memberUserIds = new Set(
+      (memberRows as Array<{ user_id?: string }>).map((row) => row.user_id ?? '').filter(Boolean),
+    );
+    const allowedDirectTargets = new Set([...memberUserIds]);
+
+    const targetDeviceIds = [...new Set(envelopes.map((envelope) => envelope.targetDeviceId))];
+    const rows = await manager.query(
+      `
+      SELECT d.id::text AS device_id, d.user_id::text AS user_id
+      FROM devices d
+      INNER JOIN conversation_members cm ON cm.user_id = d.user_id AND cm.conversation_id = $1
+      WHERE d.id = ANY($2::uuid[]);
+      `,
+      [conversationId, targetDeviceIds],
+    );
+    const devicesById = new Map(
+      (rows as Array<{ device_id?: string; user_id?: string }>)
+        .map((row) => [row.device_id ?? '', row.user_id ?? ''] as const)
+        .filter(([deviceId, userId]) => deviceId && userId),
+    );
+
+    for (const envelope of envelopes) {
+      if (!memberUserIds.has(envelope.targetUserId)) {
+        throw new BadRequestException('envelope target must be a conversation member device');
+      }
+
+      const actualUserId = devicesById.get(envelope.targetDeviceId);
+      if (!actualUserId || actualUserId !== envelope.targetUserId) {
+        throw new BadRequestException('envelope target must be a conversation member device');
+      }
+
+      if (!allowedDirectTargets.has(envelope.targetUserId)) {
+        throw new BadRequestException('direct conversations must target recipient devices');
+      }
+    }
+
+    const hasRecipientTarget = envelopes.some((envelope) => envelope.targetUserId !== senderId);
+    if (!hasRecipientTarget) {
+      throw new BadRequestException('direct conversations must include recipient device envelopes');
+    }
+    await this.assertDirectRecipientDeviceCoverage(
+      manager,
+      conversationId,
+      senderId,
+      envelopes,
+    );
+  }
+
+  private async hasMatchingEnvelopeSet(
+    manager: EntityManager,
+    messageId: string,
+    sourceDeviceId: string,
+    envelopes: SendMessageEnvelopeDto[],
+  ): Promise<boolean> {
+    const existingEnvelopes = await manager.find(MessageDeviceEnvelope, {
+      where: { messageId },
+    });
+
+    if (existingEnvelopes.length !== envelopes.length) {
+      return false;
+    }
+
+    const expected = new Map(
+      envelopes.map((envelope) => [
+        `${envelope.targetUserId}:${envelope.targetDeviceId}`,
+        envelope.encryptedPayload,
+      ]),
+    );
+
+    for (const envelope of existingEnvelopes) {
+      const key = `${envelope.targetUserId}:${envelope.targetDeviceId}`;
+      if ((envelope.sourceDeviceId ?? null) !== sourceDeviceId) {
+        return false;
+      }
+      if (expected.get(key) !== envelope.encryptedPayload) {
+        return false;
+      }
+      expected.delete(key);
+    }
+
+    return expected.size === 0;
+  }
+
+  private async resolveEnvelopePayloadsForDevice(rows: Message[], deviceId?: string): Promise<void> {
+    if (rows.length === 0) {
+      return;
+    }
+
+    const missingPayloadMessageIds = rows
+      .filter((row) => !row.encryptedPayload)
+      .map((row) => row.id);
+    if (missingPayloadMessageIds.length === 0) {
+      return;
+    }
+    if (!deviceId) {
+      throw new BadRequestException(
+        'Device context is required to read messages encrypted for multiple devices',
+      );
+    }
+
+    const payloadByMessageId = new Map<string, string>();
+    const envelopes = await this.messageEnvelopeRepository.find({
+      where: {
+        targetDeviceId: deviceId,
+        messageId: In(missingPayloadMessageIds),
+      },
+      select: ['messageId', 'encryptedPayload'],
+    });
+    envelopes.forEach((envelope) => {
+      payloadByMessageId.set(envelope.messageId, envelope.encryptedPayload);
+    });
+
+    for (const row of rows) {
+      if (!row.encryptedPayload) {
+        row.encryptedPayload = payloadByMessageId.get(row.id) ?? null;
+      }
+    }
+  }
+
+  private async assertDirectRecipientDeviceCoverage(
+    manager: EntityManager,
+    conversationId: string,
+    senderId: string,
+    envelopes: SendMessageEnvelopeDto[],
+  ): Promise<void> {
+    const expectedRows = await manager.query(
+      `
+      SELECT d.id::text AS device_id, d.user_id::text AS user_id
+      FROM devices d
+      INNER JOIN conversation_members cm ON cm.user_id = d.user_id
+      WHERE cm.conversation_id = $1
+        AND cm.user_id <> $2;
+      `,
+      [conversationId, senderId],
+    );
+    const requiredRecipientDeviceKeys = new Set(
+      (expectedRows as Array<{ device_id?: string; user_id?: string }>)
+        .map((row) => {
+          const deviceId = row.device_id ?? '';
+          const userId = row.user_id ?? '';
+          return deviceId && userId ? `${userId}:${deviceId}` : '';
+        })
+        .filter(Boolean),
+    );
+    if (requiredRecipientDeviceKeys.size === 0) {
+      throw new BadRequestException('direct conversations require at least one recipient device');
+    }
+
+    const providedRecipientKeys = new Set(
+      envelopes
+        .filter((envelope) => envelope.targetUserId !== senderId)
+        .map((envelope) => `${envelope.targetUserId}:${envelope.targetDeviceId}`),
+    );
+    for (const requiredKey of requiredRecipientDeviceKeys) {
+      if (!providedRecipientKeys.has(requiredKey)) {
+        throw new BadRequestException('direct conversations must include all recipient devices');
+      }
+    }
   }
 
   private async resolveBurnSettings(
@@ -861,10 +1221,7 @@ export class MessageService implements OnModuleInit, OnModuleDestroy {
 
   async saveDraft(userId: string, dto: SaveDraftDto): Promise<{ draftId: string }> {
     await this.conversationService.assertMember(dto.conversationId, userId);
-
-    if (dto.messageType === 1 && dto.mediaAssetId) {
-      throw new BadRequestException('Text message must not include mediaAssetId');
-    }
+    this.assertMediaPayloadShape(dto.messageType, dto.mediaAssetId);
 
     const existingDraft = await this.draftRepository.findOne({
       where: { userId, conversationId: dto.conversationId },

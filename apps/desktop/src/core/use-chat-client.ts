@@ -66,10 +66,10 @@ import {
   setRememberPassword,
   getRememberPassword,
   setAutoLogin,
-  getAutoLogin,
   clearAutoLogin,
   clearAllAuthData,
-  canAutoLogin,
+  getDeviceIdForAccount,
+  setDeviceIdForAccount,
 } from './auth-storage';
 
 const MESSAGE_CURSOR_STORAGE_KEY = 'security-chat.desktop.message-cursors.v1';
@@ -187,10 +187,16 @@ export type ChatClientActions = {
   toggleConversationMute: (conversationId: string) => void;
   deleteConversation: (conversationId: string) => Promise<boolean>;
   setFriendKeyword: (value: string) => void;
-  onLogin: (event: FormEvent<HTMLFormElement>, loginAccount?: string, loginPassword?: string) => Promise<void>;
+  onLogin: (
+    event: FormEvent<HTMLFormElement>,
+    loginAccount?: string,
+    loginPassword?: string,
+    rememberOverride?: boolean,
+    autoLoginOverride?: boolean,
+  ) => Promise<void>;
   onRegister: (username: string, email: string, password: string) => Promise<void>;
-  onSendLoginCode: () => Promise<void>;
-  onLoginWithCode: (event: FormEvent<HTMLFormElement>) => Promise<void>;
+  onSendLoginCode: (accountOverride?: string) => Promise<void>;
+  onLoginWithCode: (event: FormEvent<HTMLFormElement>, codeAccount?: string, codeValue?: string) => Promise<void>;
   onLogout: () => Promise<void>;
   onSendForgotCode: (event: FormEvent<HTMLFormElement>) => Promise<void>;
   onResetPassword: (event: FormEvent<HTMLFormElement>) => Promise<void>;
@@ -321,7 +327,6 @@ export function useChatClient(): {
           decrypted = decodePayloadApi(payload);
         } else {
           try {
-            // 使用实际的设备ID，如果没有则使用默认值
             const senderDeviceId = sourceDeviceId || '1';
             decrypted = await signalActions.decryptMessage(senderId, senderDeviceId, payload);
           } catch (error) {
@@ -711,7 +716,13 @@ export function useChatClient(): {
     }, 5000);
   }
 
-  async function onLogin(event: FormEvent<HTMLFormElement>, loginAccount?: string, loginPassword?: string): Promise<void> {
+  async function onLogin(
+    event: FormEvent<HTMLFormElement>,
+    loginAccount?: string,
+    loginPassword?: string,
+    rememberOverride?: boolean,
+    autoLoginOverride?: boolean,
+  ): Promise<void> {
     event.preventDefault();
     if (authSubmitting) {
       return;
@@ -720,23 +731,37 @@ export function useChatClient(): {
     // 注意：使用 !== undefined 判断，因为空字符串是有效值，不应回退到状态
     const accountToUse = loginAccount !== undefined ? loginAccount : account;
     const passwordToUse = loginPassword !== undefined ? loginPassword : password;
+    const rememberToUse = rememberOverride ?? rememberPassword;
+    const autoLoginToUse = autoLoginOverride ?? autoLogin;
     setAuthSubmitting(true);
     try {
-      const result = await login(accountToUse, passwordToUse);
+      const rememberedDeviceId = await getDeviceIdForAccount(accountToUse);
+      const result = await login(accountToUse, passwordToUse, rememberedDeviceId ?? undefined);
       setAuthToken(result.accessToken);
       setAuth({ token: result.accessToken, userId: result.userId });
 
+      if (rememberOverride !== undefined) {
+        setRememberPasswordState(rememberToUse);
+      }
+      if (autoLoginOverride !== undefined) {
+        setAutoLoginState(autoLoginToUse);
+      }
+
       // 根据选项保存凭证
-      if (rememberPassword) {
-        await storeCredentials(account, password);
+      if (rememberToUse) {
+        await storeCredentials(accountToUse, passwordToUse);
         await setRememberPassword(true);
       } else {
         await clearCredentials();
         await setRememberPassword(false);
       }
 
-      if (autoLogin) {
-        await setAutoLogin({ enabled: true, expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000 });
+      if (autoLoginToUse) {
+        await setAutoLogin({
+          enabled: true,
+          refreshToken: result.refreshToken,
+          expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000,
+        });
       } else {
         await clearAutoLogin();
       }
@@ -749,11 +774,14 @@ export function useChatClient(): {
 
         // 登录后获取设备列表并更新本地设备ID（在 initialize 之后）
         try {
-          const devices = await import('./api').then(api => api.getDevices());
+          const devices = await import('./api').then((api) => api.getDevices());
           if (devices && devices.length > 0) {
-            const primaryDevice = devices[0];
+            const selectedDevice = (rememberedDeviceId
+              ? devices.find((device) => device.deviceId === rememberedDeviceId)
+              : null) || devices[0];
             // 使用 Signal actions 设置设备ID
-            await signalActions.setDeviceId(primaryDevice.deviceId);
+            await signalActions.setDeviceId(selectedDevice.deviceId);
+            await setDeviceIdForAccount(accountToUse, selectedDevice.deviceId);
           }
         } catch (deviceError) {
           console.error('[Login] Failed to get devices:', deviceError);
@@ -785,11 +813,11 @@ export function useChatClient(): {
     }
   }
 
-  async function onSendLoginCode(): Promise<void> {
+  async function onSendLoginCode(accountOverride?: string): Promise<void> {
     if (sendingLoginCode || loginCodeCooldown > 0) {
       return;
     }
-    const accountValue = account.trim();
+    const accountValue = (accountOverride ?? account).trim();
     if (!accountValue) {
       showToast('请输入账号或邮箱', 'error');
       return;
@@ -811,14 +839,20 @@ export function useChatClient(): {
     }
   }
 
-  async function onLoginWithCode(event: FormEvent<HTMLFormElement>): Promise<void> {
+  async function onLoginWithCode(
+    event: FormEvent<HTMLFormElement>,
+    codeAccount?: string,
+    codeValue?: string,
+  ): Promise<void> {
     event.preventDefault();
     if (authSubmitting) {
       return;
     }
     setAuthSubmitting(true);
     try {
-      const result = await loginWithCode({ account: account.trim(), code: loginCode.trim() });
+      const accountToUse = (codeAccount ?? account).trim();
+      const codeToUse = (codeValue ?? loginCode).trim();
+      const result = await loginWithCode({ account: accountToUse, code: codeToUse });
       setAuthToken(result.accessToken);
       setAuth({ token: result.accessToken, userId: result.userId });
 
@@ -830,10 +864,14 @@ export function useChatClient(): {
 
         // 登录后获取设备列表并更新本地设备ID（在 initialize 之后）
         try {
-          const devices = await import('./api').then(api => api.getDevices());
+          const rememberedDeviceId = await getDeviceIdForAccount(accountToUse);
+          const devices = await import('./api').then((api) => api.getDevices());
           if (devices && devices.length > 0) {
-            const primaryDevice = devices[0];
-            await signalActions.setDeviceId(primaryDevice.deviceId);
+            const selectedDevice = (rememberedDeviceId
+              ? devices.find((device) => device.deviceId === rememberedDeviceId)
+              : null) || devices[0];
+            await signalActions.setDeviceId(selectedDevice.deviceId);
+            await setDeviceIdForAccount(accountToUse, selectedDevice.deviceId);
           }
         } catch (deviceError) {
           console.error('[LoginWithCode] Failed to get devices:', deviceError);
@@ -904,26 +942,14 @@ export function useChatClient(): {
     }
 
     try {
-      // 初始化Signal协议，生成身份密钥
-      await signalActions.initialize();
-
-      // 获取密钥管理器
       const keyManager = new (await import('./signal/key-management')).KeyManager();
-      await keyManager.initialize();
-
-      // 获取身份密钥对
-      const identityKeyPair = await keyManager.getIdentityKeyPair();
-
-      // 生成签名预密钥
-      const signedPrekey = await (await import('./signal')).X3DH.generateSignedPrekey(identityKeyPair, 1);
+      const { RustSignalRuntime } = await import('./signal/rust-signal');
+      const rustSignal = new RustSignalRuntime();
+      await rustSignal.initializeIdentity();
+      const registrationKeys = await rustSignal.getRegistrationKeys();
 
       // 检测操作系统类型
       const deviceType = detectDeviceType();
-
-      // 转换密钥为Base64格式
-      const identityPublicKey = btoa(String.fromCharCode(...identityKeyPair.publicKeyBytes));
-      const signedPreKeyPublic = btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.exportKey('raw', signedPrekey.keyPair.publicKey))));
-      const signedPreKeySignature = btoa(String.fromCharCode(...signedPrekey.signature));
 
       const result = await register({
         username: trimmedUsername,
@@ -932,9 +958,9 @@ export function useChatClient(): {
         password: trimmedPassword,
         deviceName: 'desktop-client',
         deviceType,
-        identityPublicKey,
-        signedPreKey: signedPreKeyPublic,
-        signedPreKeySignature,
+        identityPublicKey: registrationKeys.identityPublicKey,
+        signedPreKey: registrationKeys.signedPreKey,
+        signedPreKeySignature: registrationKeys.signedPreKeySignature,
       });
 
       setAuthToken(result.accessToken);
@@ -946,19 +972,20 @@ export function useChatClient(): {
         await new Promise(resolve => setTimeout(resolve, 500));
         
         // 获取设备列表
-        const devices = await import('./api').then(api => api.getDevices());
+        const devices = await import('./api').then((api) => api.getDevices());
         if (devices && devices.length > 0) {
           const primaryDevice = devices[0]; // 假设第一个设备是主要设备
           
           // 更新本地存储中的设备ID
           await keyManager['secureStorage'].set('currentDeviceId', primaryDevice.deviceId);
+          await setDeviceIdForAccount(trimmedUsername, primaryDevice.deviceId);
+          await setDeviceIdForAccount(trimmedEmail, primaryDevice.deviceId);
         }
       } catch (deviceError) {
         console.error('Failed to get devices after registration:', deviceError);
       }
 
-      // 生成一次性预密钥并上传
-      await keyManager.generateOneTimePrekeys(100);
+      // 上传 Rust 侧预密钥
       try {
         const { messageEncryptionService } = await import('./signal/message-encryption');
         // 使用在注册流程中创建的 keyManager，确保上传正确的预密钥
@@ -1046,6 +1073,7 @@ export function useChatClient(): {
     }
 
     stopFallbackPolling();
+    signalActions.resetRuntime();
     authRef.current = null;
     setAuthToken(null);
     setAuth(null);
@@ -1272,25 +1300,20 @@ export function useChatClient(): {
 
       // 使用Signal协议加密消息
       let encryptedPayload: string;
-      try {
-        if (signalState.initialized) {
-          // 获取接收方的设备列表
-          const devices = await getDevicesByUserIds([recipientUserId]);
-          const recipientDevice = devices[0]?.devices?.[0];
-          if (!recipientDevice) {
-            throw new Error('无法获取接收方设备信息');
-          }
-          const recipientDeviceId = recipientDevice.deviceId;
-          encryptedPayload = await signalActions.encryptMessage(recipientUserId, recipientDeviceId, messageText);
-        } else {
-          //  fallback到原有的Base64编码
-          encryptedPayload = btoa(unescape(encodeURIComponent(messageText)));
-        }
-      } catch (error) {
-        console.error('Encryption failed, falling back to Base64:', error);
-        // 加密失败时fallback到原有的Base64编码
-        encryptedPayload = btoa(unescape(encodeURIComponent(messageText)));
+      let currentDeviceId: string | undefined;
+      if (!signalState.initialized) {
+        await signalActions.initialize(authRef.current?.userId);
       }
+      currentDeviceId = await import('./signal/key-management').then(({ KeyManager }) =>
+        KeyManager.getInstance().getDeviceId(),
+      ) ?? undefined;
+      const devices = await getDevicesByUserIds([recipientUserId]);
+      const recipientDevice = devices[0]?.devices?.[0];
+      if (!recipientDevice) {
+        throw new Error('无法获取接收方设备信息');
+      }
+      const recipientDeviceId = recipientDevice.deviceId;
+      encryptedPayload = await signalActions.encryptMessage(recipientUserId, recipientDeviceId, messageText);
 
       // 对于自己发送的消息，预先缓存明文，避免解密时无法显示
       payloadCacheRef.current.set(encryptedPayload, messageText);
@@ -1305,6 +1328,7 @@ export function useChatClient(): {
         isBurn: isBurnForThisMessage,
         burnDuration: isBurnForThisMessage ? burnDuration : undefined,
         replyTo,
+        sourceDeviceId: currentDeviceId,
         encryptedPayload, // 使用 Signal 加密后的 payload
       });
       setMessageText('');

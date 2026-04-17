@@ -65,6 +65,7 @@ type SendMessageInput = {
     senderId: string;
     text: string;
   };
+  sourceDeviceId?: string;
   encryptedPayload?: string; // Signal 加密后的 payload
 };
 
@@ -95,8 +96,8 @@ export async function logout(): Promise<void> {
   await http.post('/auth/logout');
 }
 
-export async function login(account: string, password: string): Promise<AuthResult> {
-  const res = await http.post<ApiEnvelope<AuthResult>>('/auth/login', { account, password });
+export async function login(account: string, password: string, deviceId?: string): Promise<AuthResult> {
+  const res = await http.post<ApiEnvelope<AuthResult>>('/auth/login', { account, password, deviceId });
   return res.data.data;
 }
 
@@ -234,6 +235,7 @@ export async function sendMessage(input: SendMessageInput): Promise<{ messageId:
     messageType: input.messageType,
     encryptedPayload,
     nonce,
+    sourceDeviceId: input.sourceDeviceId,
     mediaAssetId: input.mediaAssetId,
     isBurn: input.isBurn,
     burnDuration: input.isBurn ? input.burnDuration : undefined,
@@ -363,6 +365,11 @@ export interface PrekeyBundle {
     keyId: number;
     publicKey: string;
   };
+  kyberPrekey?: {
+    keyId: number;
+    publicKey: string;
+    signature: string;
+  };
 }
 
 export interface PrekeyBundlePeek {
@@ -374,6 +381,7 @@ export interface PrekeyBundlePeek {
     signature: string;
   };
   oneTimePrekeyAvailable: boolean;
+  kyberPrekeyAvailable: boolean;
 }
 
 export interface PrekeyStats {
@@ -529,6 +537,7 @@ export async function getDevices(): Promise<Array<{
 // 预密钥上传 API
 export async function uploadPrekeys(data: {
   deviceId: string;
+  identityKey?: string;
   signedPrekey?: {
     keyId: number;
     publicKey: string;
@@ -538,6 +547,11 @@ export async function uploadPrekeys(data: {
     keyId: number;
     publicKey: string;
   }>;
+  kyberPrekey?: {
+    keyId: number;
+    publicKey: string;
+    signature: string;
+  };
 }): Promise<{ inserted: number; deviceId: string }> {
   const res = await http.post<ApiEnvelope<{ inserted: number; deviceId: string }>>('/user/keys/upload', data);
   return res.data.data;

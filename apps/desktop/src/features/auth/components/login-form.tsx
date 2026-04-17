@@ -30,6 +30,7 @@ interface LoginFormProps {
   onSubmit: (values: LoginFormData) => Promise<void>;
   onSwitchToRegister: () => void;
   onSwitchToForgotPassword: () => void;
+  onSwitchToCodeLogin: () => void;
 }
 
 export function LoginForm({
@@ -39,6 +40,7 @@ export function LoginForm({
   onSubmit,
   onSwitchToRegister,
   onSwitchToForgotPassword,
+  onSwitchToCodeLogin,
 }: LoginFormProps): JSX.Element {
   const form = useForm<LoginFormData>({
     resolver: zodResolver(loginSchema),
@@ -149,6 +151,13 @@ export function LoginForm({
           onClick={onSwitchToRegister}
         >
           立即注册
+        </span>
+        <span className="mx-2">·</span>
+        <span
+          className="text-primary cursor-pointer"
+          onClick={onSwitchToCodeLogin}
+        >
+          验证码登录
         </span>
       </div>
     </form>
