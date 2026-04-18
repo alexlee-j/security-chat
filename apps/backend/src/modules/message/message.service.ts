@@ -55,6 +55,14 @@ type MessageSearchRow = {
   createdat?: Date | string | null;
 };
 
+type ParsedRustGroupEnvelope = {
+  gid: string;
+  sid: string;
+  mn: number;
+  chain: string;
+  body: string;
+};
+
 @Injectable()
 export class MessageService implements OnModuleInit, OnModuleDestroy {
   private static readonly ALLOWED_BURN_DURATIONS = new Set([5, 10, 30, 60, 300]);
@@ -159,6 +167,23 @@ export class MessageService implements OnModuleInit, OnModuleDestroy {
         ? await this.assertAndBindMediaAsset(manager, senderId, dto.conversationId, dto.messageType, dto.mediaAssetId)
         : null;
 
+      const conversation = await manager.findOne(Conversation, {
+        where: { id: dto.conversationId },
+        select: ['id', 'type'],
+      });
+      if (!conversation) {
+        throw new NotFoundException('Conversation not found');
+      }
+      if (conversation.type !== 2) {
+        throw new BadRequestException('Direct conversations must use /api/v1/message/send-v2');
+      }
+      const groupEnvelope = this.assertAndParseGroupRustPayload(
+        dto.conversationId,
+        senderId,
+        dto.encryptedPayload,
+      );
+      await this.upsertGroupSenderKey(manager, dto.conversationId, senderId, groupEnvelope.chain);
+
       await manager.query(
         'SELECT pg_advisory_xact_lock(hashtext($1));',
         [dto.conversationId],
@@ -240,6 +265,150 @@ export class MessageService implements OnModuleInit, OnModuleDestroy {
     }
 
     return { messageId: sent.messageId, messageIndex: sent.messageIndex };
+  }
+
+  private async sendMessageLegacyTransactionPath(
+    manager: EntityManager,
+    senderId: string,
+    dto: SendMessageDto,
+    burnSettings: { isBurn: boolean; burnDuration: number | null },
+    mediaAssetId: string | null,
+  ): Promise<{
+    conversationId: string;
+    messageId: string;
+    messageIndex: string;
+    senderId: string;
+    createdAt: string;
+    deduped: boolean;
+  }> {
+    const existed = await manager.findOne(Message, {
+      where: {
+        conversationId: dto.conversationId,
+        senderId,
+        nonce: dto.nonce,
+        sourceDeviceId: dto.sourceDeviceId ?? IsNull(),
+      },
+    });
+    if (existed) {
+      const samePayload =
+        existed.messageType === dto.messageType &&
+        existed.encryptedPayload === dto.encryptedPayload &&
+        (existed.sourceDeviceId ?? null) === (dto.sourceDeviceId ?? null) &&
+        (existed.mediaAssetId ?? null) === (mediaAssetId ?? null) &&
+        existed.isBurn === burnSettings.isBurn &&
+        (existed.burnDuration ?? null) === (burnSettings.burnDuration ?? null);
+      if (!samePayload) {
+        throw new BadRequestException('Replay nonce conflict detected');
+      }
+      return {
+        conversationId: dto.conversationId,
+        messageId: existed.id,
+        messageIndex: String(existed.messageIndex),
+        senderId,
+        createdAt: existed.createdAt.toISOString(),
+        deduped: true,
+      };
+    }
+
+    if (dto.sourceDeviceId) {
+      const ownDevice = await manager.query(
+        'SELECT id FROM devices WHERE id = $1 AND user_id = $2 LIMIT 1;',
+        [dto.sourceDeviceId, senderId],
+      );
+      if (!Array.isArray(ownDevice) || ownDevice.length === 0) {
+        throw new BadRequestException('sourceDeviceId is invalid for current user');
+      }
+    }
+
+    await manager.query(
+      'SELECT pg_advisory_xact_lock(hashtext($1));',
+      [dto.conversationId],
+    );
+
+    const result = await manager.query(
+      'SELECT COALESCE(MAX(message_index), 0) + 1 AS next_index FROM messages WHERE conversation_id = $1;',
+      [dto.conversationId],
+    );
+    const nextIndex = String(result[0].next_index);
+
+    const message = manager.create(Message, {
+      conversationId: dto.conversationId,
+      senderId,
+      sourceDeviceId: dto.sourceDeviceId ?? null,
+      messageType: dto.messageType,
+      encryptedPayload: dto.encryptedPayload,
+      nonce: dto.nonce,
+      mediaAssetId,
+      messageIndex: nextIndex,
+      isBurn: burnSettings.isBurn,
+      burnDuration: burnSettings.burnDuration,
+    });
+
+    const saved = await manager.save(Message, message);
+    return {
+      conversationId: dto.conversationId,
+      messageId: saved.id,
+      messageIndex: nextIndex,
+      senderId,
+      createdAt: saved.createdAt.toISOString(),
+      deduped: false,
+    };
+  }
+
+  private assertAndParseGroupRustPayload(
+    conversationId: string,
+    senderId: string,
+    encryptedPayload: string,
+  ): ParsedRustGroupEnvelope {
+    try {
+      const parsed = JSON.parse(encryptedPayload);
+      const isRustGroupEnvelope =
+        parsed?.impl === 'rust-group' &&
+        parsed?.v === 1 &&
+        typeof parsed?.gid === 'string' &&
+        typeof parsed?.sid === 'string' &&
+        typeof parsed?.mn === 'number' &&
+        typeof parsed?.chain === 'string' &&
+        typeof parsed?.body === 'string';
+      if (!isRustGroupEnvelope) {
+        throw new BadRequestException('Group messages require rust-group encrypted payload');
+      }
+      if (parsed.gid !== conversationId) {
+        throw new BadRequestException('Group payload gid must match conversationId');
+      }
+      if (parsed.sid !== senderId) {
+        throw new BadRequestException('Group payload sid must match senderId');
+      }
+      return {
+        gid: parsed.gid,
+        sid: parsed.sid,
+        mn: parsed.mn,
+        chain: parsed.chain,
+        body: parsed.body,
+      };
+    } catch (error) {
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+      throw new BadRequestException('Group messages require rust-group encrypted payload');
+    }
+  }
+
+  private async upsertGroupSenderKey(
+    manager: EntityManager,
+    conversationId: string,
+    senderId: string,
+    senderKey: string,
+  ): Promise<void> {
+    await manager.query(
+      `
+      INSERT INTO sender_keys (group_id, user_id, sender_key, updated_at)
+      VALUES ($1::uuid, $2::uuid, $3, now())
+      ON CONFLICT (group_id, user_id)
+      DO UPDATE SET sender_key = EXCLUDED.sender_key, updated_at = now();
+      `,
+      [conversationId, senderId, senderKey],
+    );
   }
 
   async sendMessageV2(
@@ -371,10 +540,17 @@ export class MessageService implements OnModuleInit, OnModuleDestroy {
         reason: 'message.sent',
       });
 
-      // Create notifications for all other members
-      const notificationDtos = memberUserIds
-        .filter(memberUserId => memberUserId !== senderId)
-        .map(memberUserId => ({
+      // Create notifications for all other members, respecting their notification settings
+      const notificationDtos = [];
+      for (const memberUserId of memberUserIds) {
+        if (memberUserId === senderId) {
+          continue;
+        }
+        const isEnabled = await this.notificationService.isNotificationEnabled(memberUserId, 'message');
+        if (!isEnabled) {
+          continue;
+        }
+        notificationDtos.push({
           userId: memberUserId,
           type: 'message' as const,
           title: 'New Message',
@@ -384,7 +560,8 @@ export class MessageService implements OnModuleInit, OnModuleDestroy {
             messageId: sent.messageId,
             senderId: sent.senderId,
           },
-        }));
+        });
+      }
 
       if (notificationDtos.length > 0) {
         await this.notificationService.createBatchNotifications(notificationDtos);

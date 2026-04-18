@@ -5,7 +5,7 @@
 import { EncryptedMessage } from './index';
 import { KeyManager } from './key-management';
 import * as api from '../api';
-import { RustSignalRuntime } from './rust-signal';
+import { RustGroupEncryptedMessage, RustSignalRuntime } from './rust-signal';
 
 export class MessageEncryptionService {
   private keyManager: KeyManager;
@@ -46,6 +46,18 @@ export class MessageEncryptionService {
       body: Array.from(fixedEncryptedMessage.ciphertext),
     };
     return await this.rustSignal.decryptMessage(senderUserId, senderDeviceId, rustMsg);
+  }
+
+  async syncGroupMembers(groupId: string, memberUserIds: string[]): Promise<void> {
+    await this.rustSignal.syncGroupMembers(groupId, memberUserIds);
+  }
+
+  async encryptGroupMessage(groupId: string, plaintext: string): Promise<RustGroupEncryptedMessage> {
+    return await this.rustSignal.encryptGroupMessage(groupId, plaintext);
+  }
+
+  async decryptGroupMessage(groupId: string, encryptedMessage: RustGroupEncryptedMessage): Promise<string> {
+    return await this.rustSignal.decryptGroupMessage(groupId, encryptedMessage);
   }
 
   private async fetchPrekeyBundle(userId: string, deviceId: string) {
@@ -91,16 +103,7 @@ export class MessageEncryptionService {
   }
 
   private async getCurrentDeviceIdWithKeyManager(keyManager: KeyManager): Promise<string | null> {
-    const deviceId = await keyManager.getDeviceId();
-    if (deviceId) {
-      return deviceId;
-    }
-    const legacyDeviceId = localStorage.getItem('security-chat-device-id');
-    if (legacyDeviceId) {
-      await keyManager.setDeviceId(legacyDeviceId);
-      return legacyDeviceId;
-    }
-    return null;
+    return await keyManager.getDeviceId();
   }
 
   async uploadPrekeys(): Promise<void> {

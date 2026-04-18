@@ -6,6 +6,7 @@ import { ConversationService } from '../../src/modules/conversation/conversation
 import { Conversation } from '../../src/modules/conversation/entities/conversation.entity';
 import { MediaAsset } from '../../src/modules/media/entities/media-asset.entity';
 import { NotificationService } from '../../src/modules/notification/notification.service';
+import { SendMessageDto } from '../../src/modules/message/dto/send-message.dto';
 import { SendMessageV2Dto } from '../../src/modules/message/dto/send-message-v2.dto';
 import { Message } from '../../src/modules/message/entities/message.entity';
 import { MessageDeviceEnvelope } from '../../src/modules/message/entities/message-device-envelope.entity';
@@ -159,7 +160,7 @@ describe('MessageService sendMessageV2', () => {
     mediaAssetRepository = {} as jest.Mocked<Repository<MediaAsset>>;
     dataSource = {
       transaction: jest.fn(),
-      query: jest.fn(),
+      query: jest.fn().mockResolvedValue([]),
     } as unknown as jest.Mocked<DataSource>;
     conversationService = {
       assertMember: jest.fn().mockResolvedValue(undefined),
@@ -405,6 +406,428 @@ describe('MessageService sendMessageV2', () => {
       }),
     );
     expect(eventSpy).toHaveBeenCalled();
+  });
+});
+
+describe('MessageService queryMessages', () => {
+  let messageRepository: jest.Mocked<Repository<Message>>;
+  let messageEnvelopeRepository: jest.Mocked<Repository<MessageDeviceEnvelope>>;
+  let draftRepository: jest.Mocked<Repository<DraftMessage>>;
+  let revokeEventRepository: jest.Mocked<Repository<RevokeEvent>>;
+  let mediaAssetRepository: jest.Mocked<Repository<MediaAsset>>;
+  let dataSource: jest.Mocked<DataSource>;
+  let conversationService: jest.Mocked<ConversationService>;
+  let messageGateway: jest.Mocked<MessageGateway>;
+  let notificationService: jest.Mocked<NotificationService>;
+  let redis: jest.Mocked<Redis>;
+  let service: MessageService;
+
+  const createQueryBuilder = (rows: Message[]) => ({
+    where: jest.fn().mockReturnThis(),
+    andWhere: jest.fn().mockReturnThis(),
+    orderBy: jest.fn().mockReturnThis(),
+    limit: jest.fn().mockReturnThis(),
+    getMany: jest.fn().mockResolvedValue(rows),
+  });
+
+  beforeEach(() => {
+    messageRepository = {
+      createQueryBuilder: jest.fn(),
+    } as unknown as jest.Mocked<Repository<Message>>;
+    messageEnvelopeRepository = {
+      find: jest.fn().mockResolvedValue([]),
+    } as unknown as jest.Mocked<Repository<MessageDeviceEnvelope>>;
+    draftRepository = {} as jest.Mocked<Repository<DraftMessage>>;
+    revokeEventRepository = {} as jest.Mocked<Repository<RevokeEvent>>;
+    mediaAssetRepository = {} as jest.Mocked<Repository<MediaAsset>>;
+    dataSource = {
+      transaction: jest.fn(),
+      query: jest.fn().mockResolvedValue([]),
+    } as unknown as jest.Mocked<DataSource>;
+    conversationService = {
+      assertMember: jest.fn().mockResolvedValue(undefined),
+    } as unknown as jest.Mocked<ConversationService>;
+    messageGateway = {} as jest.Mocked<MessageGateway>;
+    notificationService = {} as jest.Mocked<NotificationService>;
+    redis = {} as jest.Mocked<Redis>;
+
+    service = new MessageService(
+      messageRepository,
+      messageEnvelopeRepository,
+      draftRepository,
+      revokeEventRepository,
+      mediaAssetRepository,
+      dataSource,
+      conversationService,
+      messageGateway,
+      notificationService,
+      redis,
+    );
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('fills v2 rows from message_device_envelopes for the authenticated device', async () => {
+    const rows = [
+      {
+        id: 'm-v2',
+        conversationId,
+        senderId,
+        sourceDeviceId: senderDeviceId,
+        messageType: 1,
+        encryptedPayload: null,
+        nonce: 'nonce-v2',
+        mediaAssetId: null,
+        messageIndex: '10',
+        isBurn: false,
+        burnDuration: null,
+        isRevoked: false,
+        revokedAt: null,
+        isForwarded: false,
+        originalMessageId: null,
+        deliveredAt: null,
+        readAt: null,
+        createdAt,
+      } as Message,
+      {
+        id: 'm-legacy',
+        conversationId,
+        senderId,
+        sourceDeviceId: senderDeviceId,
+        messageType: 1,
+        encryptedPayload: 'legacy-ciphertext',
+        nonce: 'nonce-legacy',
+        mediaAssetId: null,
+        messageIndex: '11',
+        isBurn: false,
+        burnDuration: null,
+        isRevoked: false,
+        revokedAt: null,
+        isForwarded: false,
+        originalMessageId: null,
+        deliveredAt: null,
+        readAt: null,
+        createdAt,
+      } as Message,
+    ];
+    (messageRepository.createQueryBuilder as jest.Mock).mockReturnValue(createQueryBuilder(rows));
+    messageEnvelopeRepository.find.mockResolvedValue([
+      {
+        id: 'env-1',
+        messageId: 'm-v2',
+        targetUserId: senderId,
+        targetDeviceId: recipientMacId,
+        sourceDeviceId: senderDeviceId,
+        encryptedPayload: 'v2-device-cipher',
+        createdAt,
+      } as MessageDeviceEnvelope,
+    ]);
+
+    const result = await service.queryMessages(
+      senderId,
+      {
+        conversationId,
+        limit: 50,
+      },
+      recipientMacId,
+    );
+
+    expect(result).toHaveLength(2);
+    const byId = new Map(result.map((row) => [row.id, row.encryptedPayload]));
+    expect(byId.get('m-v2')).toBe('v2-device-cipher');
+    expect(byId.get('m-legacy')).toBe('legacy-ciphertext');
+    expect(messageEnvelopeRepository.find).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          targetDeviceId: recipientMacId,
+        }),
+      }),
+    );
+  });
+
+  it('rejects v2 reads without device context', async () => {
+    const rows = [
+      {
+        id: 'm-v2',
+        conversationId,
+        senderId,
+        sourceDeviceId: senderDeviceId,
+        messageType: 1,
+        encryptedPayload: null,
+        nonce: 'nonce-v2',
+        mediaAssetId: null,
+        messageIndex: '10',
+        isBurn: false,
+        burnDuration: null,
+        isRevoked: false,
+        revokedAt: null,
+        isForwarded: false,
+        originalMessageId: null,
+        deliveredAt: null,
+        readAt: null,
+        createdAt,
+      } as Message,
+    ];
+    (messageRepository.createQueryBuilder as jest.Mock).mockReturnValue(createQueryBuilder(rows));
+
+    await expect(
+      service.queryMessages(senderId, {
+        conversationId,
+        limit: 50,
+      }),
+    ).rejects.toThrow(
+      new BadRequestException('Device context is required to read messages encrypted for multiple devices'),
+    );
+  });
+
+  it('keeps legacy rows readable without device context', async () => {
+    const rows = [
+      {
+        id: 'm-legacy',
+        conversationId,
+        senderId,
+        sourceDeviceId: senderDeviceId,
+        messageType: 1,
+        encryptedPayload: 'legacy-ciphertext',
+        nonce: 'nonce-legacy',
+        mediaAssetId: null,
+        messageIndex: '11',
+        isBurn: false,
+        burnDuration: null,
+        isRevoked: false,
+        revokedAt: null,
+        isForwarded: false,
+        originalMessageId: null,
+        deliveredAt: null,
+        readAt: null,
+        createdAt,
+      } as Message,
+    ];
+    (messageRepository.createQueryBuilder as jest.Mock).mockReturnValue(createQueryBuilder(rows));
+
+    const result = await service.queryMessages(senderId, {
+      conversationId,
+      limit: 50,
+    });
+
+    expect(result).toHaveLength(1);
+    expect(result[0].encryptedPayload).toBe('legacy-ciphertext');
+    expect(messageEnvelopeRepository.find).not.toHaveBeenCalled();
+  });
+});
+
+describe('MessageService sendMessage (group rust payload)', () => {
+  let messageRepository: jest.Mocked<Repository<Message>>;
+  let messageEnvelopeRepository: jest.Mocked<Repository<MessageDeviceEnvelope>>;
+  let draftRepository: jest.Mocked<Repository<DraftMessage>>;
+  let revokeEventRepository: jest.Mocked<Repository<RevokeEvent>>;
+  let mediaAssetRepository: jest.Mocked<Repository<MediaAsset>>;
+  let dataSource: jest.Mocked<DataSource>;
+  let conversationService: jest.Mocked<ConversationService>;
+  let messageGateway: jest.Mocked<MessageGateway>;
+  let notificationService: jest.Mocked<NotificationService>;
+  let redis: jest.Mocked<Redis>;
+  let service: MessageService;
+
+  const groupDto: SendMessageDto = {
+    conversationId,
+    messageType: 1,
+    encryptedPayload: JSON.stringify({
+      v: 1,
+      impl: 'rust-group',
+      gid: conversationId,
+      sid: senderId,
+      mn: 0,
+      chain: 'Y2hhaW4=',
+      body: 'Y2lwaGVy',
+    }),
+    nonce: 'group-nonce-1',
+    isBurn: false,
+  };
+
+  beforeEach(() => {
+    messageRepository = {} as jest.Mocked<Repository<Message>>;
+    messageEnvelopeRepository = {} as jest.Mocked<Repository<MessageDeviceEnvelope>>;
+    draftRepository = {} as jest.Mocked<Repository<DraftMessage>>;
+    revokeEventRepository = {} as jest.Mocked<Repository<RevokeEvent>>;
+    mediaAssetRepository = {} as jest.Mocked<Repository<MediaAsset>>;
+    dataSource = {
+      transaction: jest.fn(),
+      query: jest.fn().mockResolvedValue([]),
+    } as unknown as jest.Mocked<DataSource>;
+    conversationService = {
+      assertMember: jest.fn().mockResolvedValue(undefined),
+    } as unknown as jest.Mocked<ConversationService>;
+    messageGateway = {} as jest.Mocked<MessageGateway>;
+    notificationService = {} as jest.Mocked<NotificationService>;
+    redis = {} as jest.Mocked<Redis>;
+
+    service = new MessageService(
+      messageRepository,
+      messageEnvelopeRepository,
+      draftRepository,
+      revokeEventRepository,
+      mediaAssetRepository,
+      dataSource,
+      conversationService,
+      messageGateway,
+      notificationService,
+      redis,
+    );
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('accepts rust-group payload for group conversations', async () => {
+    const manager = {
+      query: jest.fn(async (sql: string) => {
+        if (sql.includes('SELECT pg_advisory_xact_lock')) {
+          return [];
+        }
+        if (sql.includes('SELECT COALESCE(MAX(message_index), 0) + 1 AS next_index')) {
+          return [{ next_index: 21 }];
+        }
+        if (sql.includes('INSERT INTO sender_keys')) {
+          return [];
+        }
+        if (sql.includes('SELECT id FROM devices WHERE id = $1 AND user_id = $2 LIMIT 1;')) {
+          return [{ id: senderDeviceId }];
+        }
+        throw new Error(`Unexpected SQL in group send test: ${sql}`);
+      }),
+      findOne: jest.fn(async (entity: unknown) => {
+        if (entity === Conversation) {
+          return { id: conversationId, type: 2 } as Conversation;
+        }
+        if (entity === Message) {
+          return null;
+        }
+        return null;
+      }),
+      create: jest.fn((_entity: unknown, payload: object) => ({ ...payload })),
+      save: jest.fn(async (entity: unknown, payload: any) => {
+        if (entity === Message) {
+          return {
+            id: '99999999-9999-4999-8999-999999999999',
+            createdAt,
+            ...payload,
+          };
+        }
+        throw new Error(`Unexpected save entity: ${String(entity)}`);
+      }),
+    };
+    dataSource.transaction.mockImplementation(async (...args: unknown[]) => {
+      const callback = args.at(-1) as (em: EntityManager) => Promise<unknown>;
+      return callback(manager as unknown as EntityManager);
+    });
+    jest
+      .spyOn<any, any>(service as any, 'handleMessageSentEvent')
+      .mockResolvedValue(undefined);
+
+    const result = await service.sendMessage(senderId, groupDto);
+
+    expect(result).toEqual({
+      messageId: '99999999-9999-4999-8999-999999999999',
+      messageIndex: '21',
+    });
+    expect(manager.query).toHaveBeenCalledWith(
+      expect.stringContaining('INSERT INTO sender_keys'),
+      [conversationId, senderId, 'Y2hhaW4='],
+    );
+  });
+
+  it('rejects non rust-group payload for group conversations', async () => {
+    const manager = {
+      query: jest.fn(),
+      findOne: jest.fn(async (entity: unknown) => {
+        if (entity === Conversation) {
+          return { id: conversationId, type: 2 } as Conversation;
+        }
+        return null;
+      }),
+      create: jest.fn(),
+      save: jest.fn(),
+    };
+    dataSource.transaction.mockImplementation(async (...args: unknown[]) => {
+      const callback = args.at(-1) as (em: EntityManager) => Promise<unknown>;
+      return callback(manager as unknown as EntityManager);
+    });
+
+    await expect(
+      service.sendMessage(senderId, {
+        ...groupDto,
+        encryptedPayload: 'legacy-base64-payload',
+        nonce: 'group-nonce-2',
+      }),
+    ).rejects.toThrow(new BadRequestException('Group messages require rust-group encrypted payload'));
+  });
+
+  it('rejects rust-group payload when sid does not match senderId', async () => {
+    const manager = {
+      query: jest.fn(),
+      findOne: jest.fn(async (entity: unknown) => {
+        if (entity === Conversation) {
+          return { id: conversationId, type: 2 } as Conversation;
+        }
+        return null;
+      }),
+      create: jest.fn(),
+      save: jest.fn(),
+    };
+    dataSource.transaction.mockImplementation(async (...args: unknown[]) => {
+      const callback = args.at(-1) as (em: EntityManager) => Promise<unknown>;
+      return callback(manager as unknown as EntityManager);
+    });
+
+    const payload = JSON.parse(groupDto.encryptedPayload);
+    payload.sid = recipientUserId;
+    await expect(
+      service.sendMessage(senderId, {
+        ...groupDto,
+        encryptedPayload: JSON.stringify(payload),
+        nonce: 'group-nonce-3',
+      }),
+    ).rejects.toThrow(new BadRequestException('Group payload sid must match senderId'));
+  });
+
+  it('rejects direct conversations on legacy /message/send and requires send-v2', async () => {
+    const manager = {
+      query: jest.fn(),
+      findOne: jest.fn(async (entity: unknown, options?: { select?: string[] }) => {
+        if (entity === Conversation) {
+          if (options?.select?.includes('defaultBurnEnabled')) {
+            return {
+              id: conversationId,
+              defaultBurnEnabled: false,
+              defaultBurnDuration: null,
+            } as Conversation;
+          }
+          return { id: conversationId, type: 1 } as Conversation;
+        }
+        return null;
+      }),
+      create: jest.fn(),
+      save: jest.fn(),
+    };
+    dataSource.transaction.mockImplementation(async (...args: unknown[]) => {
+      const callback = args.at(-1) as (em: EntityManager) => Promise<unknown>;
+      return callback(manager as unknown as EntityManager);
+    });
+
+    await expect(
+      service.sendMessage(senderId, {
+        conversationId,
+        messageType: 1,
+        encryptedPayload: 'legacy-direct-payload',
+        nonce: 'legacy-direct-nonce',
+      }),
+    ).rejects.toThrow(
+      new BadRequestException('Direct conversations must use /api/v1/message/send-v2'),
+    );
   });
 });
 

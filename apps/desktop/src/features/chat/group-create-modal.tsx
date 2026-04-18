@@ -297,8 +297,7 @@ export function GroupCreateModal(props: Props): JSX.Element | null {
 
           {activeTab === 'manage' && (
             <div className="group-manage-form">
-              <p className="hint">管理群组功能开发中...</p>
-              {/* TODO: 群组管理界面 */}
+              <p className="hint">群组管理功能（成员管理、群信息修改等）将在后续版本提供</p>
             </div>
           )}
         </div>

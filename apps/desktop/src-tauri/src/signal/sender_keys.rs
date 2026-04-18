@@ -209,6 +209,11 @@ impl GroupSession {
         self.sender_keys.contains_key(user_id)
     }
 
+    /// List member user IDs in current sender-key session
+    pub fn member_user_ids(&self) -> Vec<String> {
+        self.sender_keys.keys().cloned().collect()
+    }
+
     /// Encrypt a message using sender key
     pub fn encrypt_message(&mut self, sender_id: &str, plaintext: &[u8]) -> Result<GroupEncryptedMessage, SenderKeyError> {
         let sender_state = self.sender_keys.get_mut(sender_id)
@@ -413,6 +418,13 @@ impl SenderKeysStore {
         self.groups.get_mut(group_id)
     }
 
+    /// List members in a group session
+    pub fn list_members(&self, group_id: &str) -> Result<Vec<String>, SenderKeyError> {
+        let session = self.groups.get(group_id)
+            .ok_or(SenderKeyError::GroupNotFound(group_id.to_string()))?;
+        Ok(session.member_user_ids())
+    }
+
     /// Add a member to a group
     pub fn add_member(&mut self, group_id: &str, user_id: &str) -> Result<Vec<u8>, SenderKeyError> {
         let session = self.groups.get_mut(group_id)
@@ -546,5 +558,23 @@ mod tests {
         // Verify Bob is no longer a member
         let session = store.get_session("group1").unwrap();
         assert!(!session.has_member("bob"));
+    }
+
+    #[test]
+    fn test_history_messages_remain_decryptable_after_ratchet_progress() {
+        let mut store = SenderKeysStore::new("alice");
+        store.create_group("group1", "Test Group", 1);
+
+        let msg1 = store.encrypt_message("group1", b"first").unwrap();
+        let msg2 = store.encrypt_message("group1", b"second").unwrap();
+        let msg3 = store.encrypt_message("group1", b"third").unwrap();
+
+        let p1 = store.decrypt_message("group1", &msg1).unwrap();
+        let p2 = store.decrypt_message("group1", &msg2).unwrap();
+        let p3 = store.decrypt_message("group1", &msg3).unwrap();
+
+        assert_eq!(p1, b"first");
+        assert_eq!(p2, b"second");
+        assert_eq!(p3, b"third");
     }
 }

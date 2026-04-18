@@ -153,6 +153,29 @@ export async function createDirectConversation(peerUserId: string): Promise<{ co
   return res.data.data;
 }
 
+export async function getConversationMembers(conversationId: string): Promise<
+  Array<{
+    userId: string;
+    username: string;
+    avatarUrl: string | null;
+    role: number;
+    joinedAt: string;
+  }>
+> {
+  const res = await http.get<
+    ApiEnvelope<
+      Array<{
+        userId: string;
+        username: string;
+        avatarUrl: string | null;
+        role: number;
+        joinedAt: string;
+      }>
+    >
+  >(`/conversation/${conversationId}/members`);
+  return res.data.data;
+}
+
 export async function getConversationBurnDefault(
   conversationId: string,
 ): Promise<{ conversationId: string; enabled: boolean; burnDuration: number | null }> {
@@ -698,5 +721,42 @@ export async function getGroupList(): Promise<Array<{
     memberCount: number;
     unreadCount: number;
   }>>>('/group/list');
+  return res.data.data;
+}
+
+// ==================== 通知设置 API ====================
+
+export async function getNotificationSettings(): Promise<{
+  messageEnabled: boolean;
+  friendRequestEnabled: boolean;
+  burnEnabled: boolean;
+  groupEnabled: boolean;
+}> {
+  const res = await http.get<ApiEnvelope<{
+    messageEnabled: boolean;
+    friendRequestEnabled: boolean;
+    burnEnabled: boolean;
+    groupEnabled: boolean;
+  }>>('/notification/settings');
+  return res.data.data;
+}
+
+export async function updateNotificationSettings(settings: {
+  messageEnabled?: boolean;
+  friendRequestEnabled?: boolean;
+  burnEnabled?: boolean;
+  groupEnabled?: boolean;
+}): Promise<{
+  messageEnabled: boolean;
+  friendRequestEnabled: boolean;
+  burnEnabled: boolean;
+  groupEnabled: boolean;
+}> {
+  const res = await http.post<ApiEnvelope<{
+    messageEnabled: boolean;
+    friendRequestEnabled: boolean;
+    burnEnabled: boolean;
+    groupEnabled: boolean;
+  }>>('/notification/settings', settings);
   return res.data.data;
 }

@@ -12,12 +12,15 @@ mod crypto;
 
 use api::commands::{
     AppState,
+    decrypt_group_message_command,
     initialize_identity_command,
+    encrypt_group_message_command,
     get_prekey_bundle_command,
     get_registration_keys_command,
     establish_session_command,
     encrypt_message_command,
     decrypt_message_command,
+    sync_group_members_command,
     set_current_user_command,
 };
 use db::commands::{
@@ -66,6 +69,9 @@ pub fn run() {
             encrypt_message_command,
             decrypt_message_command,
             set_current_user_command,
+            sync_group_members_command,
+            encrypt_group_message_command,
+            decrypt_group_message_command,
             db_save_message,
             db_get_messages,
             db_save_conversation,

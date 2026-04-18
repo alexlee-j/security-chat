@@ -24,6 +24,7 @@ import {
   sendForgotPasswordCode,
   resetPasswordWithCode,
   getConversationBurnDefault,
+  getConversationMembers,
   getBlockedUsers,
   getConversations,
   getDevicesByUserIds,
@@ -302,9 +303,26 @@ export function useChatClient(): {
   const autoBurnPendingRef = useRef<Set<string>>(new Set());   // 待焚毁消息集合
   // 解密缓存：Map<encryptedPayload, decryptedPayload>
   const payloadCacheRef = useRef<Map<string, string>>(new Map());
+  // 群聊会话同步缓存：Map<conversationId, sortedMemberIdsSignature>
+  const groupSyncSignatureRef = useRef<Map<string, string>>(new Map());
   // Toast 定时器引用，用于清理
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const toastHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  async function ensureGroupSessionSynced(conversationId: string): Promise<void> {
+    const selected = conversations.find((item) => item.conversationId === conversationId);
+    if (!selected || selected.type !== 2) {
+      return;
+    }
+    const members = await getConversationMembers(conversationId);
+    const memberUserIds = members.map((member) => member.userId);
+    const signature = [...memberUserIds].sort().join(',');
+    if (groupSyncSignatureRef.current.get(conversationId) === signature) {
+      return;
+    }
+    await signalActions.syncGroupMembers(conversationId, memberUserIds);
+    groupSyncSignatureRef.current.set(conversationId, signature);
+  }
 
   /**
    * 解密消息 payload
@@ -314,15 +332,25 @@ export function useChatClient(): {
    * @returns 解密后的字符串
    * @description 使用缓存机制避免重复解密，提升性能
    */
-  const decodePayload = async (payload: string, senderId?: string, sourceDeviceId?: string): Promise<string> => {
+  const decodePayload = async (
+    payload: string,
+    senderId?: string,
+    sourceDeviceId?: string,
+    conversationId?: string,
+  ): Promise<string> => {
     if (payloadCacheRef.current.has(payload)) {
       return payloadCacheRef.current.get(payload)!;
     }
     try {
       let decrypted: string;
+      const isGroupConversation = conversations.find((c) => c.conversationId === conversationId)?.type === 2;
 
-      // 尝试使用Signal协议解密
-      if (signalState.initialized && senderId) {
+      // 群聊：优先走 Rust Sender Key 解密路径
+      if (isGroupConversation && signalState.initialized && senderId && conversationId) {
+        await ensureGroupSessionSynced(conversationId);
+        decrypted = await signalActions.decryptGroupMessage(conversationId, payload);
+      } else if (signalState.initialized && senderId) {
+        // 尝试使用 Signal 直聊解密
         // 如果是自己发送的消息，跳过Signal解密，使用默认解密
         if (senderId === authRef.current?.userId) {
           decrypted = decodePayloadApi(payload);
@@ -371,9 +399,9 @@ export function useChatClient(): {
       // Signal 加密的 JSON 消息，触发异步解密
       setTimeout(() => {
         if (!payloadCacheRef.current.has(payload)) {
-          const message = messagesRef.current.find(m => m.encryptedPayload === payload);
-          if (message) {
-            void decodePayload(payload, message.senderId, message.sourceDeviceId);
+            const message = messagesRef.current.find(m => m.encryptedPayload === payload);
+            if (message) {
+            void decodePayload(payload, message.senderId, message.sourceDeviceId, message.conversationId);
           }
         }
       }, 0);
@@ -521,7 +549,7 @@ export function useChatClient(): {
       for (const row of rows) {
         if (!payloadCacheRef.current.has(row.encryptedPayload)) {
           try {
-            const decrypted = await decodePayload(row.encryptedPayload, row.senderId, row.sourceDeviceId);
+            const decrypted = await decodePayload(row.encryptedPayload, row.senderId, row.sourceDeviceId, row.conversationId);
             payloadCacheRef.current.set(row.encryptedPayload, decrypted);
             // 同时按消息ID缓存，支持通过ID查找明文（如转发场景）
             payloadCacheRef.current.set(`msg:${row.id}`, decrypted);
@@ -570,7 +598,7 @@ export function useChatClient(): {
         for (const row of rows) {
           if (!payloadCacheRef.current.has(row.encryptedPayload)) {
             try {
-              const decrypted = await decodePayload(row.encryptedPayload, row.senderId, row.sourceDeviceId);
+              const decrypted = await decodePayload(row.encryptedPayload, row.senderId, row.sourceDeviceId, row.conversationId);
               payloadCacheRef.current.set(row.encryptedPayload, decrypted);
               // 同时按消息ID缓存，支持通过ID查找明文（如转发场景）
               payloadCacheRef.current.set(`msg:${row.id}`, decrypted);
@@ -612,7 +640,7 @@ export function useChatClient(): {
       for (const row of rows) {
         if (!payloadCacheRef.current.has(row.encryptedPayload)) {
           try {
-            const decrypted = await decodePayload(row.encryptedPayload, row.senderId, row.sourceDeviceId);
+            const decrypted = await decodePayload(row.encryptedPayload, row.senderId, row.sourceDeviceId, row.conversationId);
             payloadCacheRef.current.set(row.encryptedPayload, decrypted);
             // 同时按消息ID缓存，支持通过ID查找明文（如转发场景）
             payloadCacheRef.current.set(`msg:${row.id}`, decrypted);
@@ -666,7 +694,7 @@ export function useChatClient(): {
       for (const row of olderRows) {
         if (!payloadCacheRef.current.has(row.encryptedPayload)) {
           try {
-            const decrypted = await decodePayload(row.encryptedPayload, row.senderId, row.sourceDeviceId);
+            const decrypted = await decodePayload(row.encryptedPayload, row.senderId, row.sourceDeviceId, row.conversationId);
             payloadCacheRef.current.set(row.encryptedPayload, decrypted);
             // 同时按消息ID缓存，支持通过ID查找明文（如转发场景）
             payloadCacheRef.current.set(`msg:${row.id}`, decrypted);
@@ -1299,80 +1327,108 @@ export function useChatClient(): {
       // 序列化消息内容
       const messageText = JSON.stringify(messageContent);
 
-      // 获取接收方信息
-      const recipientUserId = activeConversation?.peerUser?.userId;
-      if (!recipientUserId) {
-        setError('无法获取接收方信息');
-        return;
-      }
+      const isGroupConversation = activeConversation?.type === 2;
 
       // 初始化 Signal 协议
       if (!signalState.initialized) {
         await signalActions.initialize(authRef.current?.userId);
       }
 
-      // 获取接收方所有设备
-      // 同时获取发送方设备（用于自同步），合并为一次 API 调用
-      const currentUserId = authRef.current?.userId;
-      const userIdsToQuery = currentUserId ? [recipientUserId, currentUserId] : [recipientUserId];
-      const deviceInfoList = await getDevicesByUserIds(userIdsToQuery);
-      const recipientDeviceInfo = deviceInfoList.find((info) => info.userId === recipientUserId);
-      const recipientDevices = recipientDeviceInfo?.devices ?? [];
-      if (recipientDevices.length === 0) {
-        throw new Error('无法获取接收方设备信息');
-      }
-
-      // 对接收方所有设备进行加密（fan-out）
-      const nonce = crypto.randomUUID().replace(/-/g, '').slice(0, 24);
-      const envelopes: Array<{ targetUserId: string; targetDeviceId: string; encryptedPayload: string }> = [];
-      for (const recipientDevice of recipientDevices) {
-        const encryptedPayload = await signalActions.encryptMessage(
-          recipientUserId,
-          recipientDevice.deviceId,
+      let sendResult: { messageId: string; messageIndex: string };
+      if (isGroupConversation) {
+        const currentUserId = authRef.current?.userId;
+        if (!currentUserId) {
+          setError('无法获取当前用户信息');
+          return;
+        }
+        const members = await getConversationMembers(activeConversationIdRef.current);
+        const memberUserIds = members.map((member) => member.userId);
+        await signalActions.syncGroupMembers(activeConversationIdRef.current, memberUserIds);
+        const encryptedPayload = await signalActions.encryptGroupMessage(
+          activeConversationIdRef.current,
           messageText,
         );
-        envelopes.push({
-          targetUserId: recipientUserId,
-          targetDeviceId: recipientDevice.deviceId,
+        payloadCacheRef.current.set(encryptedPayload, messageText);
+        sendResult = await sendMessage({
+          conversationId: activeConversationIdRef.current,
+          messageType,
+          text: '',
+          mediaUrl: messageType === 1 ? undefined : mediaUrl.trim() || undefined,
+          fileName: messageType === 4 ? (mediaUrl.trim() || 'file') : undefined,
+          mediaAssetId: messageType === 1 ? undefined : pendingMediaAssetIdRef.current ?? undefined,
+          isBurn: isBurnForThisMessage,
+          burnDuration: isBurnForThisMessage ? burnDuration : undefined,
           encryptedPayload,
         });
-      }
+      } else {
+        // 获取接收方信息
+        const recipientUserId = activeConversation?.peerUser?.userId;
+        if (!recipientUserId) {
+          setError('无法获取接收方信息');
+          return;
+        }
+        // 获取接收方所有设备
+        // 同时获取发送方设备（用于自同步），合并为一次 API 调用
+        const currentUserId = authRef.current?.userId;
+        const userIdsToQuery = currentUserId ? [recipientUserId, currentUserId] : [recipientUserId];
+        const deviceInfoList = await getDevicesByUserIds(userIdsToQuery);
+        const recipientDeviceInfo = deviceInfoList.find((info) => info.userId === recipientUserId);
+        const recipientDevices = recipientDeviceInfo?.devices ?? [];
+        if (recipientDevices.length === 0) {
+          throw new Error('无法获取接收方设备信息');
+        }
 
-      // 发送方自同步：覆盖当前设备 + 其他设备，确保“自己发送自己可见”。
-      if (currentUserId) {
-        const selfDeviceInfo = deviceInfoList.find((info) => info.userId === currentUserId);
-        const selfDevices = selfDeviceInfo?.devices ?? [];
-        for (const selfDevice of selfDevices) {
+        // 对接收方所有设备进行加密（fan-out）
+        const nonce = crypto.randomUUID().replace(/-/g, '').slice(0, 24);
+        const envelopes: Array<{ targetUserId: string; targetDeviceId: string; encryptedPayload: string }> = [];
+        for (const recipientDevice of recipientDevices) {
           const encryptedPayload = await signalActions.encryptMessage(
-            currentUserId,
-            selfDevice.deviceId,
+            recipientUserId,
+            recipientDevice.deviceId,
             messageText,
           );
           envelopes.push({
-            targetUserId: currentUserId,
-            targetDeviceId: selfDevice.deviceId,
+            targetUserId: recipientUserId,
+            targetDeviceId: recipientDevice.deviceId,
             encryptedPayload,
           });
         }
-      }
 
-      // 对于自己发送的消息，预先缓存明文，避免解密时无法显示
-      // 注意：这里缓存的是同一份明文，因为所有 envelope 都是同一个 messageText 加密的
-      for (const envelope of envelopes) {
-        payloadCacheRef.current.set(envelope.encryptedPayload, messageText);
-      }
+        // 发送方自同步：覆盖当前设备 + 其他设备，确保“自己发送自己可见”。
+        if (currentUserId) {
+          const selfDeviceInfo = deviceInfoList.find((info) => info.userId === currentUserId);
+          const selfDevices = selfDeviceInfo?.devices ?? [];
+          for (const selfDevice of selfDevices) {
+            const encryptedPayload = await signalActions.encryptMessage(
+              currentUserId,
+              selfDevice.deviceId,
+              messageText,
+            );
+            envelopes.push({
+              targetUserId: currentUserId,
+              targetDeviceId: selfDevice.deviceId,
+              encryptedPayload,
+            });
+          }
+        }
 
-      // 调用 send-v2 接口，提交所有设备信封
-      const { sendMessageV2 } = await import('./api');
-      const sendResult = await sendMessageV2({
-        conversationId: activeConversationIdRef.current,
-        messageType,
-        nonce,
-        envelopes,
-        mediaAssetId: messageType === 1 ? undefined : pendingMediaAssetIdRef.current ?? undefined,
-        isBurn: isBurnForThisMessage,
-        burnDuration: isBurnForThisMessage ? burnDuration : undefined,
-      });
+        // 对于自己发送的消息，预先缓存明文，避免解密时无法显示
+        for (const envelope of envelopes) {
+          payloadCacheRef.current.set(envelope.encryptedPayload, messageText);
+        }
+
+        // 调用 send-v2 接口，提交所有设备信封
+        const { sendMessageV2 } = await import('./api');
+        sendResult = await sendMessageV2({
+          conversationId: activeConversationIdRef.current,
+          messageType,
+          nonce,
+          envelopes,
+          mediaAssetId: messageType === 1 ? undefined : pendingMediaAssetIdRef.current ?? undefined,
+          isBurn: isBurnForThisMessage,
+          burnDuration: isBurnForThisMessage ? burnDuration : undefined,
+        });
+      }
 
       // 按消息ID缓存明文，支持后续转发等场景
       if (sendResult?.messageId) {
@@ -1836,7 +1892,7 @@ export function useChatClient(): {
         }
         if (!payloadCacheRef.current.has(row.encryptedPayload)) {
           try {
-            const decrypted = await decodePayload(row.encryptedPayload, row.senderId, row.sourceDeviceId);
+            const decrypted = await decodePayload(row.encryptedPayload, row.senderId, row.sourceDeviceId, row.conversationId);
             payloadCacheRef.current.set(row.encryptedPayload, decrypted);
             // 同时按消息ID缓存，支持通过ID查找明文（如转发场景）
             payloadCacheRef.current.set(`msg:${row.id}`, decrypted);

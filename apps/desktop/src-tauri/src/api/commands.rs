@@ -22,6 +22,7 @@ use libsignal_protocol::{
 };
 use crate::signal::store::{AppStore, create_store, initialize_store, get_prekey_bundle};
 use crate::signal::cipher::{encrypt_message, decrypt_message, EncryptedMessage};
+use crate::signal::sender_keys::{GroupEncryptedMessage, SenderKeysStore};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use base64::{Engine, engine::general_purpose};
@@ -34,6 +35,7 @@ use std::time::SystemTime;
 pub struct AppState {
     pub store: AppStore,
     pub current_user_id: Arc<RwLock<Option<String>>>,
+    pub sender_keys_store: Arc<RwLock<SenderKeysStore>>,
 }
 
 impl AppState {
@@ -41,6 +43,7 @@ impl AppState {
         Ok(Self {
             store: create_store()?,
             current_user_id: Arc::new(RwLock::new(None)),
+            sender_keys_store: Arc::new(RwLock::new(SenderKeysStore::new(""))),
         })
     }
 }
@@ -172,8 +175,110 @@ pub async fn set_current_user_command(
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let mut current_user = state.current_user_id.write().await;
+    let mut sender_keys = state.sender_keys_store.write().await;
+    *sender_keys = SenderKeysStore::new(&user_id);
     *current_user = Some(user_id);
     Ok(())
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GroupEncryptedMessageDto {
+    pub sender_id: String,
+    pub message_number: u32,
+    pub ciphertext: Vec<u8>,
+    pub chain_key: Vec<u8>,
+}
+
+impl GroupEncryptedMessageDto {
+    fn from_inner(value: GroupEncryptedMessage) -> Self {
+        Self {
+            sender_id: value.sender_id,
+            message_number: value.message_number,
+            ciphertext: value.ciphertext,
+            chain_key: value.chain_key.to_vec(),
+        }
+    }
+
+    fn into_inner(self) -> Result<GroupEncryptedMessage, String> {
+        let chain_key: [u8; 32] = self
+            .chain_key
+            .as_slice()
+            .try_into()
+            .map_err(|_| "invalid group chain_key length".to_string())?;
+        Ok(GroupEncryptedMessage {
+            sender_id: self.sender_id,
+            message_number: self.message_number,
+            ciphertext: self.ciphertext,
+            chain_key,
+        })
+    }
+}
+
+/// 同步群聊成员到本地 Sender Key 会话
+#[tauri::command]
+pub async fn sync_group_members_command(
+    group_id: String,
+    member_user_ids: Vec<String>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let user_id = state
+        .current_user_id
+        .read()
+        .await
+        .clone()
+        .ok_or_else(|| "current user is not set".to_string())?;
+    let mut sender_keys = state.sender_keys_store.write().await;
+
+    let mut expected_members: std::collections::HashSet<String> = member_user_ids.into_iter().collect();
+    expected_members.insert(user_id.clone());
+
+    let existing_members = sender_keys.list_members(&group_id).unwrap_or_default();
+    let existing_set: std::collections::HashSet<String> = existing_members.into_iter().collect();
+    let membership_changed = existing_set != expected_members;
+    if sender_keys.get_session(&group_id).is_none() || membership_changed {
+        // 成员变更时重建会话，触发 sender key 轮换
+        sender_keys.create_group(&group_id, "Conversation Group", 1);
+    }
+
+    let session = sender_keys
+        .get_session(&group_id)
+        .ok_or_else(|| "group session not found".to_string())?;
+    for member_id in &expected_members {
+        if !session.has_member(member_id) {
+            session.generate_sender_key(member_id);
+        }
+    }
+
+    Ok(())
+}
+
+/// 群聊消息加密（Rust Sender Key 路径）
+#[tauri::command]
+pub async fn encrypt_group_message_command(
+    group_id: String,
+    plaintext: String,
+    state: State<'_, AppState>,
+) -> Result<GroupEncryptedMessageDto, String> {
+    let mut sender_keys = state.sender_keys_store.write().await;
+    let encrypted = sender_keys
+        .encrypt_message(&group_id, plaintext.as_bytes())
+        .map_err(|e| e.to_string())?;
+    Ok(GroupEncryptedMessageDto::from_inner(encrypted))
+}
+
+/// 群聊消息解密（Rust Sender Key 路径）
+#[tauri::command]
+pub async fn decrypt_group_message_command(
+    group_id: String,
+    encrypted: GroupEncryptedMessageDto,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    let sender_keys = state.sender_keys_store.read().await;
+    let inner = encrypted.into_inner()?;
+    let plaintext = sender_keys
+        .decrypt_message(&group_id, &inner)
+        .map_err(|e| e.to_string())?;
+    String::from_utf8(plaintext).map_err(|_| "Invalid UTF-8".to_string())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

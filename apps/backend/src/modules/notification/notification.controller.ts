@@ -5,6 +5,7 @@ import { NotificationService } from './notification.service';
 import { CreateNotificationDto } from './dto/create-notification.dto';
 import { MarkReadDto } from './dto/mark-read.dto';
 import { QueryNotificationsDto } from './dto/query-notifications.dto';
+import { UpdateNotificationSettingsDto } from './dto/update-notification-settings.dto';
 
 @Controller('notification')
 @UseGuards(JwtAuthGuard)
@@ -75,5 +76,30 @@ export class NotificationController {
     }>;
   }> {
     return this.notificationService.getUnreadSummary(user.userId);
+  }
+
+  @Get('settings')
+  getNotificationSettings(
+    @CurrentUser() user: RequestUser,
+  ): Promise<{
+    messageEnabled: boolean;
+    friendRequestEnabled: boolean;
+    burnEnabled: boolean;
+    groupEnabled: boolean;
+  }> {
+    return this.notificationService.getNotificationSettings(user.userId);
+  }
+
+  @Post('settings')
+  updateNotificationSettings(
+    @CurrentUser() user: RequestUser,
+    @Body() dto: UpdateNotificationSettingsDto,
+  ): Promise<{
+    messageEnabled: boolean;
+    friendRequestEnabled: boolean;
+    burnEnabled: boolean;
+    groupEnabled: boolean;
+  }> {
+    return this.notificationService.updateNotificationSettings(user.userId, dto);
   }
 }

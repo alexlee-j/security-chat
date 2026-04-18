@@ -10,7 +10,13 @@
 import { useRef, useState } from 'react';
 import { KeyManager } from './signal/key-management';
 import { messageEncryptionService } from './signal/message-encryption';
-import { decodeRustEnvelope, encodeRustEnvelope, RustSignalRuntime } from './signal/rust-signal';
+import {
+  decodeRustEnvelope,
+  decodeRustGroupEnvelope,
+  encodeRustEnvelope,
+  encodeRustGroupEnvelope,
+  RustSignalRuntime,
+} from './signal/rust-signal';
 
 /**
  * Signal 协议状态类型定义
@@ -38,6 +44,9 @@ export type SignalActions = {
   uploadPrekeys: () => Promise<void>;
   encryptMessage: (recipientUserId: string, recipientDeviceId: string, plaintext: string) => Promise<string>;
   decryptMessage: (senderUserId: string, senderDeviceId: string, encryptedMessage: string) => Promise<string>;
+  syncGroupMembers: (groupId: string, memberUserIds: string[]) => Promise<void>;
+  encryptGroupMessage: (groupId: string, plaintext: string) => Promise<string>;
+  decryptGroupMessage: (groupId: string, encryptedMessage: string) => Promise<string>;
   verifyKey: (userId: string, deviceId: string, fingerprint: string, isVerified: boolean) => Promise<void>;
   getVerificationStatus: (userId: string) => Promise<any>;
   getIdentityKeyInfo: (userId: string) => Promise<any>;
@@ -239,6 +248,57 @@ export function useSignal(): { state: SignalState; actions: SignalActions } {
   };
 
   /**
+   * 同步群聊成员，确保 Rust Sender Key 会话具备有效成员上下文
+   */
+  const syncGroupMembers = async (groupId: string, memberUserIds: string[]): Promise<void> => {
+    try {
+      if (!state.initialized) {
+        await initialize();
+      }
+      await messageEncryptionService.syncGroupMembers(groupId, memberUserIds);
+    } catch (error) {
+      console.error('[Signal] Failed to sync group members:', error);
+      throw new Error('同步群成员失败');
+    }
+  };
+
+  /**
+   * 群聊加密（Rust Sender Key）
+   */
+  const encryptGroupMessage = async (groupId: string, plaintext: string): Promise<string> => {
+    try {
+      if (!state.initialized) {
+        await initialize();
+      }
+      const encryptedMessage = await messageEncryptionService.encryptGroupMessage(groupId, plaintext);
+      return encodeRustGroupEnvelope(groupId, encryptedMessage);
+    } catch (error) {
+      console.error('[Signal] Failed to encrypt group message:', error);
+      throw new Error('群消息加密失败');
+    }
+  };
+
+  /**
+   * 群聊解密（Rust Sender Key）
+   */
+  const decryptGroupMessage = async (groupId: string, encryptedMessage: string): Promise<string> => {
+    try {
+      if (!state.initialized) {
+        await initialize();
+      }
+      const groupEnvelope = decodeRustGroupEnvelope(encryptedMessage);
+      if (!groupEnvelope) {
+        throw new Error('Non-Rust group envelope is not supported in Rust-only mode');
+      }
+      const targetGroupId = groupEnvelope.groupId || groupId;
+      return await messageEncryptionService.decryptGroupMessage(targetGroupId, groupEnvelope.encrypted);
+    } catch (error) {
+      console.error('[Signal] Failed to decrypt group message:', error);
+      throw new Error('群消息解密失败');
+    }
+  };
+
+  /**
    * 验证密钥
    */
   const verifyKey = async (userId: string, deviceId: string, fingerprint: string, isVerified: boolean): Promise<void> => {
@@ -384,6 +444,9 @@ export function useSignal(): { state: SignalState; actions: SignalActions } {
       uploadPrekeys,
       encryptMessage,
       decryptMessage,
+      syncGroupMembers,
+      encryptGroupMessage,
+      decryptGroupMessage,
       verifyKey,
       getVerificationStatus,
       getIdentityKeyInfo,

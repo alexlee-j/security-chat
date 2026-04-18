@@ -10,7 +10,9 @@ Security Chat 是一个全平台安全通讯应用，专注于提供端到端加
 ✅ **测试全部通过**：烟雾测试、端到端测试、WebSocket测试
 ✅ **性能已优化**：数据库查询、WebSocket广播、定时任务等
 ✅ **文档已完善**：详细的项目文档和API接口说明
-✅ **群聊基础已就绪**：数据库结构和核心服务已支持群聊
+✅ **直聊功能已完成**：device-bound send-v2 多设备消息发送
+🚧 **群聊功能进行中**：Rust Signal Sender Key 协议完善中（Section 3.2-3.5 由 GPT 负责）
+🚧 **通知设置功能进行中**：NotificationSettings 数据模型和 API 已落地，桌面端 UI 集成中
 
 ### 版本信息
 
@@ -44,7 +46,7 @@ Security Chat 是一个全平台安全通讯应用，专注于提供端到端加
   - **Signal 协议库**：`libsignal-protocol` (官方 Rust 库 v0.90)
   - **打包工具**：@tauri-apps/cli
   - **支持平台**：macOS / Windows / Linux
-- **移动应用**：React Native (Expo) ~51.0.39
+- **移动应用**：规划中（当前仓库暂无 `apps/mobile` 实现）
 - **实时通信**：Socket.io-client ^4.8.1
 
 ### 项目结构
@@ -144,10 +146,10 @@ pnpm start:mobile
 ### 4. 会话管理
 
 - **单聊**：支持一对一聊天
-- **群聊**：支持多人聊天（基础架构已就绪）
+- **群聊**：支持多人聊天（Rust Signal Sender Key 协议完善中）
 - **会话列表**：查看所有会话
 - **会话设置**：支持设置会话的默认阅后即焚时间
-- **群成员管理**：支持添加和移除群成员（基础架构已就绪）
+- **群成员管理**：支持添加和移除群成员（群管理 UI 开发中）
 
 ### 5. 媒体管理
 
@@ -296,15 +298,9 @@ pnpm start:mobile
 
 ### 移动应用部署
 
-1. **构建应用**：
-   ```bash
-   cd apps/mobile
-   npx expo export --platform web
-   ```
+> 注意：当前仓库暂无移动应用实现，规划中
 
-2. **发布应用**：
-   - 发布到 App Store
-   - 发布到 Google Play
+移动应用（React Native）开发相关命令待定。
 
 ## 测试
 
@@ -331,9 +327,9 @@ pnpm verify:backend:v1
 cd apps/desktop
 pnpm test
 
-# 移动应用测试
-cd apps/mobile
-pnpm test
+# 移动应用（规划中）
+# cd apps/mobile
+# pnpm test
 ```
 
 ## 性能优化
@@ -410,11 +406,9 @@ pnpm test
 
 ### V2 版本计划
 
-- **群聊完善**：实现群聊创建、管理界面
-- **消息撤回**：支持撤回已发送的消息
-- **消息转发**：支持转发消息
-- **消息草稿**：支持消息草稿
-- **深色模式**：支持深色主题
+- **群聊完善**：Rust Signal Sender Key 协议完整实现
+- **群聊 UI**：群管理界面（成员管理、群信息修改）
+- **通知设置**：用户可配置的通知偏好
 
 ### V3 版本计划
 

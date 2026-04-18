@@ -2,6 +2,7 @@ import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundEx
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, Repository } from 'typeorm';
 import { User } from '../user/entities/user.entity';
+import { SenderKey } from '../group/entities/sender-key.entity';
 import { ConversationMember } from './entities/conversation-member.entity';
 import { Conversation } from './entities/conversation.entity';
 import { ListConversationsDto } from './dto/list-conversations.dto';
@@ -20,6 +21,8 @@ export class ConversationService {
     private readonly memberRepository: Repository<ConversationMember>,
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
+    @InjectRepository(SenderKey)
+    private readonly senderKeyRepository: Repository<SenderKey>,
     private readonly dataSource: DataSource,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {}
@@ -104,6 +107,7 @@ export class ConversationService {
     ];
 
     await this.memberRepository.save(membersToAdd);
+    await this.rotateGroupSenderKeys(conversation.id);
 
     return { conversationId: conversation.id };
   }
@@ -164,6 +168,7 @@ export class ConversationService {
 
     // 清除缓存
     await this.clearConversationMembersCache(conversationId);
+    await this.rotateGroupSenderKeys(conversationId);
 
     return { addedCount: membersToAdd.length };
   }
@@ -202,6 +207,11 @@ export class ConversationService {
 
     // 清除缓存
     await this.clearConversationMembersCache(conversationId);
+    await this.rotateGroupSenderKeys(conversationId);
+  }
+
+  private async rotateGroupSenderKeys(conversationId: string): Promise<void> {
+    await this.senderKeyRepository.delete({ groupId: conversationId });
   }
 
   private async clearConversationMembersCache(conversationId: string): Promise<void> {

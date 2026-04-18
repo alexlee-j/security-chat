@@ -76,15 +76,6 @@ function formatTime(value?: string | null): string {
   return `${date.getMonth() + 1}/${date.getDate()}`;
 }
 
-function parsePayload(raw: string): { text?: string; fileName?: string } {
-  try {
-    const parsed = JSON.parse(raw) as { text?: string; fileName?: string };
-    return parsed ?? {};
-  } catch {
-    return { text: raw };
-  }
-}
-
 function lastMessagePreview(row: ConversationListItem): string {
   if (!row.lastMessage) {
     return '暂无消息';
@@ -196,10 +187,9 @@ export function ConversationSidebar(props: Props): JSX.Element {
     const isPinned = pinnedSet.has(row.conversationId);
     const isMuted = mutedSet.has(row.conversationId);
     const draft = props.messageDrafts[row.conversationId]?.trim() ?? '';
-    const decodedPayload = row.lastMessage?.encryptedPayload ? props.decodePayload(row.lastMessage.encryptedPayload) : '';
-    const parsed = decodedPayload ? parsePayload(decodedPayload) : {};
-    const textPreview = (parsed.text ?? parsed.fileName ?? '').trim();
-    const previewBase = row.lastMessage ? `${lastMessagePreview(row)} ${textPreview}`.trim() : '暂无消息';
+    // Metadata-first preview policy: conversation list relies on message type only.
+    // Ciphertext-dependent preview text is intentionally not decoded here.
+    const previewBase = row.lastMessage ? lastMessagePreview(row) : '暂无消息';
     const previewText = draft
       ? `草稿: ${draft.length > 24 ? `${draft.slice(0, 24)}...` : draft}`
       : previewBase.length > 28

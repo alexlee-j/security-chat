@@ -178,3 +178,13 @@ export type GroupListItem = {
     createdAt: string;
   } | null;
 };
+
+// ==================== 通知设置类型 ====================
+
+/** 通知设置 */
+export type NotificationSettings = {
+  messageEnabled: boolean;
+  friendRequestEnabled: boolean;
+  burnEnabled: boolean;
+  groupEnabled: boolean;
+};

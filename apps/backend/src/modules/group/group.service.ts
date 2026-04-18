@@ -222,6 +222,7 @@ export class GroupService {
     );
 
     await this.memberRepository.save(members);
+    await this.rotateGroupSenderKeys(groupId);
     return { addedCount: members.length };
   }
 
@@ -257,8 +258,7 @@ export class GroupService {
       throw new NotFoundException('Member not found');
     }
 
-    // 删除该成员的 sender key
-    await this.senderKeyRepository.delete({ groupId, userId: targetUserId });
+    await this.rotateGroupSenderKeys(groupId);
   }
 
   /**
@@ -280,8 +280,7 @@ export class GroupService {
       throw new NotFoundException('You are not a member of this group');
     }
 
-    // 删除该成员的 sender key
-    await this.senderKeyRepository.delete({ groupId, userId });
+    await this.rotateGroupSenderKeys(groupId);
   }
 
   /**
@@ -328,6 +327,10 @@ export class GroupService {
     });
 
     return key?.senderKey || null;
+  }
+
+  private async rotateGroupSenderKeys(groupId: string): Promise<void> {
+    await this.senderKeyRepository.delete({ groupId });
   }
 
   /**

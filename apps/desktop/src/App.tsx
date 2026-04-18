@@ -15,6 +15,7 @@ import { LoginScreen } from './features/auth/login-screen';
 import { ChatPanel } from './features/chat/chat-panel';
 import { ConversationSidebar } from './features/chat/conversation-sidebar';
 import { FriendPanel } from './features/friend/friend-panel';
+import { NotificationSettingsSheet } from './features/settings/notification-settings-sheet';
 import { useChatClient } from './core/use-chat-client';
 import { useTheme } from './core/use-theme';
 import { getStoredCredentials, getRememberPassword, canAutoLogin } from './core/auth-storage';
@@ -41,6 +42,8 @@ export function App(): JSX.Element {
   const [workspace, setWorkspace] = useState<'chat' | 'friend'>('chat');
   // 导航抽屉开关状态
   const [navDrawerOpen, setNavDrawerOpen] = useState(false);
+  // 通知设置抽屉开关状态
+  const [notificationSettingsOpen, setNotificationSettingsOpen] = useState(false);
   // 用于跟踪是否已经尝试过自动登录
   const autoLoginAttemptedRef = useRef(false);
   // 使用 ref 保存 actions 以避免闭包问题
@@ -391,6 +394,10 @@ export function App(): JSX.Element {
             <button
               type="button"
               className="nav-drawer-item w-full"
+              onClick={() => {
+                setNavDrawerOpen(false);
+                setNotificationSettingsOpen(true);
+              }}
             >
               <span className="material-symbols-rounded nav-drawer-icon">settings</span>
               <span>设置</span>
@@ -409,6 +416,12 @@ export function App(): JSX.Element {
           </div>
         </SheetContent>
       </Sheet>
+
+      {/* 通知设置抽屉 */}
+      <NotificationSettingsSheet
+        open={notificationSettingsOpen}
+        onOpenChange={setNotificationSettingsOpen}
+      />
     </main>
   );
 }

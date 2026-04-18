@@ -5,6 +5,13 @@ export type RustEncryptedMessage = {
   body: number[];
 };
 
+export type RustGroupEncryptedMessage = {
+  sender_id: string;
+  message_number: number;
+  ciphertext: number[];
+  chain_key: number[];
+};
+
 export type RustPrekeyBundle = {
   registrationId: number;
   identityKey: string;
@@ -160,6 +167,18 @@ export class RustSignalRuntime {
       encrypted,
     });
   }
+
+  async syncGroupMembers(groupId: string, memberUserIds: string[]): Promise<void> {
+    await invoke('sync_group_members_command', { groupId, memberUserIds });
+  }
+
+  async encryptGroupMessage(groupId: string, plaintext: string): Promise<RustGroupEncryptedMessage> {
+    return await invoke('encrypt_group_message_command', { groupId, plaintext });
+  }
+
+  async decryptGroupMessage(groupId: string, encrypted: RustGroupEncryptedMessage): Promise<string> {
+    return await invoke('decrypt_group_message_command', { groupId, encrypted });
+  }
 }
 
 function uint8ArrayToBase64(arr: Uint8Array): string {
@@ -196,6 +215,49 @@ export function decodeRustEnvelope(payload: string): RustEncryptedMessage | null
     return {
       message_type: parsed.mt,
       body: Array.from(base64ToUint8Array(parsed.body)),
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function encodeRustGroupEnvelope(groupId: string, encrypted: RustGroupEncryptedMessage): string {
+  const normalized = {
+    v: 1,
+    impl: 'rust-group',
+    gid: groupId,
+    sid: encrypted.sender_id,
+    mn: encrypted.message_number,
+    chain: uint8ArrayToBase64(new Uint8Array(encrypted.chain_key)),
+    body: uint8ArrayToBase64(new Uint8Array(encrypted.ciphertext)),
+  };
+  return JSON.stringify(normalized);
+}
+
+export function decodeRustGroupEnvelope(payload: string): {
+  groupId: string;
+  encrypted: RustGroupEncryptedMessage;
+} | null {
+  try {
+    const parsed = JSON.parse(payload);
+    if (
+      parsed?.impl !== 'rust-group'
+      || typeof parsed?.gid !== 'string'
+      || typeof parsed?.sid !== 'string'
+      || typeof parsed?.mn !== 'number'
+      || typeof parsed?.chain !== 'string'
+      || typeof parsed?.body !== 'string'
+    ) {
+      return null;
+    }
+    return {
+      groupId: parsed.gid,
+      encrypted: {
+        sender_id: parsed.sid,
+        message_number: parsed.mn,
+        chain_key: Array.from(base64ToUint8Array(parsed.chain)),
+        ciphertext: Array.from(base64ToUint8Array(parsed.body)),
+      },
     };
   } catch {
     return null;
