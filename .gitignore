@@ -18,6 +18,7 @@ playwright-report/
 .claude/
 .vscode/
 .idea/
+.codex/
 
 # Environment files - sensitive values
 .env
