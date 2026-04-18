@@ -7,8 +7,8 @@ import {
 } from 'typeorm';
 
 @Entity({ name: 'message_device_envelopes' })
-@Index(['messageId', 'targetDeviceId'], { unique: true })
-@Index(['targetDeviceId', 'messageId'])
+@Index('IDX_message_device_envelopes_message_device', ['messageId', 'targetDeviceId'], { unique: true })
+@Index('IDX_message_device_envelopes_target_device', ['targetDeviceId', 'messageId'])
 export class MessageDeviceEnvelope {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
