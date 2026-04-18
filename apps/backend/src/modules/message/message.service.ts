@@ -350,6 +350,23 @@ export class MessageService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  async getMessageById(userId: string, messageId: string, deviceId?: string): Promise<Message | null> {
+    const message = await this.messageRepository.findOne({
+      where: { id: messageId },
+    });
+    if (!message) {
+      return null;
+    }
+
+    // 验证用户是会话成员
+    await this.conversationService.assertMember(message.conversationId, userId);
+
+    // 解析 envelope payload（如果是 v2 消息）
+    await this.resolveEnvelopePayloadsForDevice([message], deviceId);
+
+    return message;
+  }
+
   async queryMessages(userId: string, query: QueryMessagesDto, deviceId?: string): Promise<Message[]> {
     await this.conversationService.assertMember(query.conversationId, userId);
     // Optimized: Moved cleanup to background to improve query performance
@@ -887,10 +904,34 @@ export class MessageService implements OnModuleInit, OnModuleDestroy {
       .where('id = ANY(:ids)', { ids: mediaAssetIds })
       .getMany();
 
-    // Delete files from storage
-    for (const asset of mediaAssets) {
+    const uniquePaths = [...new Set(mediaAssets.map((asset) => asset.storagePath).filter(Boolean))];
+    const referencedPaths = new Set<string>();
+
+    if (uniquePaths.length > 0) {
+      const rows = await this.dataSource.query(
+        `
+        SELECT storage_path::text AS storage_path
+        FROM media_assets
+        WHERE storage_path = ANY($1::text[])
+          AND id <> ALL($2::uuid[])
+        GROUP BY storage_path;
+        `,
+        [uniquePaths, mediaAssetIds],
+      );
+      for (const row of rows as Array<{ storage_path?: string }>) {
+        if (row.storage_path) {
+          referencedPaths.add(row.storage_path);
+        }
+      }
+    }
+
+    // Delete files from storage only when no other records reference the same path.
+    for (const storagePath of uniquePaths) {
+      if (referencedPaths.has(storagePath)) {
+        continue;
+      }
       try {
-        await unlink(asset.storagePath);
+        await unlink(storagePath);
       } catch {
         // File may already be deleted, continue
       }
@@ -1149,6 +1190,13 @@ export class MessageService implements OnModuleInit, OnModuleDestroy {
 
   async forwardMessage(userId: string, dto: ForwardMessageDto): Promise<{ messageId: string; messageIndex: string }> {
     await this.conversationService.assertMember(dto.conversationId, userId);
+    const targetConversation = await this.conversationService.findById(dto.conversationId);
+    if (!targetConversation) {
+      throw new NotFoundException('Conversation not found');
+    }
+    if (targetConversation.type !== 1) {
+      throw new BadRequestException('服务端转发仅支持单聊会话');
+    }
 
     const originalMessage = await this.messageRepository.findOne({
       where: { id: dto.originalMessageId },

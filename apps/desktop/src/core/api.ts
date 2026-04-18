@@ -199,6 +199,11 @@ export async function getMessages(
   return res.data.data;
 }
 
+export async function getMessageById(messageId: string): Promise<MessageItem | null> {
+  const res = await http.get<ApiEnvelope<MessageItem | null>>(`/message/${messageId}`);
+  return res.data.data;
+}
+
 export async function sendMessage(input: SendMessageInput): Promise<{ messageId: string; messageIndex: string }> {
   // 如果提供了 Signal 加密后的 payload，直接使用
   // 否则使用默认的 Base64 编码
@@ -363,6 +368,14 @@ export async function downloadMedia(mediaAssetId: string): Promise<Blob> {
     responseType: 'blob',
   });
   return res.data as Blob;
+}
+
+export async function copyMediaAsset(mediaAssetId: string, conversationId: string): Promise<{ mediaAssetId: string; conversationId: string }> {
+  const res = await http.post<ApiEnvelope<{ mediaAssetId: string; conversationId: string }>>(
+    `/media/${mediaAssetId}/copy`,
+    { conversationId },
+  );
+  return res.data.data;
 }
 
 export function decodePayload(payload: string): string {

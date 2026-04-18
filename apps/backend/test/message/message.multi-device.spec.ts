@@ -83,6 +83,12 @@ describe('MessageService sendMessageV2', () => {
       if (sql.includes('SELECT id FROM devices WHERE id = $1 AND user_id = $2 LIMIT 1;')) {
         return overrides.ownDeviceRows ?? [{ id: senderDeviceId }];
       }
+      if (sql.includes('cm.user_id <> $2')) {
+        return (overrides.targetDeviceRows ?? [
+          { device_id: recipientMacId, user_id: recipientUserId },
+          { device_id: recipientWinId, user_id: recipientUserId },
+        ]).filter((row) => row.user_id !== senderId);
+      }
       if (sql.includes('SELECT user_id::text AS user_id FROM conversation_members')) {
         return overrides.memberRows ?? [{ user_id: senderId }, { user_id: recipientUserId }];
       }
@@ -157,6 +163,7 @@ describe('MessageService sendMessageV2', () => {
     } as unknown as jest.Mocked<DataSource>;
     conversationService = {
       assertMember: jest.fn().mockResolvedValue(undefined),
+      findById: jest.fn().mockResolvedValue({ id: conversationId, type: 1 } as Conversation),
     } as unknown as jest.Mocked<ConversationService>;
     messageGateway = {} as jest.Mocked<MessageGateway>;
     notificationService = {} as jest.Mocked<NotificationService>;
@@ -356,6 +363,7 @@ describe('MessageService sendMessageV2', () => {
       targetDeviceRows: [
         { device_id: senderDeviceId, user_id: senderId },
         { device_id: recipientMacId, user_id: recipientUserId },
+        { device_id: recipientWinId, user_id: recipientUserId },
       ],
     });
     dataSource.transaction.mockImplementation(async (...args: unknown[]) => {
@@ -379,6 +387,11 @@ describe('MessageService sendMessageV2', () => {
           targetUserId: recipientUserId,
           targetDeviceId: recipientMacId,
           encryptedPayload: 'ciphertext-recipient',
+        },
+        {
+          targetUserId: recipientUserId,
+          targetDeviceId: recipientWinId,
+          encryptedPayload: 'ciphertext-recipient-win',
         },
       ],
     });
@@ -444,7 +457,9 @@ describe('MessageService forwardMessage', () => {
       return payload;
     });
 
-    return { create, findOne, query, save };
+    const find = jest.fn(async () => []);
+
+    return { create, find, findOne, query, save };
   };
 
   beforeEach(() => {
@@ -461,6 +476,7 @@ describe('MessageService forwardMessage', () => {
     } as unknown as jest.Mocked<DataSource>;
     conversationService = {
       assertMember: jest.fn().mockResolvedValue(undefined),
+      findById: jest.fn().mockResolvedValue({ id: conversationId, type: 1 } as Conversation),
     } as unknown as jest.Mocked<ConversationService>;
     messageGateway = {} as jest.Mocked<MessageGateway>;
     notificationService = {} as jest.Mocked<NotificationService>;
@@ -497,6 +513,7 @@ describe('MessageService forwardMessage', () => {
     } as Message;
 
     const manager = buildManager({ originalMessage: v2Message });
+    messageRepository.findOne.mockResolvedValue(v2Message);
     dataSource.transaction.mockImplementation(async (...args: unknown[]) => {
       const callback = args.at(-1) as (em: EntityManager) => Promise<unknown>;
       return callback(manager as unknown as EntityManager);
@@ -514,6 +531,30 @@ describe('MessageService forwardMessage', () => {
     expect(conversationService.assertMember).toHaveBeenCalledWith(conversationId, userId);
   });
 
+  it('rejects server-forward for non-direct target conversations', async () => {
+    const legacyMessage = {
+      id: originalMessageId,
+      conversationId,
+      senderId: 'aaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      messageType: 1,
+      encryptedPayload: 'legacy-ciphertext',
+      mediaAssetId: null,
+      isBurn: false,
+      burnDuration: null,
+    } as Message;
+    messageRepository.findOne.mockResolvedValue(legacyMessage);
+    (conversationService.findById as jest.Mock).mockResolvedValue({ id: conversationId, type: 2 } as Conversation);
+
+    await expect(
+      service.forwardMessage(userId, {
+        conversationId,
+        originalMessageId,
+      }),
+    ).rejects.toThrow(new BadRequestException('服务端转发仅支持单聊会话'));
+
+    expect(dataSource.transaction).not.toHaveBeenCalled();
+  });
+
   it('allows forwarding a legacy message (encryptedPayload is not null)', async () => {
     const legacyMessage = {
       id: originalMessageId,
@@ -527,6 +568,7 @@ describe('MessageService forwardMessage', () => {
     } as Message;
 
     const manager = buildManager({ originalMessage: legacyMessage });
+    messageRepository.findOne.mockResolvedValue(legacyMessage);
     dataSource.transaction.mockImplementation(async (...args: unknown[]) => {
       const callback = args.at(-1) as (em: EntityManager) => Promise<unknown>;
       return callback(manager as unknown as EntityManager);

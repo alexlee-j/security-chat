@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Query, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Query, Post, UseGuards } from '@nestjs/common';
 import { CurrentUser, RequestUser } from '../../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { MessageService } from './message.service';
@@ -130,5 +130,13 @@ export class MessageController {
     createdAt: string;
   }>> {
     return this.messageService.searchMessages(user.userId, dto);
+  }
+
+  @Get(':messageId')
+  getById(
+    @CurrentUser() user: RequestUser,
+    @Param('messageId', new ParseUUIDPipe()) messageId: string,
+  ): Promise<Message | null> {
+    return this.messageService.getMessageById(user.userId, messageId, user.deviceId);
   }
 }

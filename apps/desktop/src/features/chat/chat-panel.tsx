@@ -68,6 +68,7 @@ type Props = {
   onSubmit: (event: FormEvent<HTMLFormElement>) => Promise<void>;
   onStartTyping: () => void;
   onStopTyping: () => void;
+  onForwardMessage: (originalMessageId: string, targetConversationId: string) => Promise<{ messageId: string; messageIndex: string }>;
 };
 
 const QUICK_EMOJIS = ['😀', '😂', '😍', '😎', '🤔', '😭', '👍', '🙏', '🎉', '❤️', '🔥', '✅'];
@@ -794,8 +795,7 @@ export function ChatPanel(props: Props): JSX.Element {
     }
     setForwardLoading(true);
     try {
-      const { forwardMessage } = await import('../../core/api');
-      await forwardMessage(forwardMessageId, selectedForwardConversation);
+      await props.onForwardMessage(forwardMessageId, selectedForwardConversation);
       setForwardDialogOpen(false);
       showToast('消息转发成功', 'success');
     } catch (error) {

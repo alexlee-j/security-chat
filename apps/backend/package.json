@@ -9,6 +9,7 @@
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
     "lint": "eslint \"src/**/*.ts\" --max-warnings=0",
+    "test": "jest",
     "smoke:v1": "node scripts/v1-smoke.mjs",
     "test:e2e:v1": "node scripts/v1-e2e.mjs",
     "test:ws:v1": "node scripts/v1-ws-e2e.mjs"

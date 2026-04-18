@@ -279,6 +279,7 @@ export function App(): JSX.Element {
               onSubmit={actions.onSendMessage}
               onStartTyping={actions.startTyping}
               onStopTyping={actions.stopTyping}
+              onForwardMessage={actions.onForwardMessage}
             />
           </div>
         ) : (

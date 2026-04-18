@@ -39,6 +39,15 @@ export class MediaController {
     return this.mediaService.attachToConversation(user.userId, mediaAssetId, dto.conversationId);
   }
 
+  @Post(':mediaAssetId/copy')
+  copyToConversation(
+    @CurrentUser() user: RequestUser,
+    @Param('mediaAssetId', new ParseUUIDPipe()) mediaAssetId: string,
+    @Body() dto: AttachMediaDto,
+  ): Promise<{ mediaAssetId: string; conversationId: string }> {
+    return this.mediaService.copyForConversation(user.userId, mediaAssetId, dto.conversationId);
+  }
+
   @Get(':mediaAssetId/meta')
   meta(
     @CurrentUser() user: RequestUser,

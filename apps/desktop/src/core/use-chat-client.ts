@@ -216,6 +216,7 @@ export type ChatClientActions = {
   onResolveMediaUrl: (message: MessageItem) => Promise<string | null>;
   onReadMessageOnce: (message: MessageItem) => Promise<void>;
   onStartDirectConversation: (targetUserId: string) => Promise<void>;
+  onForwardMessage: (originalMessageId: string, targetConversationId: string) => Promise<{ messageId: string; messageIndex: string }>;
   startTyping: () => void;
   stopTyping: () => void;
 };
@@ -343,6 +344,15 @@ export function useChatClient(): {
       console.error('Decryption failed:', error);
       return payload;
     }
+  };
+
+  /**
+   * 根据消息ID获取已解密的明文（用于转发等场景）
+   * @param messageId - 消息ID
+   * @returns 解密后的明文，如果未找到则返回 null
+   */
+  const getDecryptedTextByMessageId = (messageId: string): string | null => {
+    return payloadCacheRef.current.get(`msg:${messageId}`) ?? null;
   };
 
   // 同步版本的 decodePayload，用于渲染
@@ -513,6 +523,8 @@ export function useChatClient(): {
           try {
             const decrypted = await decodePayload(row.encryptedPayload, row.senderId, row.sourceDeviceId);
             payloadCacheRef.current.set(row.encryptedPayload, decrypted);
+            // 同时按消息ID缓存，支持通过ID查找明文（如转发场景）
+            payloadCacheRef.current.set(`msg:${row.id}`, decrypted);
           } catch (error) {
             console.error('Decryption failed:', error);
           }
@@ -560,6 +572,8 @@ export function useChatClient(): {
             try {
               const decrypted = await decodePayload(row.encryptedPayload, row.senderId, row.sourceDeviceId);
               payloadCacheRef.current.set(row.encryptedPayload, decrypted);
+              // 同时按消息ID缓存，支持通过ID查找明文（如转发场景）
+              payloadCacheRef.current.set(`msg:${row.id}`, decrypted);
             } catch (error) {
               console.error('Decryption failed:', error);
             }
@@ -600,6 +614,8 @@ export function useChatClient(): {
           try {
             const decrypted = await decodePayload(row.encryptedPayload, row.senderId, row.sourceDeviceId);
             payloadCacheRef.current.set(row.encryptedPayload, decrypted);
+            // 同时按消息ID缓存，支持通过ID查找明文（如转发场景）
+            payloadCacheRef.current.set(`msg:${row.id}`, decrypted);
           } catch (error) {
             console.error('Decryption failed:', error);
           }
@@ -652,6 +668,8 @@ export function useChatClient(): {
           try {
             const decrypted = await decodePayload(row.encryptedPayload, row.senderId, row.sourceDeviceId);
             payloadCacheRef.current.set(row.encryptedPayload, decrypted);
+            // 同时按消息ID缓存，支持通过ID查找明文（如转发场景）
+            payloadCacheRef.current.set(`msg:${row.id}`, decrypted);
           } catch (error) {
             console.error('Decryption failed:', error);
           }
@@ -1298,8 +1316,12 @@ export function useChatClient(): {
       ) ?? undefined;
 
       // 获取接收方所有设备
-      const deviceInfoList = await getDevicesByUserIds([recipientUserId]);
-      const recipientDevices = deviceInfoList[0]?.devices ?? [];
+      // 同时获取发送方设备（用于自同步），合并为一次 API 调用
+      const currentUserId = authRef.current?.userId;
+      const userIdsToQuery = currentUserId ? [recipientUserId, currentUserId] : [recipientUserId];
+      const deviceInfoList = await getDevicesByUserIds(userIdsToQuery);
+      const recipientDeviceInfo = deviceInfoList.find((info) => info.userId === recipientUserId);
+      const recipientDevices = recipientDeviceInfo?.devices ?? [];
       if (recipientDevices.length === 0) {
         throw new Error('无法获取接收方设备信息');
       }
@@ -1320,6 +1342,29 @@ export function useChatClient(): {
         });
       }
 
+      // P2: 添加发送方其他设备自同步（排除当前设备）
+      if (currentUserId && currentDeviceId) {
+        // 显式通过 userId 匹配，而非依赖数组顺序
+        const selfDeviceInfo = deviceInfoList.find((info) => info.userId === currentUserId);
+        const selfDevices = selfDeviceInfo?.devices ?? [];
+        for (const selfDevice of selfDevices) {
+          // 跳过当前设备，避免重复
+          if (selfDevice.deviceId === currentDeviceId) {
+            continue;
+          }
+          const encryptedPayload = await signalActions.encryptMessage(
+            currentUserId,
+            selfDevice.deviceId,
+            messageText,
+          );
+          envelopes.push({
+            targetUserId: currentUserId,
+            targetDeviceId: selfDevice.deviceId,
+            encryptedPayload,
+          });
+        }
+      }
+
       // 对于自己发送的消息，预先缓存明文，避免解密时无法显示
       // 注意：这里缓存的是同一份明文，因为所有 envelope 都是同一个 messageText 加密的
       for (const envelope of envelopes) {
@@ -1328,7 +1373,7 @@ export function useChatClient(): {
 
       // 调用 send-v2 接口，提交所有设备信封
       const { sendMessageV2 } = await import('./api');
-      await sendMessageV2({
+      const sendResult = await sendMessageV2({
         conversationId: activeConversationIdRef.current,
         messageType,
         nonce,
@@ -1337,6 +1382,11 @@ export function useChatClient(): {
         isBurn: isBurnForThisMessage,
         burnDuration: isBurnForThisMessage ? burnDuration : undefined,
       });
+
+      // 按消息ID缓存明文，支持后续转发等场景
+      if (sendResult?.messageId) {
+        payloadCacheRef.current.set(`msg:${sendResult.messageId}`, messageText);
+      }
       setMessageText('');
       setReplyToMessage(null);
       if (activeConversationIdRef.current) {
@@ -1520,6 +1570,184 @@ export function useChatClient(): {
     }
   }
 
+  /**
+   * 转发消息
+   * - v2 消息（encryptedPayload 为 null）：客户端重加密流程
+   * - 旧版消息（encryptedPayload 非 null）：调用后端转发接口
+   */
+  async function onForwardMessage(
+    originalMessageId: string,
+    targetConversationId: string,
+  ): Promise<{ messageId: string; messageIndex: string }> {
+    // 查找原消息（优先从本地缓存查找，找不到则通过 API 获取）
+    let originalMessage: MessageItem | undefined | null = messagesRef.current.find((m) => m.id === originalMessageId);
+    if (!originalMessage) {
+      const { getMessageById } = await import('./api');
+      originalMessage = await getMessageById(originalMessageId);
+    }
+    if (!originalMessage) {
+      throw new Error('找不到原消息');
+    }
+
+    // 获取目标会话信息
+    const targetConversation = conversations.find((c) => c.conversationId === targetConversationId);
+    if (!targetConversation) {
+      throw new Error('找不到目标会话');
+    }
+
+    const recipientUserId = targetConversation.peerUser?.userId;
+    if (!recipientUserId) {
+      throw new Error('目标会话不是单聊，无法转发');
+    }
+
+    // 判断是 v2 消息还是旧版消息
+    // v2 消息：encryptedPayload 为 null（但在 REST API 返回时已被 resolveEnvelopePayloadsForDevice 填充）
+    // 旧版消息：encryptedPayload 是 base64 编码的 JSON
+    const isV2Message = (() => {
+      const trimmed = (originalMessage.encryptedPayload || '').trim();
+      // 如果是 Signal 加密的 JSON 格式，说明是从 envelope 解析出来的 v2 消息
+      return trimmed.startsWith('{');
+    })();
+
+    // 尝试从缓存获取明文（优先按消息ID查找）
+    let plaintext = getDecryptedTextByMessageId(originalMessageId);
+    if (!plaintext) {
+      // 回退：尝试用 encryptedPayload 解密
+      try {
+        plaintext = decodePayloadSync(originalMessage.encryptedPayload);
+      } catch {
+        // 解密失败
+      }
+    }
+
+    if (isV2Message) {
+      // v2 消息必须能解密，否则无法转发
+      if (!plaintext) {
+        throw new Error('无法解密消息，请确认已在其他设备同步 Signal 状态');
+      }
+      // P1: v2 消息走客户端重加密流程
+      // 初始化 Signal 协议
+      if (!signalState.initialized) {
+        await signalActions.initialize(authRef.current?.userId);
+      }
+
+      // 获取当前设备 ID
+      let currentDeviceId: string | undefined;
+      currentDeviceId = await import('./signal/key-management').then(({ KeyManager }) =>
+        KeyManager.getInstance().getDeviceId(),
+      ) ?? undefined;
+
+      // 获取目标接收方所有设备
+      // 同时获取发送方设备（用于自同步），合并为一次 API 调用
+      const currentUserId = authRef.current?.userId;
+      const userIdsToQuery = currentUserId ? [recipientUserId, currentUserId] : [recipientUserId];
+      const deviceInfoList = await getDevicesByUserIds(userIdsToQuery);
+      const recipientDeviceInfo = deviceInfoList.find((info) => info.userId === recipientUserId);
+      const recipientDevices = recipientDeviceInfo?.devices ?? [];
+      if (recipientDevices.length === 0) {
+        throw new Error('无法获取目标用户设备信息');
+      }
+
+      // 获取目标会话的元数据（用于构建消息内容）
+      let originalPayload: Record<string, unknown>;
+      try {
+        originalPayload = JSON.parse(plaintext) as Record<string, unknown>;
+      } catch {
+        throw new Error('原消息内容解析失败，无法转发');
+      }
+      const messageType = originalMessage.messageType as 1 | 2 | 3 | 4;
+      const normalizedText = typeof originalPayload.text === 'string' ? originalPayload.text.trim() : '';
+      if (messageType === 1 && !normalizedText) {
+        throw new Error('文本消息缺少可转发内容');
+      }
+
+      // 构建消息内容（保留原消息的 type 和媒体信息）
+      // 注意：媒体消息不包含 mediaUrl，因为媒体已复制到新 asset，mediaAssetId 会独立传递
+      const messageContent = {
+        type: messageType,
+        text: messageType === 1 ? normalizedText : undefined,
+        mediaUrl: messageType === 1 && typeof originalPayload.mediaUrl === 'string' ? originalPayload.mediaUrl : undefined,
+        fileName: typeof originalPayload.fileName === 'string' ? originalPayload.fileName : undefined,
+        replyTo: undefined,
+      };
+      const messageText = JSON.stringify(messageContent);
+
+      // 对目标用户所有设备进行加密
+      const nonce = crypto.randomUUID().replace(/-/g, '').slice(0, 24);
+      const envelopes: Array<{ targetUserId: string; targetDeviceId: string; encryptedPayload: string }> = [];
+      for (const recipientDevice of recipientDevices) {
+        const encryptedPayload = await signalActions.encryptMessage(
+          recipientUserId,
+          recipientDevice.deviceId,
+          messageText,
+        );
+        envelopes.push({
+          targetUserId: recipientUserId,
+          targetDeviceId: recipientDevice.deviceId,
+          encryptedPayload,
+        });
+      }
+
+      // 添加发送方其他设备自同步
+      if (currentUserId && currentDeviceId) {
+        // 显式通过 userId 匹配，而非依赖数组顺序
+        const selfDeviceInfo = deviceInfoList.find((info) => info.userId === currentUserId);
+        const selfDevices = selfDeviceInfo?.devices ?? [];
+        for (const selfDevice of selfDevices) {
+          if (selfDevice.deviceId === currentDeviceId) {
+            continue;
+          }
+          const encryptedPayload = await signalActions.encryptMessage(
+            currentUserId,
+            selfDevice.deviceId,
+            messageText,
+          );
+          envelopes.push({
+            targetUserId: currentUserId,
+            targetDeviceId: selfDevice.deviceId,
+            encryptedPayload,
+          });
+        }
+      }
+
+      // 缓存明文
+      for (const envelope of envelopes) {
+        payloadCacheRef.current.set(envelope.encryptedPayload, messageText);
+      }
+
+      // 对于媒体消息，需要先复制媒体资产到目标会话
+      let forwardedMediaAssetId: string | undefined;
+      if (messageType !== 1 && originalMessage.mediaAssetId) {
+        const { copyMediaAsset } = await import('./api');
+        const copied = await copyMediaAsset(originalMessage.mediaAssetId, targetConversationId);
+        forwardedMediaAssetId = copied.mediaAssetId;
+      }
+
+      // 调用 send-v2 接口
+      const { sendMessageV2 } = await import('./api');
+      const result = await sendMessageV2({
+        conversationId: targetConversationId,
+        messageType,
+        nonce,
+        envelopes,
+        mediaAssetId: forwardedMediaAssetId,
+        isBurn: originalMessage.isBurn,
+        burnDuration: originalMessage.isBurn ? originalMessage.burnDuration ?? undefined : undefined,
+      });
+
+      // 按消息ID缓存明文
+      if (result?.messageId) {
+        payloadCacheRef.current.set(`msg:${result.messageId}`, messageText);
+      }
+
+      return result;
+    } else {
+      // 旧版消息调用后端转发接口
+      const { forwardMessage } = await import('./api');
+      return await forwardMessage(originalMessageId, targetConversationId);
+    }
+  }
+
   async function loadFriendData(): Promise<void> {
     const [requests, friendList, blockedList] = await Promise.all([
       getIncomingRequests(),
@@ -1629,6 +1857,8 @@ export function useChatClient(): {
           try {
             const decrypted = await decodePayload(row.encryptedPayload, row.senderId, row.sourceDeviceId);
             payloadCacheRef.current.set(row.encryptedPayload, decrypted);
+            // 同时按消息ID缓存，支持通过ID查找明文（如转发场景）
+            payloadCacheRef.current.set(`msg:${row.id}`, decrypted);
             hasDecrypted = true;
           } catch (error) {
             console.error('Decryption failed:', error);
@@ -2118,6 +2348,7 @@ export function useChatClient(): {
       onResolveMediaUrl,
       onReadMessageOnce,
       onStartDirectConversation,
+      onForwardMessage,
       startTyping,
       stopTyping,
     },
