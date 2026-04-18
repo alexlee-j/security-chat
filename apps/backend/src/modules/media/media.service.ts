@@ -156,6 +156,71 @@ export class MediaService {
     };
   }
 
+  async copyForConversation(
+    userId: string,
+    mediaAssetId: string,
+    conversationId: string,
+  ): Promise<{ mediaAssetId: string; conversationId: string }> {
+    const asset = await this.mediaAssetRepository.findOne({ where: { id: mediaAssetId } });
+    if (!asset) {
+      throw new NotFoundException('Media asset not found');
+    }
+
+    // 验证权限：必须是上传者或原始会话成员才能复制（不允许仅因是目标会话成员就复制）
+    const isUploader = asset.uploaderId === userId;
+    const isOriginalConversationMember = asset.conversationId
+      ? await this.isConversationMember(asset.conversationId, userId)
+      : false;
+
+    if (!isUploader && !isOriginalConversationMember) {
+      throw new ForbiddenException('Not allowed to copy this media asset');
+    }
+
+    // 验证目标会话成员身份
+    await this.conversationService.assertMember(conversationId, userId);
+
+    // 幂等保护：相同 source+target+operator 在并发重试时只生成一条复制记录。
+    const copied = await this.mediaAssetRepository.manager.transaction(async (manager) => {
+      const lockKey = `media.copy:${mediaAssetId}:${conversationId}:${userId}`;
+      await manager.query('SELECT pg_advisory_xact_lock(hashtext($1));', [lockKey]);
+
+      const existing = await manager.findOne(MediaAsset, {
+        where: {
+          uploaderId: userId,
+          conversationId,
+          storagePath: asset.storagePath,
+          sha256: asset.sha256,
+          mediaKind: asset.mediaKind,
+        },
+      });
+      if (existing) {
+        return existing;
+      }
+
+      const newId = randomUUID();
+      return await manager.save(
+        MediaAsset,
+        manager.create(MediaAsset, {
+          id: newId,
+          // 复制后的资产归当前转发者所有，才能通过 send-v2 的 uploader 校验。
+          uploaderId: userId,
+          conversationId, // 绑定到目标会话
+          mediaKind: asset.mediaKind,
+          originalName: asset.originalName,
+          mimeType: asset.mimeType,
+          fileSize: asset.fileSize,
+          storagePath: asset.storagePath, // 复用相同存储路径
+          sha256: asset.sha256,
+        }),
+      );
+    });
+
+    return {
+      mediaAssetId: copied.id,
+      conversationId,
+    };
+  }
+
   async getMediaMeta(
     userId: string,
     mediaAssetId: string,
@@ -217,6 +282,15 @@ export class MediaService {
     }
 
     return asset;
+  }
+
+  private async isConversationMember(conversationId: string, userId: string): Promise<boolean> {
+    try {
+      await this.conversationService.assertMember(conversationId, userId);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   private resolveMediaKind(mimeType: string): number {

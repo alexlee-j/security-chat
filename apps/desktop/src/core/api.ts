@@ -65,6 +65,7 @@ type SendMessageInput = {
     senderId: string;
     text: string;
   };
+  sourceDeviceId?: string;
   encryptedPayload?: string; // Signal 加密后的 payload
 };
 
@@ -95,8 +96,8 @@ export async function logout(): Promise<void> {
   await http.post('/auth/logout');
 }
 
-export async function login(account: string, password: string): Promise<AuthResult> {
-  const res = await http.post<ApiEnvelope<AuthResult>>('/auth/login', { account, password });
+export async function login(account: string, password: string, deviceId?: string): Promise<AuthResult> {
+  const res = await http.post<ApiEnvelope<AuthResult>>('/auth/login', { account, password, deviceId });
   return res.data.data;
 }
 
@@ -108,7 +109,7 @@ export async function sendLoginCode(input: { account?: string; phone?: string })
   return res.data.data;
 }
 
-export async function loginWithCode(input: { account?: string; phone?: string; code: string }): Promise<AuthResult> {
+export async function loginWithCode(input: { account?: string; phone?: string; code: string; deviceId?: string }): Promise<AuthResult> {
   const res = await http.post<ApiEnvelope<AuthResult>>('/auth/login-code', input);
   return res.data.data;
 }
@@ -198,6 +199,11 @@ export async function getMessages(
   return res.data.data;
 }
 
+export async function getMessageById(messageId: string): Promise<MessageItem | null> {
+  const res = await http.get<ApiEnvelope<MessageItem | null>>(`/message/${messageId}`);
+  return res.data.data;
+}
+
 export async function sendMessage(input: SendMessageInput): Promise<{ messageId: string; messageIndex: string }> {
   // 如果提供了 Signal 加密后的 payload，直接使用
   // 否则使用默认的 Base64 编码
@@ -234,6 +240,37 @@ export async function sendMessage(input: SendMessageInput): Promise<{ messageId:
     messageType: input.messageType,
     encryptedPayload,
     nonce,
+    sourceDeviceId: input.sourceDeviceId,
+    mediaAssetId: input.mediaAssetId,
+    isBurn: input.isBurn,
+    burnDuration: input.isBurn ? input.burnDuration : undefined,
+  });
+  return res.data.data;
+}
+
+/**
+ * 发送消息输入参数（v2 版本，支持多设备信封）
+ */
+type SendMessageV2Input = {
+  conversationId: string;
+  messageType: 1 | 2 | 3 | 4;
+  nonce: string;
+  envelopes: Array<{
+    targetUserId: string;
+    targetDeviceId: string;
+    encryptedPayload: string;
+  }>;
+  mediaAssetId?: string;
+  isBurn: boolean;
+  burnDuration?: number;
+};
+
+export async function sendMessageV2(input: SendMessageV2Input): Promise<{ messageId: string; messageIndex: string }> {
+  const res = await http.post<ApiEnvelope<{ messageId: string; messageIndex: string }>>('/message/send-v2', {
+    conversationId: input.conversationId,
+    messageType: input.messageType,
+    nonce: input.nonce,
+    envelopes: input.envelopes,
     mediaAssetId: input.mediaAssetId,
     isBurn: input.isBurn,
     burnDuration: input.isBurn ? input.burnDuration : undefined,
@@ -333,6 +370,14 @@ export async function downloadMedia(mediaAssetId: string): Promise<Blob> {
   return res.data as Blob;
 }
 
+export async function copyMediaAsset(mediaAssetId: string, conversationId: string): Promise<{ mediaAssetId: string; conversationId: string }> {
+  const res = await http.post<ApiEnvelope<{ mediaAssetId: string; conversationId: string }>>(
+    `/media/${mediaAssetId}/copy`,
+    { conversationId },
+  );
+  return res.data.data;
+}
+
 export function decodePayload(payload: string): string {
   return decryptPayloadSync(payload);
 }
@@ -363,6 +408,11 @@ export interface PrekeyBundle {
     keyId: number;
     publicKey: string;
   };
+  kyberPrekey?: {
+    keyId: number;
+    publicKey: string;
+    signature: string;
+  };
 }
 
 export interface PrekeyBundlePeek {
@@ -374,6 +424,7 @@ export interface PrekeyBundlePeek {
     signature: string;
   };
   oneTimePrekeyAvailable: boolean;
+  kyberPrekeyAvailable: boolean;
 }
 
 export interface PrekeyStats {
@@ -529,6 +580,7 @@ export async function getDevices(): Promise<Array<{
 // 预密钥上传 API
 export async function uploadPrekeys(data: {
   deviceId: string;
+  identityKey?: string;
   signedPrekey?: {
     keyId: number;
     publicKey: string;
@@ -538,6 +590,11 @@ export async function uploadPrekeys(data: {
     keyId: number;
     publicKey: string;
   }>;
+  kyberPrekey?: {
+    keyId: number;
+    publicKey: string;
+    signature: string;
+  };
 }): Promise<{ inserted: number; deviceId: string }> {
   const res = await http.post<ApiEnvelope<{ inserted: number; deviceId: string }>>('/user/keys/upload', data);
   return res.data.data;

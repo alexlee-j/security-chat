@@ -3,7 +3,8 @@
  * 负责密钥的生成、存储和管理
  */
 
-import { SignalProtocol, IdentityKeyPair, SignedPrekey, OneTimePrekey, SessionState } from './index';
+import { X3DH, IdentityKeyPair, SignedPrekey, OneTimePrekey, SessionState } from './index';
+import { SessionKeyManager } from './session-key';
 import { generateSecureRandomString } from '../crypto';
 
 // 类型定义
@@ -109,8 +110,7 @@ export class IdentityKeys {
   async initialize(): Promise<IdentityKeyPair> {
     let identityKeyPair = await this.getKeyPair();
     if (!identityKeyPair) {
-      const signal = new SignalProtocol();
-      identityKeyPair = await signal.generateIdentityKeyPair();
+      identityKeyPair = await X3DH.generateIdentityKeyPair();
       await this.saveKeyPair(identityKeyPair);
     }
     return identityKeyPair;
@@ -267,7 +267,6 @@ export class Prekeys {
    * 生成签名预密钥
    */
   async generateSignedPrekeys(count: number): Promise<SignedPrekey[]> {
-    const signal = new SignalProtocol();
     const identityKeys = new IdentityKeys(this.storage);
     const identityKeyPair = await identityKeys.getKeyPair();
     console.log('[KeyManager] generateSignedPrekeys - identityKeyPair:', identityKeyPair ? 'found' : 'NOT FOUND');
@@ -286,7 +285,7 @@ export class Prekeys {
 
       for (let i = 0; i < count; i++) {
         const keyId = signedPrekeys.size + i + 1;
-        const prekey = await signal.generateSignedPrekey(retryKeyPair, keyId);
+        const prekey = await X3DH.generateSignedPrekey(retryKeyPair, keyId);
         signedPrekeys.set(keyId, prekey);
         newPrekeys.push(prekey);
       }
@@ -300,7 +299,7 @@ export class Prekeys {
 
     for (let i = 0; i < count; i++) {
       const keyId = signedPrekeys.size + i + 1;
-      const prekey = await signal.generateSignedPrekey(identityKeyPair, keyId);
+      const prekey = await X3DH.generateSignedPrekey(identityKeyPair, keyId);
       signedPrekeys.set(keyId, prekey);
       newPrekeys.push(prekey);
     }
@@ -313,13 +312,12 @@ export class Prekeys {
    * 生成一次性预密钥
    */
   async generateOneTimePrekeys(count: number): Promise<OneTimePrekey[]> {
-    const signal = new SignalProtocol();
     const oneTimePrekeys = await this.getOneTimePrekeys();
     const newPrekeys: OneTimePrekey[] = [];
 
     for (let i = 0; i < count; i++) {
       const keyId = oneTimePrekeys.size + i + 1;
-      const prekey = await signal.generateOneTimePrekey(keyId);
+      const prekey = await X3DH.generateOneTimePrekey(keyId);
       oneTimePrekeys.set(keyId, prekey);
       newPrekeys.push(prekey);
     }
@@ -579,10 +577,12 @@ export class SessionStore {
   async getSession(remoteUserId: string, remoteDeviceId: string): Promise<SessionState | null> {
     const key = this.getSessionKey(remoteUserId, remoteDeviceId);
     const data = await this.storage.get(key);
-    if (!data) return null;
+    const fallbackData =
+      data ?? (remoteDeviceId !== '1' ? await this.storage.get(this.getLegacySessionKey(remoteUserId)) : null);
+    if (!fallbackData) return null;
 
     try {
-      return this.deserializeSession(data);
+      return this.deserializeSession(fallbackData);
     } catch (error) {
       console.error('Failed to deserialize session:', error);
       return null;
@@ -604,19 +604,23 @@ export class SessionStore {
   async deleteSession(remoteUserId: string, remoteDeviceId: string): Promise<void> {
     const key = this.getSessionKey(remoteUserId, remoteDeviceId);
     await this.storage.remove(key);
+    if (remoteDeviceId !== '1') {
+      await this.storage.remove(this.getLegacySessionKey(remoteUserId));
+    }
   }
 
   /**
    * 清除所有会话
    */
   async clearAll(): Promise<void> {
-    // 简化实现，实际需要遍历所有会话键
-    const sessions = await this.storage.get('sessions');
-    if (sessions) {
-      for (const key in sessions) {
-        await this.storage.remove(key);
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.includes('/session-')) {
+        keysToRemove.push(key);
       }
     }
+    keysToRemove.forEach((key) => localStorage.removeItem(key));
   }
 
   /**
@@ -626,8 +630,14 @@ export class SessionStore {
    * 这是一个临时方案，后续应改用 remoteIdentityKey 的哈希。
    */
   private getSessionKey(remoteUserId: string, remoteDeviceId: string): string {
-    // 统一使用 '1' 作为 deviceId，避免因 deviceId 不匹配导致会话找不到
-    return `session-${remoteUserId}-1`;
+    return SessionKeyManager.getSessionKey(remoteUserId, remoteDeviceId);
+  }
+
+  /**
+   * 兼容旧版固定 deviceId='1' 的会话键
+   */
+  private getLegacySessionKey(remoteUserId: string): string {
+    return SessionKeyManager.getSessionKey(remoteUserId, '1');
   }
 }
 
@@ -669,6 +679,13 @@ export class KeyManager {
     if (this.secureStorage && 'setUserId' in this.secureStorage) {
       (this.secureStorage as LocalSecureStorage).setUserId(userId);
     }
+  }
+
+  /**
+   * 获取当前用户 ID
+   */
+  getUserId(): string | null {
+    return this.userId;
   }
 
   /**
@@ -749,13 +766,18 @@ export class KeyManager {
    */
   async setDeviceId(deviceId: string): Promise<void> {
     await this.secureStorage.set('currentDeviceId', deviceId);
+    localStorage.setItem('security-chat-device-id', deviceId);
   }
 
   /**
    * 获取当前设备ID
    */
   async getDeviceId(): Promise<string | null> {
-    return await this.secureStorage.get('currentDeviceId');
+    const storedDeviceId = await this.secureStorage.get('currentDeviceId');
+    if (storedDeviceId) {
+      return storedDeviceId;
+    }
+    return localStorage.getItem('security-chat-device-id');
   }
 
   /**

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { BadRequestException, Inject, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Inject, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { ConfigService } from '@nestjs/config';
@@ -22,11 +22,13 @@ interface AuthTokens {
   accessToken: string;
   refreshToken: string;
   userId: string;
+  deviceId: string;
 }
 
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
+  private readonly allowLegacyDeviceLessTokens: boolean;
   
   constructor(
     private readonly configService: ConfigService,
@@ -36,7 +38,9 @@ export class AuthService {
     private readonly mailService: MailService,
     @Inject(REDIS_CLIENT)
     private readonly redis: Redis,
-  ) {}
+  ) {
+    this.allowLegacyDeviceLessTokens = this.configService.get<string>('AUTH_ALLOW_LEGACY_DEVICELESS_TOKENS', 'true') === 'true';
+  }
 
   async register(dto: RegisterDto): Promise<AuthTokens> {
     // 检查唯一性，phone 为空字符串时跳过检查
@@ -71,7 +75,13 @@ export class AuthService {
       },
     });
 
-    return this.issueTokenPair(user.id);
+    const devices = await this.userService.listDevices(user.id);
+    const deviceId = devices[0]?.deviceId;
+    if (!deviceId) {
+      throw new Error('Created user device not found');
+    }
+
+    return this.issueTokenPair(user.id, deviceId);
   }
 
   async login(dto: LoginDto, clientIp = 'unknown'): Promise<AuthTokens> {
@@ -104,13 +114,12 @@ export class AuthService {
 
     await this.securityService.clearLoginFailures(identity, clientIp);
 
-    if (dto.deviceId) {
-      await this.userService.touchDeviceActivity(user.id, dto.deviceId);
-      await this.safeMarkOnline(`online:${user.id}:${dto.deviceId}`);
-    }
+    const resolvedDeviceId = await this.resolveLoginDeviceId(user.id, dto.deviceId);
+    await this.userService.touchDeviceActivity(user.id, resolvedDeviceId);
+    await this.safeMarkOnline(`online:${user.id}:${resolvedDeviceId}`);
     await this.safeMarkOnline(`online:${user.id}`);
 
-    return this.issueTokenPair(user.id);
+    return this.issueTokenPair(user.id, resolvedDeviceId);
   }
 
   async sendLoginCode(
@@ -149,7 +158,6 @@ export class AuthService {
       await this.securityService.recordLoginFailure(identity, clientIp);
       throw new UnauthorizedException('Invalid credentials');
     }
-
     const key = `auth:login-code:${identity}`;
     const expectedCode = await this.redis.get(key).catch(() => null);
     if (!expectedCode || expectedCode !== dto.code) {
@@ -157,10 +165,13 @@ export class AuthService {
       throw new UnauthorizedException('Invalid verification code');
     }
 
+    const resolvedDeviceId = await this.resolveLoginDeviceId(user.id, dto.deviceId);
     await this.redis.del(key).catch(() => null);
     await this.securityService.clearLoginFailures(identity, clientIp);
+    await this.userService.touchDeviceActivity(user.id, resolvedDeviceId);
+    await this.safeMarkOnline(`online:${user.id}:${resolvedDeviceId}`);
     await this.safeMarkOnline(`online:${user.id}`);
-    return this.issueTokenPair(user.id);
+    return this.issueTokenPair(user.id, resolvedDeviceId);
   }
 
   async refresh(dto: RefreshTokenDto): Promise<AuthTokens> {
@@ -188,8 +199,25 @@ export class AuthService {
       throw new UnauthorizedException('User not found');
     }
 
+    let refreshDeviceId = payload.deviceId;
+    if (!refreshDeviceId) {
+      if (!this.allowLegacyDeviceLessTokens) {
+        throw new UnauthorizedException('Invalid refresh token');
+      }
+      // Legacy refresh token migration path: bind newly issued tokens to an
+      // owned device while older token formats are phased out.
+      const devices = await this.userService.listDevices(user.id);
+      // Only migrate safely when the user has a single unambiguous device.
+      refreshDeviceId = devices.length === 1 ? devices[0]?.deviceId : undefined;
+      if (!refreshDeviceId) {
+        throw new UnauthorizedException('Invalid refresh token');
+      }
+    }
+
+    // Ensure tokens can only be refreshed for currently owned devices.
+    await this.assertUserOwnsDevice(user.id, refreshDeviceId, true);
     await this.blacklistToken(payload.jti, payload.exp);
-    return this.issueTokenPair(user.id);
+    return this.issueTokenPair(user.id, refreshDeviceId);
   }
 
   async logout(user: RequestUser): Promise<{ success: true }> {
@@ -300,7 +328,7 @@ export class AuthService {
     return { success: true, message: '密码重置成功，请使用新密码登录' };
   }
 
-  private async issueTokenPair(userId: string): Promise<AuthTokens> {
+  private async issueTokenPair(userId: string, deviceId: string): Promise<AuthTokens> {
     const accessJti = randomUUID();
     const refreshJti = randomUUID();
 
@@ -308,11 +336,55 @@ export class AuthService {
     const refreshExpiresIn = this.configService.get<string>('JWT_REFRESH_EXPIRES_IN', '7d');
 
     const [accessToken, refreshToken] = await Promise.all([
-      this.jwtService.signAsync({ sub: userId, jti: accessJti, type: 'access' }, { expiresIn: accessExpiresIn as never }),
-      this.jwtService.signAsync({ sub: userId, jti: refreshJti, type: 'refresh' }, { expiresIn: refreshExpiresIn as never }),
+      this.jwtService.signAsync(
+        { sub: userId, jti: accessJti, type: 'access', deviceId },
+        { expiresIn: accessExpiresIn as never },
+      ),
+      this.jwtService.signAsync(
+        { sub: userId, jti: refreshJti, type: 'refresh', deviceId },
+        { expiresIn: refreshExpiresIn as never },
+      ),
     ]);
 
-    return { accessToken, refreshToken, userId };
+    return { accessToken, refreshToken, userId, deviceId };
+  }
+
+  private async resolveLoginDeviceId(userId: string, requestedDeviceId?: string): Promise<string> {
+    if (requestedDeviceId) {
+      await this.assertUserOwnsDevice(userId, requestedDeviceId);
+      return requestedDeviceId;
+    }
+
+    const devices = await this.userService.listDevices(userId);
+    if (devices.length === 0) {
+      throw new BadRequestException('No registered device found for current account');
+    }
+
+    // Prefer the most recently active device so login can recover when local
+    // account->device mapping was cleared (e.g. logout or re-install).
+    const selected = [...devices].sort((a, b) => {
+      const aActive = a.lastActiveAt ? Date.parse(a.lastActiveAt) : 0;
+      const bActive = b.lastActiveAt ? Date.parse(b.lastActiveAt) : 0;
+      if (aActive !== bActive) {
+        return bActive - aActive;
+      }
+      const aCreated = Date.parse(a.createdAt);
+      const bCreated = Date.parse(b.createdAt);
+      return bCreated - aCreated;
+    })[0];
+
+    return selected.deviceId;
+  }
+
+  private async assertUserOwnsDevice(userId: string, deviceId: string, silent = false): Promise<void> {
+    const devices = await this.userService.listDevices(userId);
+    const ownsDevice = devices.some((device) => device.deviceId === deviceId);
+    if (!ownsDevice) {
+      if (silent) {
+        throw new UnauthorizedException('Invalid refresh token');
+      }
+      throw new ForbiddenException('Device does not belong to current user');
+    }
   }
 
   private async blacklistToken(jti: string, exp: number): Promise<void> {

@@ -66,10 +66,10 @@ import {
   setRememberPassword,
   getRememberPassword,
   setAutoLogin,
-  getAutoLogin,
   clearAutoLogin,
   clearAllAuthData,
-  canAutoLogin,
+  getDeviceIdForAccount,
+  setDeviceIdForAccount,
 } from './auth-storage';
 
 const MESSAGE_CURSOR_STORAGE_KEY = 'security-chat.desktop.message-cursors.v1';
@@ -187,10 +187,16 @@ export type ChatClientActions = {
   toggleConversationMute: (conversationId: string) => void;
   deleteConversation: (conversationId: string) => Promise<boolean>;
   setFriendKeyword: (value: string) => void;
-  onLogin: (event: FormEvent<HTMLFormElement>, loginAccount?: string, loginPassword?: string) => Promise<void>;
+  onLogin: (
+    event: FormEvent<HTMLFormElement>,
+    loginAccount?: string,
+    loginPassword?: string,
+    rememberOverride?: boolean,
+    autoLoginOverride?: boolean,
+  ) => Promise<void>;
   onRegister: (username: string, email: string, password: string) => Promise<void>;
-  onSendLoginCode: () => Promise<void>;
-  onLoginWithCode: (event: FormEvent<HTMLFormElement>) => Promise<void>;
+  onSendLoginCode: (accountOverride?: string) => Promise<void>;
+  onLoginWithCode: (event: FormEvent<HTMLFormElement>, codeAccount?: string, codeValue?: string) => Promise<void>;
   onLogout: () => Promise<void>;
   onSendForgotCode: (event: FormEvent<HTMLFormElement>) => Promise<void>;
   onResetPassword: (event: FormEvent<HTMLFormElement>) => Promise<void>;
@@ -210,6 +216,7 @@ export type ChatClientActions = {
   onResolveMediaUrl: (message: MessageItem) => Promise<string | null>;
   onReadMessageOnce: (message: MessageItem) => Promise<void>;
   onStartDirectConversation: (targetUserId: string) => Promise<void>;
+  onForwardMessage: (originalMessageId: string, targetConversationId: string) => Promise<{ messageId: string; messageIndex: string }>;
   startTyping: () => void;
   stopTyping: () => void;
 };
@@ -320,24 +327,11 @@ export function useChatClient(): {
         if (senderId === authRef.current?.userId) {
           decrypted = decodePayloadApi(payload);
         } else {
-          try {
-            // 使用实际的设备ID，如果没有则使用默认值
-            const senderDeviceId = sourceDeviceId || '1';
-            decrypted = await signalActions.decryptMessage(senderId, senderDeviceId, payload);
-          } catch (error) {
-            if (isExpectedSignalError(error)) {
-              // 预期的 Signal 错误（如会话不存在），降级到默认解密
-              console.warn('Signal decryption failed (expected), falling back to default:', error);
-              decrypted = decodePayloadApi(payload);
-            } else if (isSignalProtocolError(error)) {
-              // 其他 Signal 协议错误，记录并降级
-              console.error('Signal protocol error:', error);
-              decrypted = decodePayloadApi(payload);
-            } else {
-              // 非 Signal 错误（如网络错误、编程错误），抛出
-              throw error;
-            }
+          // Rust-only 模式：sourceDeviceId 是必填的，不再接受 '1' 作为回退
+          if (!sourceDeviceId) {
+            throw new Error('sourceDeviceId is required for Signal decryption in Rust-only mode');
           }
+          decrypted = await signalActions.decryptMessage(senderId, sourceDeviceId, payload);
         }
       } else {
         // 使用默认解密
@@ -350,6 +344,15 @@ export function useChatClient(): {
       console.error('Decryption failed:', error);
       return payload;
     }
+  };
+
+  /**
+   * 根据消息ID获取已解密的明文（用于转发等场景）
+   * @param messageId - 消息ID
+   * @returns 解密后的明文，如果未找到则返回 null
+   */
+  const getDecryptedTextByMessageId = (messageId: string): string | null => {
+    return payloadCacheRef.current.get(`msg:${messageId}`) ?? null;
   };
 
   // 同步版本的 decodePayload，用于渲染
@@ -520,6 +523,8 @@ export function useChatClient(): {
           try {
             const decrypted = await decodePayload(row.encryptedPayload, row.senderId, row.sourceDeviceId);
             payloadCacheRef.current.set(row.encryptedPayload, decrypted);
+            // 同时按消息ID缓存，支持通过ID查找明文（如转发场景）
+            payloadCacheRef.current.set(`msg:${row.id}`, decrypted);
           } catch (error) {
             console.error('Decryption failed:', error);
           }
@@ -567,6 +572,8 @@ export function useChatClient(): {
             try {
               const decrypted = await decodePayload(row.encryptedPayload, row.senderId, row.sourceDeviceId);
               payloadCacheRef.current.set(row.encryptedPayload, decrypted);
+              // 同时按消息ID缓存，支持通过ID查找明文（如转发场景）
+              payloadCacheRef.current.set(`msg:${row.id}`, decrypted);
             } catch (error) {
               console.error('Decryption failed:', error);
             }
@@ -607,6 +614,8 @@ export function useChatClient(): {
           try {
             const decrypted = await decodePayload(row.encryptedPayload, row.senderId, row.sourceDeviceId);
             payloadCacheRef.current.set(row.encryptedPayload, decrypted);
+            // 同时按消息ID缓存，支持通过ID查找明文（如转发场景）
+            payloadCacheRef.current.set(`msg:${row.id}`, decrypted);
           } catch (error) {
             console.error('Decryption failed:', error);
           }
@@ -659,6 +668,8 @@ export function useChatClient(): {
           try {
             const decrypted = await decodePayload(row.encryptedPayload, row.senderId, row.sourceDeviceId);
             payloadCacheRef.current.set(row.encryptedPayload, decrypted);
+            // 同时按消息ID缓存，支持通过ID查找明文（如转发场景）
+            payloadCacheRef.current.set(`msg:${row.id}`, decrypted);
           } catch (error) {
             console.error('Decryption failed:', error);
           }
@@ -711,7 +722,13 @@ export function useChatClient(): {
     }, 5000);
   }
 
-  async function onLogin(event: FormEvent<HTMLFormElement>, loginAccount?: string, loginPassword?: string): Promise<void> {
+  async function onLogin(
+    event: FormEvent<HTMLFormElement>,
+    loginAccount?: string,
+    loginPassword?: string,
+    rememberOverride?: boolean,
+    autoLoginOverride?: boolean,
+  ): Promise<void> {
     event.preventDefault();
     if (authSubmitting) {
       return;
@@ -720,23 +737,38 @@ export function useChatClient(): {
     // 注意：使用 !== undefined 判断，因为空字符串是有效值，不应回退到状态
     const accountToUse = loginAccount !== undefined ? loginAccount : account;
     const passwordToUse = loginPassword !== undefined ? loginPassword : password;
+    const rememberToUse = rememberOverride ?? rememberPassword;
+    const autoLoginToUse = autoLoginOverride ?? autoLogin;
     setAuthSubmitting(true);
     try {
-      const result = await login(accountToUse, passwordToUse);
+      const rememberedDeviceId = await getDeviceIdForAccount(accountToUse);
+      const result = await login(accountToUse, passwordToUse, rememberedDeviceId ?? undefined);
       setAuthToken(result.accessToken);
       setAuth({ token: result.accessToken, userId: result.userId });
+      await setDeviceIdForAccount(accountToUse, result.deviceId);
+
+      if (rememberOverride !== undefined) {
+        setRememberPasswordState(rememberToUse);
+      }
+      if (autoLoginOverride !== undefined) {
+        setAutoLoginState(autoLoginToUse);
+      }
 
       // 根据选项保存凭证
-      if (rememberPassword) {
-        await storeCredentials(account, password);
+      if (rememberToUse) {
+        await storeCredentials(accountToUse, passwordToUse);
         await setRememberPassword(true);
       } else {
         await clearCredentials();
         await setRememberPassword(false);
       }
 
-      if (autoLogin) {
-        await setAutoLogin({ enabled: true, expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000 });
+      if (autoLoginToUse) {
+        await setAutoLogin({
+          enabled: true,
+          refreshToken: result.refreshToken,
+          expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000,
+        });
       } else {
         await clearAutoLogin();
       }
@@ -749,11 +781,14 @@ export function useChatClient(): {
 
         // 登录后获取设备列表并更新本地设备ID（在 initialize 之后）
         try {
-          const devices = await import('./api').then(api => api.getDevices());
+          const devices = await import('./api').then((api) => api.getDevices());
           if (devices && devices.length > 0) {
-            const primaryDevice = devices[0];
+            const selectedDevice = (result.deviceId
+              ? devices.find((device) => device.deviceId === result.deviceId)
+              : null) || devices[0];
             // 使用 Signal actions 设置设备ID
-            await signalActions.setDeviceId(primaryDevice.deviceId);
+            await signalActions.setDeviceId(selectedDevice.deviceId);
+            await setDeviceIdForAccount(accountToUse, selectedDevice.deviceId);
           }
         } catch (deviceError) {
           console.error('[Login] Failed to get devices:', deviceError);
@@ -785,11 +820,11 @@ export function useChatClient(): {
     }
   }
 
-  async function onSendLoginCode(): Promise<void> {
+  async function onSendLoginCode(accountOverride?: string): Promise<void> {
     if (sendingLoginCode || loginCodeCooldown > 0) {
       return;
     }
-    const accountValue = account.trim();
+    const accountValue = (accountOverride ?? account).trim();
     if (!accountValue) {
       showToast('请输入账号或邮箱', 'error');
       return;
@@ -811,16 +846,24 @@ export function useChatClient(): {
     }
   }
 
-  async function onLoginWithCode(event: FormEvent<HTMLFormElement>): Promise<void> {
+  async function onLoginWithCode(
+    event: FormEvent<HTMLFormElement>,
+    codeAccount?: string,
+    codeValue?: string,
+  ): Promise<void> {
     event.preventDefault();
     if (authSubmitting) {
       return;
     }
     setAuthSubmitting(true);
     try {
-      const result = await loginWithCode({ account: account.trim(), code: loginCode.trim() });
+      const accountToUse = (codeAccount ?? account).trim();
+      const codeToUse = (codeValue ?? loginCode).trim();
+      const rememberedDeviceId = await getDeviceIdForAccount(accountToUse);
+      const result = await loginWithCode({ account: accountToUse, code: codeToUse, deviceId: rememberedDeviceId ?? undefined });
       setAuthToken(result.accessToken);
       setAuth({ token: result.accessToken, userId: result.userId });
+      await setDeviceIdForAccount(accountToUse, result.deviceId);
 
       // 登录后初始化 Signal 协议并检查预密钥
       // 注意：initialize() 必须在 setDeviceId() 之前调用
@@ -830,10 +873,13 @@ export function useChatClient(): {
 
         // 登录后获取设备列表并更新本地设备ID（在 initialize 之后）
         try {
-          const devices = await import('./api').then(api => api.getDevices());
+          const devices = await import('./api').then((api) => api.getDevices());
           if (devices && devices.length > 0) {
-            const primaryDevice = devices[0];
-            await signalActions.setDeviceId(primaryDevice.deviceId);
+            const selectedDevice = (result.deviceId
+              ? devices.find((device) => device.deviceId === result.deviceId)
+              : null) || devices[0];
+            await signalActions.setDeviceId(selectedDevice.deviceId);
+            await setDeviceIdForAccount(accountToUse, selectedDevice.deviceId);
           }
         } catch (deviceError) {
           console.error('[LoginWithCode] Failed to get devices:', deviceError);
@@ -904,26 +950,14 @@ export function useChatClient(): {
     }
 
     try {
-      // 初始化Signal协议，生成身份密钥
-      await signalActions.initialize();
-
-      // 获取密钥管理器
       const keyManager = new (await import('./signal/key-management')).KeyManager();
-      await keyManager.initialize();
-
-      // 获取身份密钥对
-      const identityKeyPair = await keyManager.getIdentityKeyPair();
-
-      // 生成签名预密钥
-      const signedPrekey = await (await import('./signal')).X3DH.generateSignedPrekey(identityKeyPair, 1);
+      const { RustSignalRuntime } = await import('./signal/rust-signal');
+      const rustSignal = new RustSignalRuntime();
+      await rustSignal.initializeIdentity();
+      const registrationKeys = await rustSignal.getRegistrationKeys();
 
       // 检测操作系统类型
       const deviceType = detectDeviceType();
-
-      // 转换密钥为Base64格式
-      const identityPublicKey = btoa(String.fromCharCode(...identityKeyPair.publicKeyBytes));
-      const signedPreKeyPublic = btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.exportKey('raw', signedPrekey.keyPair.publicKey))));
-      const signedPreKeySignature = btoa(String.fromCharCode(...signedPrekey.signature));
 
       const result = await register({
         username: trimmedUsername,
@@ -932,9 +966,9 @@ export function useChatClient(): {
         password: trimmedPassword,
         deviceName: 'desktop-client',
         deviceType,
-        identityPublicKey,
-        signedPreKey: signedPreKeyPublic,
-        signedPreKeySignature,
+        identityPublicKey: registrationKeys.identityPublicKey,
+        signedPreKey: registrationKeys.signedPreKey,
+        signedPreKeySignature: registrationKeys.signedPreKeySignature,
       });
 
       setAuthToken(result.accessToken);
@@ -946,19 +980,20 @@ export function useChatClient(): {
         await new Promise(resolve => setTimeout(resolve, 500));
         
         // 获取设备列表
-        const devices = await import('./api').then(api => api.getDevices());
+        const devices = await import('./api').then((api) => api.getDevices());
         if (devices && devices.length > 0) {
           const primaryDevice = devices[0]; // 假设第一个设备是主要设备
           
           // 更新本地存储中的设备ID
           await keyManager['secureStorage'].set('currentDeviceId', primaryDevice.deviceId);
+          await setDeviceIdForAccount(trimmedUsername, primaryDevice.deviceId);
+          await setDeviceIdForAccount(trimmedEmail, primaryDevice.deviceId);
         }
       } catch (deviceError) {
         console.error('Failed to get devices after registration:', deviceError);
       }
 
-      // 生成一次性预密钥并上传
-      await keyManager.generateOneTimePrekeys(100);
+      // 上传 Rust 侧预密钥
       try {
         const { messageEncryptionService } = await import('./signal/message-encryption');
         // 使用在注册流程中创建的 keyManager，确保上传正确的预密钥
@@ -1046,6 +1081,7 @@ export function useChatClient(): {
     }
 
     stopFallbackPolling();
+    signalActions.resetRuntime();
     authRef.current = null;
     setAuthToken(null);
     setAuth(null);
@@ -1270,43 +1306,78 @@ export function useChatClient(): {
         return;
       }
 
-      // 使用Signal协议加密消息
-      let encryptedPayload: string;
-      try {
-        if (signalState.initialized) {
-          // 获取接收方的设备列表
-          const devices = await getDevicesByUserIds([recipientUserId]);
-          const recipientDevice = devices[0]?.devices?.[0];
-          if (!recipientDevice) {
-            throw new Error('无法获取接收方设备信息');
-          }
-          const recipientDeviceId = recipientDevice.deviceId;
-          encryptedPayload = await signalActions.encryptMessage(recipientUserId, recipientDeviceId, messageText);
-        } else {
-          //  fallback到原有的Base64编码
-          encryptedPayload = btoa(unescape(encodeURIComponent(messageText)));
+      // 初始化 Signal 协议
+      if (!signalState.initialized) {
+        await signalActions.initialize(authRef.current?.userId);
+      }
+
+      // 获取接收方所有设备
+      // 同时获取发送方设备（用于自同步），合并为一次 API 调用
+      const currentUserId = authRef.current?.userId;
+      const userIdsToQuery = currentUserId ? [recipientUserId, currentUserId] : [recipientUserId];
+      const deviceInfoList = await getDevicesByUserIds(userIdsToQuery);
+      const recipientDeviceInfo = deviceInfoList.find((info) => info.userId === recipientUserId);
+      const recipientDevices = recipientDeviceInfo?.devices ?? [];
+      if (recipientDevices.length === 0) {
+        throw new Error('无法获取接收方设备信息');
+      }
+
+      // 对接收方所有设备进行加密（fan-out）
+      const nonce = crypto.randomUUID().replace(/-/g, '').slice(0, 24);
+      const envelopes: Array<{ targetUserId: string; targetDeviceId: string; encryptedPayload: string }> = [];
+      for (const recipientDevice of recipientDevices) {
+        const encryptedPayload = await signalActions.encryptMessage(
+          recipientUserId,
+          recipientDevice.deviceId,
+          messageText,
+        );
+        envelopes.push({
+          targetUserId: recipientUserId,
+          targetDeviceId: recipientDevice.deviceId,
+          encryptedPayload,
+        });
+      }
+
+      // 发送方自同步：覆盖当前设备 + 其他设备，确保“自己发送自己可见”。
+      if (currentUserId) {
+        const selfDeviceInfo = deviceInfoList.find((info) => info.userId === currentUserId);
+        const selfDevices = selfDeviceInfo?.devices ?? [];
+        for (const selfDevice of selfDevices) {
+          const encryptedPayload = await signalActions.encryptMessage(
+            currentUserId,
+            selfDevice.deviceId,
+            messageText,
+          );
+          envelopes.push({
+            targetUserId: currentUserId,
+            targetDeviceId: selfDevice.deviceId,
+            encryptedPayload,
+          });
         }
-      } catch (error) {
-        console.error('Encryption failed, falling back to Base64:', error);
-        // 加密失败时fallback到原有的Base64编码
-        encryptedPayload = btoa(unescape(encodeURIComponent(messageText)));
       }
 
       // 对于自己发送的消息，预先缓存明文，避免解密时无法显示
-      payloadCacheRef.current.set(encryptedPayload, messageText);
+      // 注意：这里缓存的是同一份明文，因为所有 envelope 都是同一个 messageText 加密的
+      for (const envelope of envelopes) {
+        payloadCacheRef.current.set(envelope.encryptedPayload, messageText);
+      }
 
-      await sendMessage({
+      // 调用 send-v2 接口，提交所有设备信封
+      const { sendMessageV2 } = await import('./api');
+      const sendResult = await sendMessageV2({
         conversationId: activeConversationIdRef.current,
         messageType,
-        text,
-        mediaUrl: messageType === 1 ? undefined : mediaUrl.trim() || undefined,
-        fileName: messageType === 4 ? (mediaUrl.trim() || 'file') : undefined,
+        nonce,
+        envelopes,
         mediaAssetId: messageType === 1 ? undefined : pendingMediaAssetIdRef.current ?? undefined,
         isBurn: isBurnForThisMessage,
         burnDuration: isBurnForThisMessage ? burnDuration : undefined,
-        replyTo,
-        encryptedPayload, // 使用 Signal 加密后的 payload
       });
+
+      // 按消息ID缓存明文，支持后续转发等场景
+      if (sendResult?.messageId) {
+        payloadCacheRef.current.set(`msg:${sendResult.messageId}`, messageText);
+      }
       setMessageText('');
       setReplyToMessage(null);
       if (activeConversationIdRef.current) {
@@ -1490,6 +1561,174 @@ export function useChatClient(): {
     }
   }
 
+  /**
+   * 转发消息
+   * - v2 消息（encryptedPayload 为 null）：客户端重加密流程
+   * - 旧版消息（encryptedPayload 非 null）：调用后端转发接口
+   */
+  async function onForwardMessage(
+    originalMessageId: string,
+    targetConversationId: string,
+  ): Promise<{ messageId: string; messageIndex: string }> {
+    // 查找原消息（优先从本地缓存查找，找不到则通过 API 获取）
+    let originalMessage: MessageItem | undefined | null = messagesRef.current.find((m) => m.id === originalMessageId);
+    if (!originalMessage) {
+      const { getMessageById } = await import('./api');
+      originalMessage = await getMessageById(originalMessageId);
+    }
+    if (!originalMessage) {
+      throw new Error('找不到原消息');
+    }
+
+    // 获取目标会话信息
+    const targetConversation = conversations.find((c) => c.conversationId === targetConversationId);
+    if (!targetConversation) {
+      throw new Error('找不到目标会话');
+    }
+
+    const recipientUserId = targetConversation.peerUser?.userId;
+    if (!recipientUserId) {
+      throw new Error('目标会话不是单聊，无法转发');
+    }
+
+    // 判断是 v2 消息还是旧版消息
+    // v2 消息：encryptedPayload 为 null（但在 REST API 返回时已被 resolveEnvelopePayloadsForDevice 填充）
+    // 旧版消息：encryptedPayload 是 base64 编码的 JSON
+    const isV2Message = (() => {
+      const trimmed = (originalMessage.encryptedPayload || '').trim();
+      // 如果是 Signal 加密的 JSON 格式，说明是从 envelope 解析出来的 v2 消息
+      return trimmed.startsWith('{');
+    })();
+
+    // 尝试从缓存获取明文（优先按消息ID查找）
+    let plaintext = getDecryptedTextByMessageId(originalMessageId);
+    if (!plaintext) {
+      // 回退：尝试用 encryptedPayload 解密
+      try {
+        plaintext = decodePayloadSync(originalMessage.encryptedPayload);
+      } catch {
+        // 解密失败
+      }
+    }
+
+    if (isV2Message) {
+      // v2 消息必须能解密，否则无法转发
+      if (!plaintext) {
+        throw new Error('无法解密消息，请确认已在其他设备同步 Signal 状态');
+      }
+      // P1: v2 消息走客户端重加密流程
+      // 初始化 Signal 协议
+      if (!signalState.initialized) {
+        await signalActions.initialize(authRef.current?.userId);
+      }
+
+      // 获取目标接收方所有设备
+      // 同时获取发送方设备（用于自同步），合并为一次 API 调用
+      const currentUserId = authRef.current?.userId;
+      const userIdsToQuery = currentUserId ? [recipientUserId, currentUserId] : [recipientUserId];
+      const deviceInfoList = await getDevicesByUserIds(userIdsToQuery);
+      const recipientDeviceInfo = deviceInfoList.find((info) => info.userId === recipientUserId);
+      const recipientDevices = recipientDeviceInfo?.devices ?? [];
+      if (recipientDevices.length === 0) {
+        throw new Error('无法获取目标用户设备信息');
+      }
+
+      // 获取目标会话的元数据（用于构建消息内容）
+      let originalPayload: Record<string, unknown>;
+      try {
+        originalPayload = JSON.parse(plaintext) as Record<string, unknown>;
+      } catch {
+        throw new Error('原消息内容解析失败，无法转发');
+      }
+      const messageType = originalMessage.messageType as 1 | 2 | 3 | 4;
+      const normalizedText = typeof originalPayload.text === 'string' ? originalPayload.text.trim() : '';
+      if (messageType === 1 && !normalizedText) {
+        throw new Error('文本消息缺少可转发内容');
+      }
+
+      // 构建消息内容（保留原消息的 type 和媒体信息）
+      // 注意：媒体消息不包含 mediaUrl，因为媒体已复制到新 asset，mediaAssetId 会独立传递
+      const messageContent = {
+        type: messageType,
+        text: messageType === 1 ? normalizedText : undefined,
+        mediaUrl: messageType === 1 && typeof originalPayload.mediaUrl === 'string' ? originalPayload.mediaUrl : undefined,
+        fileName: typeof originalPayload.fileName === 'string' ? originalPayload.fileName : undefined,
+        replyTo: undefined,
+      };
+      const messageText = JSON.stringify(messageContent);
+
+      // 对目标用户所有设备进行加密
+      const nonce = crypto.randomUUID().replace(/-/g, '').slice(0, 24);
+      const envelopes: Array<{ targetUserId: string; targetDeviceId: string; encryptedPayload: string }> = [];
+      for (const recipientDevice of recipientDevices) {
+        const encryptedPayload = await signalActions.encryptMessage(
+          recipientUserId,
+          recipientDevice.deviceId,
+          messageText,
+        );
+        envelopes.push({
+          targetUserId: recipientUserId,
+          targetDeviceId: recipientDevice.deviceId,
+          encryptedPayload,
+        });
+      }
+
+      // 发送方自同步：覆盖当前设备 + 其他设备，保证转发后自己也能看到正文。
+      if (currentUserId) {
+        const selfDeviceInfo = deviceInfoList.find((info) => info.userId === currentUserId);
+        const selfDevices = selfDeviceInfo?.devices ?? [];
+        for (const selfDevice of selfDevices) {
+          const encryptedPayload = await signalActions.encryptMessage(
+            currentUserId,
+            selfDevice.deviceId,
+            messageText,
+          );
+          envelopes.push({
+            targetUserId: currentUserId,
+            targetDeviceId: selfDevice.deviceId,
+            encryptedPayload,
+          });
+        }
+      }
+
+      // 缓存明文
+      for (const envelope of envelopes) {
+        payloadCacheRef.current.set(envelope.encryptedPayload, messageText);
+      }
+
+      // 对于媒体消息，需要先复制媒体资产到目标会话
+      let forwardedMediaAssetId: string | undefined;
+      if (messageType !== 1 && originalMessage.mediaAssetId) {
+        const { copyMediaAsset } = await import('./api');
+        const copied = await copyMediaAsset(originalMessage.mediaAssetId, targetConversationId);
+        forwardedMediaAssetId = copied.mediaAssetId;
+      }
+
+      // 调用 send-v2 接口
+      const { sendMessageV2 } = await import('./api');
+      const result = await sendMessageV2({
+        conversationId: targetConversationId,
+        messageType,
+        nonce,
+        envelopes,
+        mediaAssetId: forwardedMediaAssetId,
+        isBurn: originalMessage.isBurn,
+        burnDuration: originalMessage.isBurn ? originalMessage.burnDuration ?? undefined : undefined,
+      });
+
+      // 按消息ID缓存明文
+      if (result?.messageId) {
+        payloadCacheRef.current.set(`msg:${result.messageId}`, messageText);
+      }
+
+      return result;
+    } else {
+      // 旧版消息调用后端转发接口
+      const { forwardMessage } = await import('./api');
+      return await forwardMessage(originalMessageId, targetConversationId);
+    }
+  }
+
   async function loadFriendData(): Promise<void> {
     const [requests, friendList, blockedList] = await Promise.all([
       getIncomingRequests(),
@@ -1599,6 +1838,8 @@ export function useChatClient(): {
           try {
             const decrypted = await decodePayload(row.encryptedPayload, row.senderId, row.sourceDeviceId);
             payloadCacheRef.current.set(row.encryptedPayload, decrypted);
+            // 同时按消息ID缓存，支持通过ID查找明文（如转发场景）
+            payloadCacheRef.current.set(`msg:${row.id}`, decrypted);
             hasDecrypted = true;
           } catch (error) {
             console.error('Decryption failed:', error);
@@ -2088,6 +2329,7 @@ export function useChatClient(): {
       onResolveMediaUrl,
       onReadMessageOnce,
       onStartDirectConversation,
+      onForwardMessage,
       startTyping,
       stopTyping,
     },

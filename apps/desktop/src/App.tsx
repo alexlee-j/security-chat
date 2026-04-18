@@ -10,6 +10,7 @@
  */
 
 import { useEffect, useState, useRef, useCallback } from 'react';
+import type { FormEvent } from 'react';
 import { LoginScreen } from './features/auth/login-screen';
 import { ChatPanel } from './features/chat/chat-panel';
 import { ConversationSidebar } from './features/chat/conversation-sidebar';
@@ -17,7 +18,6 @@ import { FriendPanel } from './features/friend/friend-panel';
 import { useChatClient } from './core/use-chat-client';
 import { useTheme } from './core/use-theme';
 import { getStoredCredentials, getRememberPassword, canAutoLogin } from './core/auth-storage';
-import { login as loginApi, setAuthToken } from './core/api';
 import {
   Sheet,
   SheetContent,
@@ -88,12 +88,15 @@ export function App(): JSX.Element {
             actionsRef.current.setRememberPassword(true);
             actionsRef.current.setAutoLogin(true);
 
-            // 直接调用 login API 进行自动登录
-            const result = await loginApi(credentials.account, credentials.encryptedPassword);
-            if (abortController.signal.aborted) return;
-
-            setAuthToken(result.accessToken);
-            actionsRef.current.setAuth({ token: result.accessToken, userId: result.userId });
+            // 走统一登录链路，确保 Signal / 设备 / 会话初始化完整执行
+            const mockEvent = { preventDefault: () => {} } as unknown as FormEvent<HTMLFormElement>;
+            await actionsRef.current.onLogin(
+              mockEvent,
+              credentials.account,
+              credentials.encryptedPassword,
+              true,
+              true,
+            );
             return;
           }
         }
@@ -276,6 +279,7 @@ export function App(): JSX.Element {
               onSubmit={actions.onSendMessage}
               onStartTyping={actions.startTyping}
               onStopTyping={actions.stopTyping}
+              onForwardMessage={actions.onForwardMessage}
             />
           </div>
         ) : (

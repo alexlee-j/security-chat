@@ -62,10 +62,16 @@ type Props = {
   onPasswordChange: (value: string) => void;
   onRememberPasswordChange: (value: boolean) => void;
   onAutoLoginChange: (value: boolean) => void;
-  onLogin: (event: FormEvent<HTMLFormElement>, loginAccount?: string, loginPassword?: string) => Promise<void>;
+  onLogin: (
+    event: FormEvent<HTMLFormElement>,
+    loginAccount?: string,
+    loginPassword?: string,
+    rememberOverride?: boolean,
+    autoLoginOverride?: boolean,
+  ) => Promise<void>;
   onRegister: (username: string, email: string, password: string) => Promise<void>;
-  onSendLoginCode: () => Promise<void>;
-  onLoginWithCode: (event: FormEvent<HTMLFormElement>) => Promise<void>;
+  onSendLoginCode: (accountOverride?: string) => Promise<void>;
+  onLoginWithCode: (event: FormEvent<HTMLFormElement>, codeAccount?: string, codeValue?: string) => Promise<void>;
   onSendForgotCode: (event: FormEvent<HTMLFormElement>) => Promise<void>;
   onResetPassword: (event: FormEvent<HTMLFormElement>) => Promise<void>;
 };
@@ -85,7 +91,7 @@ export function LoginScreen(props: Props): JSX.Element {
     props.onAutoLoginChange(values.autoLogin);
     // 直接传递账号密码给 onLogin，避免状态异步问题
     const mockEvent = { preventDefault: () => {} } as unknown as FormEvent<HTMLFormElement>;
-    await props.onLogin(mockEvent, values.username, values.password);
+    await props.onLogin(mockEvent, values.username, values.password, values.remember, values.autoLogin);
   };
 
   // Wrapper for register form submit
@@ -99,7 +105,7 @@ export function LoginScreen(props: Props): JSX.Element {
     props.onAccountChange(values.account);
     props.onLoginCodeChange(values.code);
     const mockEvent = { preventDefault: () => {} } as unknown as FormEvent<HTMLFormElement>;
-    await props.onLoginWithCode(mockEvent);
+    await props.onLoginWithCode(mockEvent, values.account, values.code);
   };
 
   // Wrapper for forgot password step 2 submit
@@ -135,6 +141,7 @@ export function LoginScreen(props: Props): JSX.Element {
               onSubmit={handleLogin}
               onSwitchToRegister={() => props.onModeChange('register')}
               onSwitchToForgotPassword={() => props.onModeChange('forgot-password')}
+              onSwitchToCodeLogin={() => props.onModeChange('code')}
             />
           )}
 
@@ -143,7 +150,11 @@ export function LoginScreen(props: Props): JSX.Element {
             <CodeLoginForm
               defaultAccount={props.account}
               isLoading={props.authSubmitting}
+              isSendingCode={props.sendingLoginCode}
+              cooldown={props.loginCodeCooldown}
+              codeHint={props.codeHint}
               onSubmit={handleCodeLogin}
+              onSendCode={props.onSendLoginCode}
               onSwitchToPasswordLogin={() => props.onModeChange('login')}
             />
           )}

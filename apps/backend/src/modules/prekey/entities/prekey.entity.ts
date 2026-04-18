@@ -29,7 +29,7 @@ export class SignedPreKey {
   @Column('text')
   signature!: string;  // Base64
 
-  @Column()
+  @Column({ type: 'bigint' })
   timestamp!: number;
 
   @CreateDateColumn()
@@ -59,7 +59,7 @@ export class KyberPreKey {
   @Column('text')
   signature!: string;  // Base64
 
-  @Column()
+  @Column({ type: 'bigint' })
   timestamp!: number;
 
   @CreateDateColumn()

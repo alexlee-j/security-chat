@@ -1,12 +1,34 @@
 //! Tauri Commands for Signal Protocol
 
 use tauri::State;
-use libsignal_protocol::{ProtocolAddress, DeviceId, PreKeyBundle};
+use libsignal_protocol::{
+    process_prekey_bundle,
+    DeviceId,
+    GenericSignedPreKey,
+    IdentityKey,
+    IdentityKeyStore,
+    InMemSignalProtocolStore,
+    KyberPreKeyStore,
+    KyberPreKeyId,
+    PreKeyStore,
+    PreKeyBundle,
+    PreKeyId,
+    PreKeyRecord,
+    ProtocolAddress,
+    PublicKey,
+    SignedPreKeyId,
+    SignedPreKeyRecord,
+    SignedPreKeyStore,
+};
 use crate::signal::store::{AppStore, create_store, initialize_store, get_prekey_bundle};
 use crate::signal::cipher::{encrypt_message, decrypt_message, EncryptedMessage};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use base64::{Engine, engine::general_purpose};
+use serde::{Deserialize, Serialize};
+use rand::TryRngCore as _;
+use rand::rngs::OsRng;
+use std::time::SystemTime;
 
 /// 应用状态 - 使用内存 Store
 pub struct AppState {
@@ -42,187 +64,60 @@ pub async fn initialize_identity_command(
 #[tauri::command]
 pub async fn get_prekey_bundle_command(
     state: State<'_, AppState>,
-) -> Result<String, String> {
+) -> Result<LocalPrekeyUploadDto, String> {
+    get_local_prekey_upload_impl(&state.store, 50).await
+}
+
+/// 获取注册所需的 identity/signed prekey（纯 Rust 生成）
+#[tauri::command]
+pub async fn get_registration_keys_command(
+    state: State<'_, AppState>,
+) -> Result<RegistrationKeysDto, String> {
     let bundle = get_prekey_bundle(&state.store).await.map_err(|e| e.to_string())?;
-
-    // 获取各字段并构建可序列化结构
-    let registration_id = bundle.registration_id().map_err(|e| e.to_string())?;
-    let device_id = bundle.device_id().map_err(|e| e.to_string())?;
-    let identity_key = bundle.identity_key().map_err(|e| e.to_string())?;
-    let signed_prekey_id = bundle.signed_pre_key_id().map_err(|e| e.to_string())?;
-    let signed_prekey_public = bundle.signed_pre_key_public().map_err(|e| e.to_string())?;
-    let signed_prekey_sig = bundle.signed_pre_key_signature().map_err(|e| e.to_string())?;
-    let pre_key_public = bundle.pre_key_public().map_err(|e| e.to_string())?;
-    let pre_key_id = bundle.pre_key_id().map_err(|e| e.to_string())?;
-    let kyber_prekey_id = bundle.kyber_pre_key_id().map_err(|e| e.to_string())?;
-    let kyber_prekey_public = bundle.kyber_pre_key_public().map_err(|e| e.to_string())?;
-    let kyber_prekey_sig = bundle.kyber_pre_key_signature().map_err(|e| e.to_string())?;
-
-    // 构建 one_time_prekey（如果有）
-    let one_time_prekey = if let (Some(id), Some(pk)) = (pre_key_id, pre_key_public) {
-        Some(serde_json::json!({
-            "key_id": u32::from(id),
-            "public_key": pk.serialize(),
-        }))
-    } else {
-        None
-    };
-
-    // 手动构建可序列化的结构
-    let serializable = serde_json::json!({
-        "registration_id": registration_id,
-        "device_id": u32::from(device_id),
-        "identity_key": identity_key.public_key().serialize(),
-        "signed_prekey": {
-            "key_id": u32::from(signed_prekey_id),
-            "public_key": signed_prekey_public.serialize(),
-            "signature": signed_prekey_sig.to_vec(),
-        },
-        "one_time_prekey": one_time_prekey,
-        "kyber_prekey": {
-            "key_id": u32::from(kyber_prekey_id),
-            "public_key": kyber_prekey_public.serialize(),
-            "signature": kyber_prekey_sig.to_vec(),
-        },
-    });
-
-    let json = serde_json::to_string(&serializable).map_err(|e| e.to_string())?;
-    Ok(general_purpose::STANDARD.encode(&json))
+    Ok(RegistrationKeysDto {
+        registration_id: bundle.registration_id().map_err(|e| e.to_string())?,
+        identity_public_key: general_purpose::STANDARD.encode(
+            bundle.identity_key().map_err(|e| e.to_string())?.serialize(),
+        ),
+        signed_pre_key: general_purpose::STANDARD.encode(
+            bundle.signed_pre_key_public().map_err(|e| e.to_string())?.serialize(),
+        ),
+        signed_pre_key_signature: general_purpose::STANDARD.encode(
+            bundle.signed_pre_key_signature().map_err(|e| e.to_string())?,
+        ),
+    })
 }
 
 /// 与其他用户建立会话（X3DH）
 #[tauri::command]
 pub async fn establish_session_command(
     recipient_id: String,
-    prekey_bundle_base64: String,
+    recipient_device_id: String,
+    prekey_bundle: RemotePrekeyBundleDto,
     state: State<'_, AppState>,
 ) -> Result<bool, String> {
-    use libsignal_protocol::{process_prekey_bundle, DeviceId, IdentityKey, PreKeyId, SignedPreKeyId, KyberPreKeyId};
-    use libsignal_protocol::kem::PublicKey as KemPublicKey;
-    use libsignal_protocol::PublicKey;
-    use std::time::SystemTime;
-
-    // 解码 base64
-    let json_bytes = general_purpose::STANDARD.decode(&prekey_bundle_base64)
-        .map_err(|e| format!("Failed to decode base64: {}", e))?;
-    let json_str = String::from_utf8(json_bytes)
-        .map_err(|e| format!("Invalid UTF-8: {}", e))?;
-
-    // 解析 JSON
-    let json_val: serde_json::Value = serde_json::from_str(&json_str)
-        .map_err(|e| format!("Failed to parse bundle JSON: {}", e))?;
-
-    // 提取各字段
-    let registration_id = json_val["registration_id"]
-        .as_u64()
-        .ok_or("Missing or invalid registration_id")? as u32;
-    let device_id_val = json_val["device_id"]
-        .as_u64()
-        .ok_or("Missing or invalid device_id")? as u32;
-    let identity_key_str = json_val["identity_key"]
-        .as_str()
-        .ok_or("Missing or invalid identity_key")?;
-    let identity_key_bytes = general_purpose::STANDARD.decode(identity_key_str)
-        .map_err(|e| format!("Invalid base64 identity_key: {}", e))?;
-
-    // Signed prekey
-    let signed_prekey_id_val = json_val["signed_prekey"]["key_id"]
-        .as_u64()
-        .ok_or("Missing or invalid signed_prekey.key_id")? as u32;
-    let signed_prekey_public_str = json_val["signed_prekey"]["public_key"]
-        .as_str()
-        .ok_or("Missing or invalid signed_prekey.public_key")?;
-    let signed_prekey_public_bytes = general_purpose::STANDARD.decode(signed_prekey_public_str)
-        .map_err(|e| format!("Invalid base64 signed_prekey.public_key: {}", e))?;
-    let signed_prekey_sig_str = json_val["signed_prekey"]["signature"]
-        .as_str()
-        .ok_or("Missing or invalid signed_prekey.signature")?;
-    let signed_prekey_sig = general_purpose::STANDARD.decode(signed_prekey_sig_str)
-        .map_err(|e| format!("Invalid base64 signed_prekey.signature: {}", e))?;
-
-    // Kyber prekey
-    let kyber_prekey_id_val = json_val["kyber_prekey"]["key_id"]
-        .as_u64()
-        .ok_or("Missing or invalid kyber_prekey.key_id")? as u32;
-    let kyber_prekey_public_str = json_val["kyber_prekey"]["public_key"]
-        .as_str()
-        .ok_or("Missing or invalid kyber_prekey.public_key")?;
-    let kyber_prekey_public_bytes = general_purpose::STANDARD.decode(kyber_prekey_public_str)
-        .map_err(|e| format!("Invalid base64 kyber_prekey.public_key: {}", e))?;
-    let kyber_prekey_sig_str = json_val["kyber_prekey"]["signature"]
-        .as_str()
-        .ok_or("Missing or invalid kyber_prekey.signature")?;
-    let kyber_prekey_sig = general_purpose::STANDARD.decode(kyber_prekey_sig_str)
-        .map_err(|e| format!("Invalid base64 kyber_prekey.signature: {}", e))?;
-
-    // One-time prekey (可选)
-    let pre_key = if let Some(otpk_val) = json_val["one_time_prekey"].as_object() {
-        let otpk_id = otpk_val["key_id"]
-            .as_u64()
-            .ok_or("Invalid one_time_prekey.key_id")? as u32;
-        let otpk_public_str = otpk_val["public_key"]
-            .as_str()
-            .ok_or("Invalid one_time_prekey.public_key")?;
-        let otpk_public_bytes = general_purpose::STANDARD.decode(otpk_public_str)
-            .map_err(|e| format!("Invalid base64 one_time_prekey.public_key: {}", e))?;
-        // 添加 0x05 前缀（DJB key type）
-        let mut with_prefix = vec![0x05];
-        with_prefix.extend_from_slice(&otpk_public_bytes);
-        let pk = PublicKey::deserialize(&with_prefix)
-            .map_err(|e| format!("Invalid one-time prekey public key: {:?}", e))?;
-        Some((PreKeyId::from(otpk_id), pk))
-    } else {
-        None
-    };
-
-    // 构建类型
-    let device_id: DeviceId = device_id_val.try_into()
-        .map_err(|_| "Invalid device_id (must be 1-127)")?;
-
-    // 添加 0x05 前缀（DJB key type for x25519）
-    let mut identity_key_with_prefix = vec![0x05];
-    identity_key_with_prefix.extend_from_slice(&identity_key_bytes);
-    let identity_key = IdentityKey::new(
-        PublicKey::deserialize(&identity_key_with_prefix)
-            .map_err(|e| format!("Invalid identity_key: {:?}", e))?
-    );
-
-    // Signed prekey public key - 添加 0x05 前缀
-    let mut signed_prekey_with_prefix = vec![0x05];
-    signed_prekey_with_prefix.extend_from_slice(&signed_prekey_public_bytes);
-    let signed_prekey_public = PublicKey::deserialize(&signed_prekey_with_prefix)
-        .map_err(|e| format!("Invalid signed_prekey.public_key: {:?}", e))?;
-
-    // Kyber public key - 使用 deserialize（需要包含 key type byte）
-    let kyber_prekey_public = KemPublicKey::deserialize(&kyber_prekey_public_bytes)
-        .map_err(|e| format!("Invalid kyber_prekey.public_key: {:?}", e))?;
-
-    // 构建 PreKeyBundle
-    let bundle = PreKeyBundle::new(
-        registration_id,
-        device_id,
-        pre_key,
-        SignedPreKeyId::from(signed_prekey_id_val),
-        signed_prekey_public,
-        signed_prekey_sig,
-        KyberPreKeyId::from(kyber_prekey_id_val),
-        kyber_prekey_public,
-        kyber_prekey_sig,
-        identity_key,
-    ).map_err(|e| format!("Failed to create PreKeyBundle: {:?}", e))?;
-
-    // 建立会话
-    let address = ProtocolAddress::new(recipient_id, DeviceId::new(1).unwrap());
+    let address = ProtocolAddress::new(format!("{}#{}", recipient_id, recipient_device_id), DeviceId::new(1).unwrap());
+    let bundle = convert_remote_prekey_bundle(prekey_bundle)?;
     let store_clone = state.store.clone();
 
     tokio::task::spawn_blocking(move || {
         let mut store_guard = store_clone.lock()
-            .map_err(|_| libsignal_protocol::SignalProtocolError::InvalidState("store", "poisoned".to_string()))?;
-
-        let mut rng = rand::thread_rng();
-        let ptr = &mut *store_guard as *mut libsignal_protocol::InMemSignalProtocolStore;
-
+            .map_err(|_| "poisoned lock".to_string())?;
+        let mut rng = OsRng.unwrap_err();
+        let ptr = &mut *store_guard as *mut InMemSignalProtocolStore;
         unsafe {
+            // Accept latest remote identity for this address before processing
+            // the prekey bundle. In current desktop flow we don't expose manual
+            // trust decisions yet, so we follow TOFU update to avoid hard send
+            // failure when remote prekeys rotate.
+            let remote_identity = *bundle.identity_key().map_err(|e| e.to_string())?;
+            futures::executor::block_on(IdentityKeyStore::save_identity(
+                &mut *ptr,
+                &address,
+                &remote_identity,
+            ))
+            .map_err(|e| e.to_string())?;
+
             futures::executor::block_on(process_prekey_bundle(
                 &address,
                 &mut *ptr,
@@ -231,10 +126,12 @@ pub async fn establish_session_command(
                 SystemTime::now(),
                 &mut rng,
             ))
+            .map_err(|e| e.to_string())?;
         }
-    }).await
-    .map_err(|e| format!("Spawn failed: {}", e))?
-    .map_err(|e| format!("Failed to establish session: {:?}", e))?;
+        Ok::<(), String>(())
+    })
+    .await
+    .map_err(|_| "spawn task failed".to_string())??;
 
     Ok(true)
 }
@@ -243,10 +140,11 @@ pub async fn establish_session_command(
 #[tauri::command]
 pub async fn encrypt_message_command(
     recipient_id: String,
+    recipient_device_id: String,
     plaintext: String,
     state: State<'_, AppState>,
 ) -> Result<EncryptedMessage, String> {
-    let address = ProtocolAddress::new(recipient_id, DeviceId::new(1).unwrap());
+    let address = ProtocolAddress::new(format!("{}#{}", recipient_id, recipient_device_id), DeviceId::new(1).unwrap());
     encrypt_message(&state.store, &address, plaintext.as_bytes())
         .await
         .map_err(|e| e.to_string())
@@ -256,10 +154,11 @@ pub async fn encrypt_message_command(
 #[tauri::command]
 pub async fn decrypt_message_command(
     sender_id: String,
+    sender_device_id: String,
     encrypted: EncryptedMessage,
     state: State<'_, AppState>,
 ) -> Result<String, String> {
-    let address = ProtocolAddress::new(sender_id, DeviceId::new(1).unwrap());
+    let address = ProtocolAddress::new(format!("{}#{}", sender_id, sender_device_id), DeviceId::new(1).unwrap());
     let plaintext = decrypt_message(&state.store, &address, &encrypted)
         .await
         .map_err(|e| e.to_string())?;
@@ -275,4 +174,201 @@ pub async fn set_current_user_command(
     let mut current_user = state.current_user_id.write().await;
     *current_user = Some(user_id);
     Ok(())
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RemotePrekeyBundleDto {
+    pub registration_id: u32,
+    pub identity_key: String,
+    pub signed_prekey: RemoteSignedPrekeyDto,
+    pub one_time_prekey: Option<RemoteOneTimePrekeyDto>,
+    pub kyber_prekey: Option<RemoteKyberPrekeyDto>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RemoteSignedPrekeyDto {
+    pub key_id: u32,
+    pub public_key: String,
+    pub signature: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RemoteOneTimePrekeyDto {
+    pub key_id: u32,
+    pub public_key: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RemoteKyberPrekeyDto {
+    pub key_id: u32,
+    pub public_key: String,
+    pub signature: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RegistrationKeysDto {
+    pub registration_id: u32,
+    pub identity_public_key: String,
+    pub signed_pre_key: String,
+    pub signed_pre_key_signature: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LocalPrekeyUploadDto {
+    pub registration_id: u32,
+    pub identity_public_key: String,
+    pub signed_prekey: RemoteSignedPrekeyDto,
+    pub one_time_prekeys: Vec<RemoteOneTimePrekeyDto>,
+    pub kyber_prekey: Option<RemoteKyberPrekeyDto>,
+}
+
+fn convert_remote_prekey_bundle(input: RemotePrekeyBundleDto) -> Result<PreKeyBundle, String> {
+    let identity = IdentityKey::decode(
+        &general_purpose::STANDARD.decode(input.identity_key).map_err(|e| e.to_string())?
+    ).map_err(|e| e.to_string())?;
+    let signed_public = PublicKey::deserialize(
+        &general_purpose::STANDARD.decode(input.signed_prekey.public_key).map_err(|e| e.to_string())?
+    ).map_err(|e| e.to_string())?;
+    let signed_sig = general_purpose::STANDARD
+        .decode(input.signed_prekey.signature)
+        .map_err(|e| e.to_string())?;
+    let prekey = match input.one_time_prekey {
+        Some(one_time) => {
+            let public = PublicKey::deserialize(
+                &general_purpose::STANDARD.decode(one_time.public_key).map_err(|e| e.to_string())?
+            ).map_err(|e| e.to_string())?;
+            Some((PreKeyId::from(one_time.key_id), public))
+        }
+        None => None,
+    };
+    let kyber = input.kyber_prekey.ok_or_else(|| "missing kyber_prekey in remote bundle".to_string())?;
+    let kyber_public = libsignal_protocol::kem::PublicKey::deserialize(
+        &general_purpose::STANDARD.decode(kyber.public_key).map_err(|e| e.to_string())?
+    ).map_err(|e| e.to_string())?;
+    let kyber_sig = general_purpose::STANDARD.decode(kyber.signature).map_err(|e| e.to_string())?;
+
+    PreKeyBundle::new(
+        input.registration_id,
+        DeviceId::new(1).unwrap(),
+        prekey,
+        SignedPreKeyId::from(input.signed_prekey.key_id),
+        signed_public,
+        signed_sig,
+        KyberPreKeyId::from(kyber.key_id),
+        kyber_public,
+        kyber_sig,
+        identity,
+    )
+    .map_err(|e| e.to_string())
+}
+
+async fn get_local_prekey_upload_impl(store: &AppStore, max_prekeys: usize) -> Result<LocalPrekeyUploadDto, String> {
+    let store_clone = store.clone();
+    tokio::task::spawn_blocking(move || {
+        let store_guard = store_clone.lock().map_err(|_| "poisoned lock".to_string())?;
+        let registration_id = futures::executor::block_on(store_guard.identity_store.get_local_registration_id())
+            .map_err(|e| e.to_string())?;
+        let identity_pair = futures::executor::block_on(store_guard.identity_store.get_identity_key_pair())
+            .map_err(|e| e.to_string())?;
+        let identity_public_key = general_purpose::STANDARD.encode(identity_pair.identity_key().serialize());
+
+        let signed_prekey_record: SignedPreKeyRecord = futures::executor::block_on(
+            store_guard.signed_pre_key_store.get_signed_pre_key(SignedPreKeyId::from(1))
+        ).map_err(|e| e.to_string())?;
+        let signed_pair = signed_prekey_record.key_pair().map_err(|e| e.to_string())?;
+        let signed_signature = signed_prekey_record.signature().map_err(|e| e.to_string())?;
+
+        let mut one_time_prekeys = Vec::new();
+        for prekey_id in store_guard.all_pre_key_ids().take(max_prekeys) {
+            let prekey_record: PreKeyRecord = futures::executor::block_on(
+                store_guard.pre_key_store.get_pre_key(*prekey_id)
+            ).map_err(|e| e.to_string())?;
+            let pair = prekey_record.key_pair().map_err(|e| e.to_string())?;
+            one_time_prekeys.push(RemoteOneTimePrekeyDto {
+                key_id: u32::from(*prekey_id),
+                public_key: general_purpose::STANDARD.encode(pair.public_key.serialize()),
+            });
+        }
+
+        let kyber_prekey = match futures::executor::block_on(
+            store_guard.kyber_pre_key_store.get_kyber_pre_key(KyberPreKeyId::from(1))
+        ) {
+            Ok(record) => {
+                let pair = record.key_pair().map_err(|e| e.to_string())?;
+                let signature = record.signature().map_err(|e| e.to_string())?;
+                Some(RemoteKyberPrekeyDto {
+                    key_id: 1,
+                    public_key: general_purpose::STANDARD.encode(pair.public_key.serialize()),
+                    signature: general_purpose::STANDARD.encode(signature),
+                })
+            }
+            Err(_) => None,
+        };
+
+        Ok(LocalPrekeyUploadDto {
+            registration_id,
+            identity_public_key,
+            signed_prekey: RemoteSignedPrekeyDto {
+                key_id: 1,
+                public_key: general_purpose::STANDARD.encode(signed_pair.public_key.serialize()),
+                signature: general_purpose::STANDARD.encode(signed_signature),
+            },
+            one_time_prekeys,
+            kyber_prekey,
+        })
+    })
+    .await
+    .map_err(|_| "spawn task failed".to_string())?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::signal::cipher::{decrypt_message, encrypt_message};
+    use crate::signal::store::{create_store, initialize_store};
+
+    #[tokio::test]
+    async fn establish_session_with_remote_bundle_and_roundtrip_message() {
+        let alice_store = create_store().expect("create alice store");
+        let bob_store = create_store().expect("create bob store");
+        initialize_store(&alice_store).await.expect("init alice");
+        initialize_store(&bob_store).await.expect("init bob");
+
+        let bob_bundle = get_local_prekey_upload_impl(&bob_store, 1).await.expect("export bob bundle");
+        let remote_bundle = RemotePrekeyBundleDto {
+            registration_id: bob_bundle.registration_id,
+            identity_key: bob_bundle.identity_public_key,
+            signed_prekey: bob_bundle.signed_prekey.clone(),
+            one_time_prekey: bob_bundle.one_time_prekeys.first().cloned(),
+            kyber_prekey: bob_bundle.kyber_prekey.clone(),
+        };
+        let converted = convert_remote_prekey_bundle(remote_bundle).expect("convert remote bundle");
+
+        let bob_addr = ProtocolAddress::new("bob#device".to_string(), DeviceId::new(1).unwrap());
+        {
+            let mut guard = alice_store.lock().expect("lock alice");
+            let mut rng = OsRng.unwrap_err();
+            let ptr = &mut *guard as *mut InMemSignalProtocolStore;
+            unsafe {
+                futures::executor::block_on(process_prekey_bundle(
+                    &bob_addr,
+                    &mut *ptr,
+                    &mut *ptr,
+                    &converted,
+                    SystemTime::now(),
+                    &mut rng,
+                ))
+                .expect("establish session");
+            }
+        }
+
+        let encrypted = encrypt_message(&alice_store, &bob_addr, b"hello-rust-signal")
+            .await
+            .expect("encrypt");
+        let decrypted = decrypt_message(&bob_store, &bob_addr, &encrypted)
+            .await
+            .expect("decrypt");
+
+        assert_eq!(decrypted, b"hello-rust-signal");
+    }
 }

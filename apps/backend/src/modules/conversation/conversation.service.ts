@@ -684,6 +684,8 @@ export class ConversationService {
               messageIndex: row.last_message_index ?? '0',
               senderId: row.last_message_sender_id ?? '',
               messageType: Number(row.last_message_type ?? 0),
+              // For device-fan-out rows, list preview is metadata-first and may
+              // not always carry a universally decryptable ciphertext.
               encryptedPayload: row.last_message_encrypted_payload ?? '',
               isBurn: Boolean(row.last_message_is_burn),
               deliveredAt: row.last_message_delivered_at,

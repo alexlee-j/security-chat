@@ -57,26 +57,6 @@ pub struct PrekeyStore {
     pub one_time_prekeys: Vec<OneTimePrekey>,
 }
 
-/// X3DH 初始化消息 - 发送方在建立会话时发送的第一条消息
-#[derive(Serialize, Deserialize, Clone)]
-pub struct PreKeyMessage {
-    /// Sender's identity public key (IK_A)
-    pub identity_key: Vec<u8>,
-    /// Sender's ephemeral public key (EK_A)
-    pub ephemeral_key: Vec<u8>,
-    /// Used signed prekey ID (for receiver to find corresponding private key)
-    pub signed_prekey_id: u32,
-    /// Used one-time prekey ID (if any)
-    pub one_time_prekey_id: Option<u32>,
-}
-
-/// X3DH 发起方结果
-#[derive(Serialize, Deserialize, Clone)]
-pub struct X3DHResult {
-    pub pre_key_message: PreKeyMessage,
-    pub session_state: SessionState,
-}
-
 #[derive(Serialize, Deserialize, Clone)]
 pub struct SessionState {
     pub session_id: String,
@@ -107,6 +87,19 @@ pub struct EncryptedMessage {
     pub previous_sending_index: Option<u32>,
     pub ciphertext: Vec<u8>,
     pub dh_public_key: Option<Vec<u8>>,
+}
+
+/// X3DH 初始化消息 - 发送方在建立会话时发送的第一条消息
+#[derive(Serialize, Deserialize, Clone)]
+pub struct PreKeyMessage {
+    /// Sender's identity public key (IK_A)
+    pub identity_key: Vec<u8>,
+    /// Sender's ephemeral public key (EK_A)
+    pub ephemeral_key: Vec<u8>,
+    /// Used signed prekey ID (for receiver to find corresponding private key)
+    pub signed_prekey_id: u32,
+    /// Used one-time prekey ID (if any)
+    pub one_time_prekey_id: Option<u32>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -177,10 +170,10 @@ impl SignalProtocol {
         let bundle: PrekeyBundle = serde_wasm_bindgen::from_value(prekey_bundle)
             .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
 
-        let result = x3dh::initiate_session(&self.identity_key_pair, &bundle)
+        let session = x3dh::initiate_session(&self.identity_key_pair, &bundle)
             .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
 
-        serde_wasm_bindgen::to_value(&result)
+        serde_wasm_bindgen::to_value(&session)
             .map_err(|e| JsValue::from_str(&format!("{:?}", e)))
     }
 
@@ -201,18 +194,11 @@ impl SignalProtocol {
     }
 
     #[wasm_bindgen]
-    pub fn encrypt_message(&self, session: JsValue, plaintext: &str, pre_key_message: JsValue) -> Result<JsValue, JsValue> {
+    pub fn encrypt_message(&self, session: JsValue, plaintext: &str) -> Result<JsValue, JsValue> {
         let mut session: SessionState = serde_wasm_bindgen::from_value(session)
             .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
 
-        let pre_key_message: Option<PreKeyMessage> = if pre_key_message.is_null() || pre_key_message.is_undefined() {
-            None
-        } else {
-            Some(serde_wasm_bindgen::from_value(pre_key_message)
-                .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?)
-        };
-
-        let encrypted = double_ratchet::encrypt(&mut session, plaintext.as_bytes(), pre_key_message.as_ref())
+        let encrypted = double_ratchet::encrypt(&mut session, plaintext.as_bytes())
             .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
 
         serde_wasm_bindgen::to_value(&encrypted)

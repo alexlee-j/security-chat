@@ -28,8 +28,8 @@ export class Message {
   @Column({ name: 'message_type', type: 'smallint' })
   messageType!: number;
 
-  @Column({ name: 'encrypted_payload', type: 'text' })
-  encryptedPayload!: string;
+  @Column({ name: 'encrypted_payload', type: 'text', nullable: true })
+  encryptedPayload!: string | null;
 
   @Column({ type: 'varchar', length: 100 })
   nonce!: string;

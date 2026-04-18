@@ -4,6 +4,8 @@ export interface RequestUser {
   userId: string;
   jti: string;
   tokenType: 'access' | 'refresh';
+  // Optional during legacy token rollout window.
+  deviceId?: string;
   iat: number;
   exp: number;
 }

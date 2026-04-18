@@ -19,14 +19,22 @@ type CodeLoginFormData = z.infer<typeof codeLoginSchema>;
 interface CodeLoginFormProps {
   defaultAccount?: string;
   isLoading: boolean;
+  isSendingCode: boolean;
+  cooldown: number;
+  codeHint?: string;
   onSubmit: (values: CodeLoginFormData) => Promise<void>;
+  onSendCode: (account: string) => Promise<void>;
   onSwitchToPasswordLogin: () => void;
 }
 
 export function CodeLoginForm({
   defaultAccount = '',
   isLoading,
+  isSendingCode,
+  cooldown,
+  codeHint,
   onSubmit,
+  onSendCode,
   onSwitchToPasswordLogin,
 }: CodeLoginFormProps): JSX.Element {
   const form = useForm<CodeLoginFormData>({
@@ -51,13 +59,27 @@ export function CodeLoginForm({
 
       {/* 手机号/邮箱 */}
       <div className="space-y-2">
-        <Input
-          {...form.register('account')}
-          placeholder="手机号或邮箱"
-          className="h-12 w-[320px]"
-          autoComplete="username email"
-          disabled={isLoading}
-        />
+        <div className="flex items-center gap-2 w-[320px]">
+          <Input
+            {...form.register('account')}
+            placeholder="手机号或邮箱"
+            className="h-12 flex-1"
+            autoComplete="username email"
+            disabled={isLoading}
+          />
+          <Button
+            type="button"
+            variant="outline"
+            className="h-12 px-3 shrink-0"
+            disabled={isLoading || isSendingCode || cooldown > 0}
+            onClick={() => void onSendCode(form.getValues('account'))}
+          >
+            {cooldown > 0 ? `${cooldown}s` : (isSendingCode ? '发送中' : '发送验证码')}
+          </Button>
+        </div>
+        {codeHint ? (
+          <p className="text-xs text-muted-foreground">{codeHint}</p>
+        ) : null}
         {form.formState.errors.account && (
           <p className="text-xs text-destructive">{form.formState.errors.account.message}</p>
         )}
