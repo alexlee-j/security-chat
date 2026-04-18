@@ -32,8 +32,12 @@ pub enum KeychainError {
     NotFound(String),
     #[error("Master Key 未初始化")]
     MasterKeyNotInitialized,
+    #[cfg(target_os = "macos")]
     #[error("macOS Keychain 错误: {0}")]
     MacKeychain(#[from] crate::crypto::mac_keychain::KeychainError),
+    #[cfg(not(target_os = "macos"))]
+    #[error("macOS Keychain 在此平台不可用")]
+    PlatformNotSupported,
 }
 
 /// 密钥类型标识
@@ -79,6 +83,7 @@ impl SecureKeychain {
     /// 创建新的 SecureKeychain
     ///
     /// 生成随机 master key 并存储到 macOS Keychain
+    #[cfg(target_os = "macos")]
     pub fn new() -> Result<Self, KeychainError> {
         let mut master_key = [0u8; 32];
         let mut rng = OsRng.unwrap_err();
@@ -94,6 +99,7 @@ impl SecureKeychain {
     }
 
     /// 从 macOS Keychain 加载 master key
+    #[cfg(target_os = "macos")]
     pub fn load() -> Result<Self, KeychainError> {
         let master_key = crate::crypto::mac_keychain::MacKeychain::retrieve("master_key")?
             .try_into()
@@ -103,6 +109,7 @@ impl SecureKeychain {
     }
 
     /// 检查 master key 是否已存在
+    #[cfg(target_os = "macos")]
     pub fn exists() -> bool {
         crate::crypto::mac_keychain::MacKeychain::exists("master_key")
     }
@@ -175,6 +182,7 @@ impl SecureKeychain {
     }
 
     /// 删除 master key（会导致所有密钥无法解密）
+    #[cfg(target_os = "macos")]
     pub fn delete_master_key() -> Result<(), KeychainError> {
         crate::crypto::mac_keychain::MacKeychain::delete("master_key")?;
         Ok(())
@@ -185,6 +193,7 @@ impl SecureKeychain {
 pub type SecureKeychainHandle = Arc<Mutex<SecureKeychain>>;
 
 /// 创建 SecureKeychain
+#[cfg(target_os = "macos")]
 pub fn create_secure_keychain() -> Result<SecureKeychainHandle, String> {
     let keychain = if SecureKeychain::exists() {
         SecureKeychain::load().map_err(|e| e.to_string())?
@@ -195,11 +204,23 @@ pub fn create_secure_keychain() -> Result<SecureKeychainHandle, String> {
     Ok(Arc::new(Mutex::new(keychain)))
 }
 
+/// 创建 SecureKeychain（非 macOS 平台 - 使用内存模式）
+#[cfg(not(target_os = "macos"))]
+pub fn create_secure_keychain() -> Result<SecureKeychainHandle, String> {
+    // 非 macOS 平台使用内存中的 master key（不安全，仅用于开发）
+    let mut master_key = [0u8; 32];
+    OsRng.unwrap_err().fill(&mut master_key);
+
+    let keychain = SecureKeychain { master_key };
+    Ok(Arc::new(Mutex::new(keychain)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
+    #[cfg(target_os = "macos")]
     fn test_encrypt_decrypt() {
         // 确保 master_key 存在（与生产代码 create_secure_keychain 一致）
         if !SecureKeychain::exists() {

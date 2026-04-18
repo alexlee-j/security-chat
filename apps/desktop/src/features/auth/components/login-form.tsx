@@ -13,8 +13,10 @@ import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 
 const loginSchema = z.object({
-  username: z.string().min(1, '请输入用户名'),
-  password: z.string().min(1, '请输入密码'),
+  username: z.string()
+    .min(3, '账号长度至少3个字符'),
+  password: z.string()
+    .min(8, '密码长度至少8个字符'),
   remember: z.boolean(),
   autoLogin: z.boolean(),
 });
@@ -28,6 +30,7 @@ interface LoginFormProps {
   onSubmit: (values: LoginFormData) => Promise<void>;
   onSwitchToRegister: () => void;
   onSwitchToForgotPassword: () => void;
+  onSwitchToCodeLogin: () => void;
 }
 
 export function LoginForm({
@@ -37,6 +40,7 @@ export function LoginForm({
   onSubmit,
   onSwitchToRegister,
   onSwitchToForgotPassword,
+  onSwitchToCodeLogin,
 }: LoginFormProps): JSX.Element {
   const form = useForm<LoginFormData>({
     resolver: zodResolver(loginSchema),
@@ -147,6 +151,13 @@ export function LoginForm({
           onClick={onSwitchToRegister}
         >
           立即注册
+        </span>
+        <span className="mx-2">·</span>
+        <span
+          className="text-primary cursor-pointer"
+          onClick={onSwitchToCodeLogin}
+        >
+          验证码登录
         </span>
       </div>
     </form>

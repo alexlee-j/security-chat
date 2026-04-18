@@ -23,9 +23,27 @@ class OneTimePrekeyDto {
   publicKey!: string;
 }
 
+class KyberPrekeyDto {
+  @IsNumber()
+  keyId!: number;
+
+  @IsString()
+  @MaxLength(8192)
+  publicKey!: string;
+
+  @IsString()
+  @MaxLength(8192)
+  signature!: string;
+}
+
 export class UploadPrekeysDto {
   @IsUUID()
   deviceId!: string;
+
+  @IsString()
+  @MaxLength(4096)
+  @IsOptional()
+  identityKey?: string;
 
   @ValidateNested()
   @Type(() => SignedPrekeyDto)
@@ -37,4 +55,9 @@ export class UploadPrekeysDto {
   @Type(() => OneTimePrekeyDto)
   @IsOptional()
   oneTimePrekeys?: OneTimePrekeyDto[];
+
+  @ValidateNested()
+  @Type(() => KyberPrekeyDto)
+  @IsOptional()
+  kyberPrekey?: KyberPrekeyDto;
 }

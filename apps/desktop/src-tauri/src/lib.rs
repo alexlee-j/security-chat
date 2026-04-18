@@ -14,6 +14,7 @@ use api::commands::{
     AppState,
     initialize_identity_command,
     get_prekey_bundle_command,
+    get_registration_keys_command,
     establish_session_command,
     encrypt_message_command,
     decrypt_message_command,
@@ -60,6 +61,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             initialize_identity_command,
             get_prekey_bundle_command,
+            get_registration_keys_command,
             establish_session_command,
             encrypt_message_command,
             decrypt_message_command,

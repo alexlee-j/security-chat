@@ -53,22 +53,24 @@ export class UserController {
     @Body() dto: UploadPrekeysDto,
   ): Promise<{ inserted: number; deviceId: string }> {
     return this.userService.uploadOneTimePrekeys(user.userId, dto.deviceId, {
+      identityKey: dto.identityKey,
       signedPrekey: dto.signedPrekey,
       oneTimePrekeys: dto.oneTimePrekeys,
+      kyberPrekey: dto.kyberPrekey,
     });
   }
 
   @Get('keys/device/:deviceId/next')
   nextPrekey(
     @Param('deviceId', new ParseUUIDPipe()) deviceId: string,
-  ): Promise<{ preKeyId: string; deviceId: string; publicKey: string } | null> {
+  ): Promise<{ preKeyId: string; deviceId: string; keyId: number | null; publicKey: string } | null> {
     return this.userService.getNextAvailablePrekey(deviceId);
   }
 
   @Post('keys/device/:deviceId/next-consume')
   nextConsumePrekey(
     @Param('deviceId', new ParseUUIDPipe()) deviceId: string,
-  ): Promise<{ preKeyId: string; deviceId: string; publicKey: string } | null> {
+  ): Promise<{ preKeyId: string; deviceId: string; keyId: number | null; publicKey: string } | null> {
     return this.userService.getAndConsumeNextPrekey(deviceId);
   }
 
@@ -168,6 +170,11 @@ export class UserController {
       keyId: number;
       publicKey: string;
     };
+    kyberPrekey?: {
+      keyId: number;
+      publicKey: string;
+      signature: string;
+    };
   } | null> {
     // 注意：预密钥包包含公钥，可以公开访问
     // 这是 Signal 协议的设计，任何人都可以获取以建立加密会话
@@ -188,6 +195,7 @@ export class UserController {
       signature: string;
     };
     oneTimePrekeyAvailable: boolean;
+    kyberPrekeyAvailable: boolean;
   } | null> {
     // 注意：预密钥包包含公钥，可以公开访问
     return this.userService.peekPrekeyBundle(userId, deviceId);

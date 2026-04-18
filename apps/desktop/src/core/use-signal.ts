@@ -8,9 +8,9 @@
  */
 
 import { useRef, useState } from 'react';
-import { SignalProtocol } from './signal';
 import { KeyManager } from './signal/key-management';
 import { messageEncryptionService } from './signal/message-encryption';
+import { decodeRustEnvelope, encodeRustEnvelope, RustSignalRuntime } from './signal/rust-signal';
 
 /**
  * Signal 协议状态类型定义
@@ -43,6 +43,7 @@ export type SignalActions = {
   getIdentityKeyInfo: (userId: string) => Promise<any>;
   replenishPrekeys: () => Promise<void>;
   clearAll: () => Promise<void>;
+  resetRuntime: () => void;
   setDeviceId: (deviceId: string) => Promise<void>;
   setUserId: (userId: string) => void;
 };
@@ -64,50 +65,30 @@ export function useSignal(): { state: SignalState; actions: SignalActions } {
   });
 
   // 引用
-  const signalRef = useRef<SignalProtocol | null>(null);
   const keyManagerRef = useRef<KeyManager | null>(null);
   const initializedRef = useRef(false);
+  const rustSignalRef = useRef<RustSignalRuntime | null>(null);
 
   /**
    * 检查预密钥状态
    */
-  async function checkPrekeysStatus(keyManager: KeyManager): Promise<{
+  async function checkPrekeysStatus(): Promise<{
     hasSignedPrekeys: boolean;
     hasOneTimePrekeys: boolean;
     signedPrekeysCount: number;
     oneTimePrekeysCount: number;
   }> {
-    const signedPrekeys = await keyManager.getSignedPrekeys();
-    const oneTimePrekeys = await keyManager.getOneTimePrekeys();
+    if (!rustSignalRef.current) {
+      throw new Error('Rust signal runtime not initialized');
+    }
+    const local = await rustSignalRef.current.getLocalPrekeyUploadPackage();
 
     return {
-      hasSignedPrekeys: signedPrekeys.length > 0,
-      hasOneTimePrekeys: oneTimePrekeys.length > 0,
-      signedPrekeysCount: signedPrekeys.length,
-      oneTimePrekeysCount: oneTimePrekeys.length,
+      hasSignedPrekeys: !!local.signedPrekey,
+      hasOneTimePrekeys: local.oneTimePrekeys.length > 0,
+      signedPrekeysCount: local.signedPrekey ? 1 : 0,
+      oneTimePrekeysCount: local.oneTimePrekeys.length,
     };
-  }
-
-  /**
-   * 生成所有预密钥
-   */
-  async function generateAllPrekeys(
-    keyManager: KeyManager,
-    status: {
-      hasSignedPrekeys: boolean;
-      hasOneTimePrekeys: boolean;
-      signedPrekeysCount: number;
-      oneTimePrekeysCount: number;
-    }
-  ): Promise<void> {
-    if (!status.hasSignedPrekeys) {
-      await keyManager.generateSignedPrekeys(1);
-    }
-
-    if (!status.hasOneTimePrekeys || status.oneTimePrekeysCount < 100) {
-      const count = status.hasOneTimePrekeys ? (100 - status.oneTimePrekeysCount) : 100;
-      await keyManager.generateOneTimePrekeys(count);
-    }
   }
 
   /**
@@ -115,16 +96,28 @@ export function useSignal(): { state: SignalState; actions: SignalActions } {
    * @param userId 可选的用户 ID，如果在 initialize 之前没有调用 setUserId，可以通过此参数传递
    */
   const initialize = async (userId?: string) => {
-    if (initializedRef.current || state.initializing) {
+    if (state.initializing) {
       return;
+    }
+
+    const currentUserId = keyManagerRef.current?.getUserId?.() ?? null;
+    if (initializedRef.current) {
+      if (!userId || userId === currentUserId) {
+        return;
+      }
+      // 切换账号时重置运行时状态，再按新用户上下文重新初始化
+      initializedRef.current = false;
+      setState((prev) => ({
+        ...prev,
+        initialized: false,
+        prekeysUploaded: false,
+        prekeysStatus: null,
+      }));
     }
 
     setState(prev => ({ ...prev, initializing: true, error: null }));
 
     try {
-      // 创建 Signal 协议实例
-      signalRef.current = new SignalProtocol();
-
       // 获取密钥管理器（使用单例，确保用户 ID 隔离）
       const keyManager = KeyManager.getInstance();
       keyManagerRef.current = keyManager;
@@ -133,34 +126,23 @@ export function useSignal(): { state: SignalState; actions: SignalActions } {
       if (userId) {
         keyManager.setUserId(userId);
       }
-
-      // 初始化密钥管理（这会生成身份密钥对和预密钥）
-      await keyManager.initialize();
-
-      // 获取注册 ID
-      const registrationId = await keyManager.getRegistrationId();
-
-      // 获取身份密钥对
-      const identityKeyPair = await keyManager.getIdentityKeyPair();
-
-      // 生成身份密钥指纹
-      const fingerprint = await signalRef.current.generateFingerprint(identityKeyPair.publicKeyBytes);
+      rustSignalRef.current = new RustSignalRuntime();
+      await messageEncryptionService.initialize();
+      const localPrekeys = await rustSignalRef.current.getLocalPrekeyUploadPackage();
+      const registrationId = localPrekeys.registrationId;
+      const fingerprint = await generateFingerprint(base64ToUint8Array(localPrekeys.identityPublicKey));
 
       // 检查并补充预密钥
       try {
-        const prekeysStatus = await checkPrekeysStatus(keyManager);
+        const prekeysStatus = await checkPrekeysStatus();
 
         setState(prev => ({ ...prev, prekeysStatus }));
 
-        if (!prekeysStatus.hasSignedPrekeys || !prekeysStatus.hasOneTimePrekeys) {
-          await generateAllPrekeys(keyManager, prekeysStatus);
-
-          // 更新状态
-          const newStatus = await checkPrekeysStatus(keyManager);
+        if (!prekeysStatus.hasSignedPrekeys || !prekeysStatus.hasOneTimePrekeys || prekeysStatus.oneTimePrekeysCount < 20) {
+          await messageEncryptionService.replenishPrekeys();
+          const newStatus = await checkPrekeysStatus();
           setState(prev => ({ ...prev, prekeysStatus: newStatus }));
         }
-        // 注意：预密钥上传现在由调用者在 setDeviceId 之后显式调用
-        // 这是为了确保设备 ID 在上传预密钥之前已经正确设置
       } catch (error) {
         console.error('[Signal] Failed to initialize keys:', error);
       }
@@ -206,10 +188,12 @@ export function useSignal(): { state: SignalState; actions: SignalActions } {
       );
 
       // 将加密消息转换为可传输的 JSON 对象（Base64 编码）
-      const messageJson = SignalProtocol.messageToJSON(encryptedMessage);
+      const messageJson = encodeRustEnvelope({
+        message_type: encryptedMessage.signedPreKeyId || 2,
+        body: Array.from(encryptedMessage.ciphertext),
+      });
 
-      // 将 JSON 对象序列化为字符串
-      return JSON.stringify(messageJson);
+      return messageJson;
     } catch (error) {
       console.error('[Signal] Failed to encrypt message:', error);
       throw new Error('加密消息失败');
@@ -226,17 +210,20 @@ export function useSignal(): { state: SignalState; actions: SignalActions } {
       }
 
       // 尝试 Base64 解码（如果消息是 Base64 编码的）
-      let messageJson: Record<string, any>;
-      try {
-        const decoded = atob(encryptedMessage);
-        messageJson = JSON.parse(decoded);
-      } catch {
-        // 如果不是 Base64，直接尝试 JSON 解析
-        messageJson = JSON.parse(encryptedMessage);
+      const rustEnvelope = decodeRustEnvelope(encryptedMessage);
+      if (!rustEnvelope) {
+        throw new Error('Non-Rust envelope is not supported in Rust-only mode');
       }
-
-      // 将 JSON 对象转换回 EncryptedMessage（Base64 解码）
-      const encryptedMessageObj = SignalProtocol.messageFromJSON(messageJson);
+      const encryptedMessageObj = {
+        version: 1,
+        registrationId: 0,
+        signedPreKeyId: rustEnvelope.message_type,
+        baseKey: new Uint8Array(),
+        identityKey: new Uint8Array(),
+        messageNumber: 0,
+        previousChainLength: 0,
+        ciphertext: new Uint8Array(rustEnvelope.body),
+      };
 
       const plaintext = await messageEncryptionService.decryptMessage(
         senderUserId,
@@ -295,8 +282,8 @@ export function useSignal(): { state: SignalState; actions: SignalActions } {
       await messageEncryptionService.replenishPrekeys();
       
       // 更新预密钥状态
-      if (keyManagerRef.current) {
-        const newStatus = await checkPrekeysStatus(keyManagerRef.current);
+      if (rustSignalRef.current) {
+        const newStatus = await checkPrekeysStatus();
         setState(prev => ({ ...prev, prekeysStatus: newStatus }));
       }
     } catch (error) {
@@ -324,6 +311,26 @@ export function useSignal(): { state: SignalState; actions: SignalActions } {
       console.error('[Signal] Failed to clear all keys and sessions:', error);
       throw new Error('清除所有密钥和会话失败');
     }
+  };
+
+  /**
+   * 重置运行时状态，不清理已落盘密钥
+   * 用于登出后切换账号，避免复用旧上下文
+   */
+  const resetRuntime = (): void => {
+    keyManagerRef.current = null;
+    rustSignalRef.current = null;
+    initializedRef.current = false;
+    setState((prev) => ({
+      ...prev,
+      initialized: false,
+      initializing: false,
+      error: null,
+      identityKeyFingerprint: null,
+      registrationId: null,
+      prekeysUploaded: false,
+      prekeysStatus: null,
+    }));
   };
 
   /**
@@ -382,8 +389,25 @@ export function useSignal(): { state: SignalState; actions: SignalActions } {
       getIdentityKeyInfo,
       replenishPrekeys,
       clearAll,
+      resetRuntime,
       setDeviceId,
       setUserId,
     },
   };
+}
+
+async function generateFingerprint(identityKey: Uint8Array): Promise<string> {
+  const bytes = Uint8Array.from(identityKey);
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  const hash = new Uint8Array(digest);
+  return Array.from(hash).slice(0, 16).map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+function base64ToUint8Array(base64: string): Uint8Array {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
 }

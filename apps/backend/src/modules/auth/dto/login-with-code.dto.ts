@@ -1,4 +1,4 @@
-import { IsOptional, IsString, Length, Matches } from 'class-validator';
+import { IsOptional, IsString, IsUUID, Length, Matches } from 'class-validator';
 
 export class LoginWithCodeDto {
   @IsOptional()
@@ -14,5 +14,8 @@ export class LoginWithCodeDto {
   @IsString()
   @Matches(/^[0-9]{6}$/)
   code!: string;
-}
 
+  @IsOptional()
+  @IsUUID()
+  deviceId?: string;
+}

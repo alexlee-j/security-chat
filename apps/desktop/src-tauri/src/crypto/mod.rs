@@ -2,8 +2,8 @@
 //!
 //! Week 11: macOS Keychain 集成和加密存储方案
 
-pub mod mac_keychain;
 pub mod keychain;
 
-pub use mac_keychain::MacKeychain;
-pub use keychain::{KeyType, SecureKeychain, SecureKeychainHandle, create_secure_keychain};
+#[cfg(target_os = "macos")]
+pub mod mac_keychain;
+

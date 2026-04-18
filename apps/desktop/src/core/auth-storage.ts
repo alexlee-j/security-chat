@@ -13,6 +13,7 @@ const CREDENTIALS_KEY = AUTH_STORAGE_PREFIX + 'credentials';
 const AUTO_LOGIN_KEY = AUTH_STORAGE_PREFIX + 'auto-login';
 const REMEMBER_PASSWORD_KEY = AUTH_STORAGE_PREFIX + 'remember-password';
 const LAST_LOGIN_KEY = AUTH_STORAGE_PREFIX + 'last-login';
+const ACCOUNT_DEVICE_MAP_KEY = AUTH_STORAGE_PREFIX + 'account-device-map';
 
 /**
  * 登录凭证数据结构
@@ -34,6 +35,12 @@ export interface AutoLoginConfig {
   refreshToken?: string;
   /** 过期时间 */
   expiresAt?: number;
+}
+
+type AccountDeviceMap = Record<string, string>;
+
+function normalizeAccount(account: string): string {
+  return account.trim().toLowerCase();
 }
 
 /**
@@ -132,6 +139,31 @@ export async function setLastLoginTime(): Promise<void> {
 export async function getLastLoginTime(): Promise<number | null> {
   const value = await getSecureItem(LAST_LOGIN_KEY);
   return value ? parseInt(value, 10) : null;
+}
+
+/**
+ * 记录账号与设备 ID 的映射
+ */
+export async function setDeviceIdForAccount(account: string, deviceId: string): Promise<void> {
+  const normalizedAccount = normalizeAccount(account);
+  if (!normalizedAccount || !deviceId) {
+    return;
+  }
+  const currentMap = (await getSecureJSON<AccountDeviceMap>(ACCOUNT_DEVICE_MAP_KEY)) || {};
+  currentMap[normalizedAccount] = deviceId;
+  await setSecureJSON(ACCOUNT_DEVICE_MAP_KEY, currentMap);
+}
+
+/**
+ * 获取账号上次使用的设备 ID
+ */
+export async function getDeviceIdForAccount(account: string): Promise<string | null> {
+  const normalizedAccount = normalizeAccount(account);
+  if (!normalizedAccount) {
+    return null;
+  }
+  const currentMap = (await getSecureJSON<AccountDeviceMap>(ACCOUNT_DEVICE_MAP_KEY)) || {};
+  return currentMap[normalizedAccount] || null;
 }
 
 /**

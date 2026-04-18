@@ -1,0 +1,142 @@
+// apps/desktop/src-tauri/signal/src/double_ratchet.rs
+
+use super::{EncryptedMessage, DecryptedMessage, SessionState, PreKeyMessage};
+use thiserror::Error;
+
+#[derive(Error, Debug)]
+pub enum RatchetError {
+    #[error("Invalid message key")]
+    InvalidMessageKey,
+    #[error("Skipped message key")]
+    SkippedMessageKey,
+    #[error("Decryption failed")]
+    DecryptionFailed,
+}
+
+const MESSAGE_KEY_SIZE: usize = 32;
+const CHAIN_KEY_SIZE: usize = 32;
+
+/// 加密消息
+/// pre_key_message: 如果是第一条消息（sending_index == 0），需要传入 X3DH 数据
+pub fn encrypt(session: &mut SessionState, plaintext: &[u8], pre_key_message: Option<&PreKeyMessage>) -> Result<EncryptedMessage, RatchetError> {
+    use aes_gcm::Aes256Gcm;
+    use aes_gcm::aead::{Aead, KeyInit};
+    use generic_array::GenericArray;
+    use rand::RngCore;
+
+    type AesGcm256 = Aes256Gcm;
+
+    // 1. 生成消息密钥
+    let (message_key, next_chain_key) = derive_message_key(&session.sending_chain_key)?;
+
+    // 2. 更新链密钥
+    session.sending_chain_key = next_chain_key;
+
+    // 3. 加密消息
+    let cipher = AesGcm256::new_from_slice(&message_key)
+        .map_err(|_| RatchetError::DecryptionFailed)?;
+
+    let mut nonce_bytes = [0u8; 12];
+    rand::thread_rng().fill_bytes(&mut nonce_bytes);
+    let nonce = GenericArray::from_slice(&nonce_bytes);
+
+    let ciphertext = cipher
+        .encrypt(nonce, plaintext)
+        .map_err(|_| RatchetError::DecryptionFailed)?;
+
+    let mut result = nonce_bytes.to_vec();
+    result.extend(ciphertext);
+
+    // 4. 如果是第一条消息，嵌入 X3DH 数据
+    let (identity_key, base_key, signed_prekey_id, pre_key_id) = if let Some(ref pkm) = pre_key_message {
+        (
+            Some(pkm.identity_key.clone()),
+            Some(pkm.ephemeral_key.clone()),
+            Some(pkm.signed_prekey_id),
+            pkm.one_time_prekey_id,
+        )
+    } else {
+        (None, None, None, None)
+    };
+
+    let message = EncryptedMessage {
+        identity_key,
+        base_key,
+        signed_prekey_id,
+        pre_key_id,
+        message_number: session.sending_index,
+        previous_sending_index: Some(session.previous_sending_index),
+        ciphertext: result,
+        dh_public_key: None,
+    };
+
+    // 5. 推进 ratchet
+    session.previous_sending_index = session.sending_index;
+    session.sending_index += 1;
+
+    Ok(message)
+}
+
+pub fn decrypt(session: &mut SessionState, encrypted: &EncryptedMessage) -> Result<DecryptedMessage, RatchetError> {
+    use aes_gcm::Aes256Gcm;
+    use aes_gcm::aead::{Aead, KeyInit};
+    use generic_array::GenericArray;
+
+    type AesGcm256 = Aes256Gcm;
+
+    // 1. 推进链（如果需要）
+    while session.receiving_index < encrypted.message_number {
+        let (_skipped_key, next_chain) = derive_message_key(&session.receiving_chain_key)
+            .map_err(|_| RatchetError::SkippedMessageKey)?;
+        session.receiving_chain_key = next_chain;
+        session.receiving_index += 1;
+    }
+
+    // 2. 生成当前消息密钥
+    let (message_key, next_chain_key) = derive_message_key(&session.receiving_chain_key)
+        .map_err(|_| RatchetError::InvalidMessageKey)?;
+
+    // 3. 解密
+    let cipher = AesGcm256::new_from_slice(&message_key)
+        .map_err(|_| RatchetError::DecryptionFailed)?;
+
+    if encrypted.ciphertext.len() < 12 {
+        return Err(RatchetError::DecryptionFailed);
+    }
+
+    let nonce = GenericArray::from_slice(&encrypted.ciphertext[..12]);
+    let ciphertext = &encrypted.ciphertext[12..];
+
+    let plaintext = cipher
+        .decrypt(nonce, ciphertext)
+        .map_err(|_| RatchetError::DecryptionFailed)?;
+
+    // 4. 更新链密钥
+    session.receiving_chain_key = next_chain_key;
+    session.receiving_index += 1;
+
+    Ok(DecryptedMessage {
+        plaintext: String::from_utf8_lossy(&plaintext).to_string(),
+        message_number: encrypted.message_number,
+        previous_sending_index: encrypted.previous_sending_index,
+    })
+}
+
+fn derive_message_key(chain_key: &[u8]) -> Result<(Vec<u8>, Vec<u8>), RatchetError> {
+    use hkdf::Hkdf;
+    use sha2::Sha256;
+
+    // HKDF RFC 5869: Hkdf(salt, ikm) -> expand(info, output)
+    // chain_key 是输入密钥材料 (IKM)，salt 使用默认零值
+    let hk = Hkdf::<Sha256>::new(None, chain_key);
+
+    let mut message_key = vec![0u8; MESSAGE_KEY_SIZE];
+    hk.expand(b"\x01", &mut message_key)
+        .map_err(|_| RatchetError::InvalidMessageKey)?;
+
+    let mut next_chain_key = vec![0u8; CHAIN_KEY_SIZE];
+    hk.expand(b"\x02", &mut next_chain_key)
+        .map_err(|_| RatchetError::InvalidMessageKey)?;
+
+    Ok((message_key, next_chain_key))
+}

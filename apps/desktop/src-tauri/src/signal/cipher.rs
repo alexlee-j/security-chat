@@ -1,5 +1,5 @@
 //! 消息加密与解密 - Week 4 设计（简单有效）
-//! 
+//!
 //! 关键设计：
 //! 1. 使用 spawn_blocking 将 libsignal-protocol 调用移到阻塞线程池
 //! 2. 使用裸指针技巧绕过借用检查器
@@ -12,8 +12,6 @@ use libsignal_protocol::{
     SignalProtocolError,
     InMemSignalProtocolStore,
 };
-use rand::TryRngCore as _;
-use rand::rngs::OsRng;
 use std::time::SystemTime;
 use crate::signal::store::AppStore;
 
@@ -76,7 +74,7 @@ fn encrypt_message_impl(
     address: &ProtocolAddress,
     plaintext: &[u8],
 ) -> Result<EncryptedMessage, SignalProtocolError> {
-    let mut rng = OsRng.unwrap_err();
+    let mut rng = rand::thread_rng();
     
     let (session_store, identity_store, _, _, _) = get_multiple_store_refs(store);
     
@@ -128,7 +126,7 @@ fn decrypt_message_impl(
     address: &ProtocolAddress,
     encrypted: &EncryptedMessage,
 ) -> Result<Vec<u8>, SignalProtocolError> {
-    let mut rng = OsRng.unwrap_err();
+    let mut rng = rand::thread_rng();
 
     let ciphertext = match encrypted.message_type {
         1 => {
@@ -196,7 +194,7 @@ mod tests {
         let bundle_clone = bob_bundle.clone();
         tokio::task::spawn_blocking(move || {
             let mut store_guard = alice_store_clone.lock().unwrap();
-            let mut rng = OsRng.unwrap_err();
+            let mut rng = rand::thread_rng();
             let ptr = &mut *store_guard as *mut InMemSignalProtocolStore;
             unsafe {
                 futures::executor::block_on(process_prekey_bundle(

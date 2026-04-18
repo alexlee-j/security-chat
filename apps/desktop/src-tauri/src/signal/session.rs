@@ -9,8 +9,6 @@ use libsignal_protocol::{
     SignalProtocolError, DeviceId,
 };
 use crate::signal::store::AppStore;
-use rand::TryRngCore as _;
-use rand::rngs::OsRng;
 use std::time::SystemTime;
 
 /// X3DH 会话管理器
@@ -30,7 +28,7 @@ impl X3DHManager {
         bundle: &PreKeyBundle,
     ) -> Result<(), SignalProtocolError> {
         let address = ProtocolAddress::new(recipient_id.to_string(), DeviceId::new(1).unwrap());
-        let mut rng = OsRng.unwrap_err();
+        let mut rng = rand::thread_rng();
         let mut store = self.store.lock().unwrap();
 
         let ptr = &mut *store as *mut libsignal_protocol::InMemSignalProtocolStore;

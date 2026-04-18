@@ -21,7 +21,7 @@ tauri-plugin-fs = "2"
 
 # Signal 官方协议库 (从 GitHub 引用)
 # 使用最新的稳定版本 v0.90.0
-libsignal-protocol = { git = "https://github.com/signalapp/libsignal", tag = "v0.90.0", package = "libsignal-protocol", features = ["kyber768"] }
+libsignal-protocol = { git = "https://github.com/signalapp/libsignal", tag = "v0.90.0", package = "libsignal-protocol" }
 signal-crypto = { git = "https://github.com/signalapp/libsignal", tag = "v0.90.0", package = "signal-crypto" }
 libsignal-core = { git = "https://github.com/signalapp/libsignal", tag = "v0.90.0", package = "libsignal-core" }
 
@@ -53,6 +53,8 @@ dirs = "5"
 
 # 加密
 aes-gcm = "0.10"
+hkdf = "0.12"
+sha2 = "0.10"
 
 # macOS 安全存储 (Keychain)
 [target.'cfg(target_os = "macos")'.dependencies]

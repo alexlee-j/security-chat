@@ -51,7 +51,7 @@ type Props = {
   hasMoreHistory: boolean;
   /** 加载历史消息中状态 */
   loadingMoreHistory: boolean;
-  decodePayload: (payload: string) => string;
+  decodePayload: (payload: string, senderId?: string, sourceDeviceId?: string) => string;
   onMessageTextChange: (value: string) => void;
   onMessageTypeChange: (value: 1 | 2 | 3 | 4) => void;
   onMediaUrlChange: (value: string) => void;
@@ -68,6 +68,7 @@ type Props = {
   onSubmit: (event: FormEvent<HTMLFormElement>) => Promise<void>;
   onStartTyping: () => void;
   onStopTyping: () => void;
+  onForwardMessage: (originalMessageId: string, targetConversationId: string) => Promise<{ messageId: string; messageIndex: string }>;
 };
 
 const QUICK_EMOJIS = ['😀', '😂', '😍', '😎', '🤔', '😭', '👍', '🙏', '🎉', '❤️', '🔥', '✅'];
@@ -278,7 +279,7 @@ export function ChatPanel(props: Props): JSX.Element {
     }
     return props.messages
       .map((row) => {
-        const payload = parsePayload(props.decodePayload(row.encryptedPayload));
+        const payload = parsePayload(props.decodePayload(row.encryptedPayload, row.senderId, row.sourceDeviceId));
         const matched = buildSearchText(row, payload).includes(keyword);
         if (!matched) {
           return null;
@@ -312,7 +313,7 @@ export function ChatPanel(props: Props): JSX.Element {
       return props.messages;
     }
     return props.messages.filter((row) => {
-      const payload = parsePayload(props.decodePayload(row.encryptedPayload));
+      const payload = parsePayload(props.decodePayload(row.encryptedPayload, row.senderId, row.sourceDeviceId));
       return buildSearchText(row, payload).includes(keyword);
     });
   }, [props.messages, searchKeyword, props.decodePayload]);
@@ -485,7 +486,7 @@ export function ChatPanel(props: Props): JSX.Element {
       if (imageSourceMap[row.id]) {
         return;
       }
-      const payload = parsePayload(props.decodePayload(row.encryptedPayload));
+      const payload = parsePayload(props.decodePayload(row.encryptedPayload, row.senderId, row.sourceDeviceId));
       void prepareImageSource(row, payload);
     });
   }, [visibleMessages, visibleImageIds]);
@@ -660,7 +661,9 @@ export function ChatPanel(props: Props): JSX.Element {
     if (!message) {
       return;
     }
-    const payload = parsePayload(props.decodePayload(message.encryptedPayload));
+    const payload = parsePayload(
+      props.decodePayload(message.encryptedPayload, message.senderId, message.sourceDeviceId),
+    );
     const text = payload.text ?? '';
     if (text) {
       try {
@@ -707,7 +710,9 @@ export function ChatPanel(props: Props): JSX.Element {
 
   async function downloadMedia(message: MessageItem): Promise<void> {
     try {
-      const payload = parsePayload(props.decodePayload(message.encryptedPayload));
+      const payload = parsePayload(
+        props.decodePayload(message.encryptedPayload, message.senderId, message.sourceDeviceId),
+      );
       let url: string | null = null;
       let filename = payload.fileName || 'download';
       let revokeUrl = false;
@@ -794,8 +799,7 @@ export function ChatPanel(props: Props): JSX.Element {
     }
     setForwardLoading(true);
     try {
-      const { forwardMessage } = await import('../../core/api');
-      await forwardMessage(forwardMessageId, selectedForwardConversation);
+      await props.onForwardMessage(forwardMessageId, selectedForwardConversation);
       setForwardDialogOpen(false);
       showToast('消息转发成功', 'success');
     } catch (error) {
@@ -981,7 +985,7 @@ export function ChatPanel(props: Props): JSX.Element {
               </div>
             )}
             {displayedMessages.map((row) => {
-              const decoded = props.decodePayload(row.encryptedPayload);
+              const decoded = props.decodePayload(row.encryptedPayload, row.senderId, row.sourceDeviceId);
               const payload = parsePayload(decoded);
               const isOut = row.senderId === props.currentUserId;
               const isBurning = burningMessageIds.has(row.id);
@@ -1018,7 +1022,7 @@ export function ChatPanel(props: Props): JSX.Element {
                   key={row.id}
                   data-msg-id={row.id}
                   data-msg-type={row.messageType}
-                  // className={`${isOut ? 'message self' : 'message'}${focusedMessageId === row.id ? ' focused' : ''}${isBurning ? ' message-burning' : ''}${isRevoked ? ' message-revoked' : ''}`}
+                  className={`${isOut ? 'message self' : 'message'}${focusedMessageId === row.id ? ' focused' : ''}${isBurning ? ' message-burning' : ''}${isRevoked ? ' message-revoked' : ''}`}
                   onContextMenu={(e) => openContextMenu(e, row, isOut)}
                 >
                   <MessageBubble
@@ -1079,7 +1083,13 @@ export function ChatPanel(props: Props): JSX.Element {
                 </div>
                 <div className="reply-preview-text">
                   {(() => {
-                    const payload = parsePayload(props.decodePayload(props.replyToMessage!.encryptedPayload));
+                    const payload = parsePayload(
+                      props.decodePayload(
+                        props.replyToMessage!.encryptedPayload,
+                        props.replyToMessage!.senderId,
+                        props.replyToMessage!.sourceDeviceId,
+                      ),
+                    );
                     const content = payload.text || (props.replyToMessage!.messageType === 2 ? '[图片]' : props.replyToMessage!.messageType === 3 ? '[语音]' : '[文件]');
                     return content.slice(0, 60) + (content.length > 60 ? '...' : '');
                   })()}
