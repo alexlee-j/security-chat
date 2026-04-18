@@ -15,7 +15,7 @@ export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Post('register')
-  register(@Body() dto: RegisterDto): Promise<{ accessToken: string; refreshToken: string; userId: string }> {
+  register(@Body() dto: RegisterDto): Promise<{ accessToken: string; refreshToken: string; userId: string; deviceId: string }> {
     return this.authService.register(dto);
   }
 
@@ -23,7 +23,7 @@ export class AuthController {
   login(
     @Body() dto: LoginDto,
     @Req() req: { ip?: string; headers?: Record<string, string | string[] | undefined> },
-  ): Promise<{ accessToken: string; refreshToken: string; userId: string }> {
+  ): Promise<{ accessToken: string; refreshToken: string; userId: string; deviceId: string }> {
     const forwarded = req.headers?.['x-forwarded-for'];
     const firstForwarded = Array.isArray(forwarded) ? forwarded[0] : forwarded?.split(',')[0];
     const clientIp = (firstForwarded || req.ip || 'unknown').trim();
@@ -45,7 +45,7 @@ export class AuthController {
   loginWithCode(
     @Body() dto: LoginWithCodeDto,
     @Req() req: { ip?: string; headers?: Record<string, string | string[] | undefined> },
-  ): Promise<{ accessToken: string; refreshToken: string; userId: string }> {
+  ): Promise<{ accessToken: string; refreshToken: string; userId: string; deviceId: string }> {
     const forwarded = req.headers?.['x-forwarded-for'];
     const firstForwarded = Array.isArray(forwarded) ? forwarded[0] : forwarded?.split(',')[0];
     const clientIp = (firstForwarded || req.ip || 'unknown').trim();
@@ -53,7 +53,7 @@ export class AuthController {
   }
 
   @Post('refresh')
-  refresh(@Body() dto: RefreshTokenDto): Promise<{ accessToken: string; refreshToken: string; userId: string }> {
+  refresh(@Body() dto: RefreshTokenDto): Promise<{ accessToken: string; refreshToken: string; userId: string; deviceId: string }> {
     return this.authService.refresh(dto);
   }
 

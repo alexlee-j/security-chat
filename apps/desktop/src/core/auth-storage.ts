@@ -175,5 +175,4 @@ export async function clearAllAuthData(): Promise<void> {
   await clearAutoLogin();
   await removeSecureItem(REMEMBER_PASSWORD_KEY);
   await removeSecureItem(LAST_LOGIN_KEY);
-  await removeSecureItem(ACCOUNT_DEVICE_MAP_KEY);
 }

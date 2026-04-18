@@ -52,7 +52,7 @@ export type RustUploadPrekeys = {
 
 export class RustSignalRuntime {
   async setCurrentUser(userId: string): Promise<void> {
-    await invoke('set_current_user_command', { user_id: userId });
+    await invoke('set_current_user_command', { userId });
   }
 
   async initializeIdentity(): Promise<void> {
@@ -110,9 +110,9 @@ export class RustSignalRuntime {
     prekeyBundle: RustPrekeyBundle,
   ): Promise<boolean> {
     return await invoke('establish_session_command', {
-      recipient_id: recipientId,
-      recipient_device_id: recipientDeviceId,
-      prekey_bundle: {
+      recipientId,
+      recipientDeviceId,
+      prekeyBundle: {
         registration_id: prekeyBundle.registrationId,
         identity_key: prekeyBundle.identityKey,
         signed_prekey: {
@@ -143,8 +143,8 @@ export class RustSignalRuntime {
     plaintext: string,
   ): Promise<RustEncryptedMessage> {
     return await invoke('encrypt_message_command', {
-      recipient_id: recipientId,
-      recipient_device_id: recipientDeviceId,
+      recipientId,
+      recipientDeviceId,
       plaintext,
     });
   }
@@ -155,8 +155,8 @@ export class RustSignalRuntime {
     encrypted: RustEncryptedMessage,
   ): Promise<string> {
     return await invoke('decrypt_message_command', {
-      sender_id: senderId,
-      sender_device_id: senderDeviceId,
+      senderId,
+      senderDeviceId,
       encrypted,
     });
   }

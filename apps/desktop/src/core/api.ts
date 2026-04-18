@@ -109,7 +109,7 @@ export async function sendLoginCode(input: { account?: string; phone?: string })
   return res.data.data;
 }
 
-export async function loginWithCode(input: { account?: string; phone?: string; code: string }): Promise<AuthResult> {
+export async function loginWithCode(input: { account?: string; phone?: string; code: string; deviceId?: string }): Promise<AuthResult> {
   const res = await http.post<ApiEnvelope<AuthResult>>('/auth/login-code', input);
   return res.data.data;
 }

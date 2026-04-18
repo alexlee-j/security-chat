@@ -81,6 +81,7 @@ export class MessageService implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   onModuleInit(): void {
+    void this.ensureSendV2SchemaCompatibility();
     // Proactively clean expired burn messages so clients receive burn.triggered
     // without requiring a conversation refresh.
     this.burnSweepTimer = setInterval(() => {
@@ -92,6 +93,49 @@ export class MessageService implements OnModuleInit, OnModuleDestroy {
     if (this.burnSweepTimer) {
       clearInterval(this.burnSweepTimer);
       this.burnSweepTimer = null;
+    }
+  }
+
+  private async ensureSendV2SchemaCompatibility(): Promise<void> {
+    try {
+      const nullableRows = await this.dataSource.query(
+        `SELECT is_nullable FROM information_schema.columns WHERE table_name = 'messages' AND column_name = 'encrypted_payload' LIMIT 1;`,
+      );
+      const isNullable = Array.isArray(nullableRows) && nullableRows[0]?.is_nullable === 'YES';
+      if (!isNullable) {
+        await this.dataSource.query(`ALTER TABLE "messages" ALTER COLUMN "encrypted_payload" DROP NOT NULL;`);
+      }
+
+      const tableRows = await this.dataSource.query(
+        `SELECT to_regclass('public.message_device_envelopes') AS reg;`,
+      );
+      const tableExists = Array.isArray(tableRows) && tableRows[0]?.reg;
+      if (!tableExists) {
+        await this.dataSource.query(`
+          CREATE TABLE "message_device_envelopes" (
+            "id" uuid NOT NULL DEFAULT uuid_generate_v4(),
+            "message_id" uuid NOT NULL,
+            "target_user_id" uuid NOT NULL,
+            "target_device_id" uuid NOT NULL,
+            "source_device_id" uuid,
+            "encrypted_payload" text NOT NULL,
+            "created_at" timestamptz NOT NULL DEFAULT now(),
+            CONSTRAINT "PK_message_device_envelopes" PRIMARY KEY ("id"),
+            CONSTRAINT "FK_message_device_envelopes_message" FOREIGN KEY ("message_id") REFERENCES "messages"("id") ON DELETE CASCADE,
+            CONSTRAINT "FK_message_device_envelopes_target_device" FOREIGN KEY ("target_device_id") REFERENCES "devices"("id") ON DELETE CASCADE,
+            CONSTRAINT "FK_message_device_envelopes_source_device" FOREIGN KEY ("source_device_id") REFERENCES "devices"("id") ON DELETE SET NULL
+          );
+        `);
+      }
+
+      await this.dataSource.query(
+        `CREATE UNIQUE INDEX IF NOT EXISTS "IDX_message_device_envelopes_message_device" ON "message_device_envelopes" ("message_id", "target_device_id");`,
+      );
+      await this.dataSource.query(
+        `CREATE INDEX IF NOT EXISTS "IDX_message_device_envelopes_target_device" ON "message_device_envelopes" ("target_device_id", "message_id");`,
+      );
+    } catch (error) {
+      this.logger.warn('Failed to ensure send-v2 schema compatibility', error as Error);
     }
   }
 

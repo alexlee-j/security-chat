@@ -15,6 +15,7 @@ export class LoginWithCodeDto {
   @Matches(/^[0-9]{6}$/)
   code!: string;
 
+  @IsOptional()
   @IsUUID()
-  deviceId!: string;
+  deviceId?: string;
 }

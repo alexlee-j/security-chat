@@ -106,6 +106,18 @@ pub async fn establish_session_command(
         let mut rng = OsRng.unwrap_err();
         let ptr = &mut *store_guard as *mut InMemSignalProtocolStore;
         unsafe {
+            // Accept latest remote identity for this address before processing
+            // the prekey bundle. In current desktop flow we don't expose manual
+            // trust decisions yet, so we follow TOFU update to avoid hard send
+            // failure when remote prekeys rotate.
+            let remote_identity = *bundle.identity_key().map_err(|e| e.to_string())?;
+            futures::executor::block_on(IdentityKeyStore::save_identity(
+                &mut *ptr,
+                &address,
+                &remote_identity,
+            ))
+            .map_err(|e| e.to_string())?;
+
             futures::executor::block_on(process_prekey_bundle(
                 &address,
                 &mut *ptr,

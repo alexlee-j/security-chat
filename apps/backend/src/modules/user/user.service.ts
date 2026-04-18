@@ -157,6 +157,7 @@ export class UserService {
     },
   ): Promise<{ inserted: number; deviceId: string }> {
     await this.assertOwnDevice(userId, deviceId);
+    const nowUnixSeconds = Math.floor(Date.now() / 1000);
 
     let insertedCount = 0;
 
@@ -175,29 +176,68 @@ export class UserService {
 
     // 插入一次性预密钥（如果提供）
     if (data.oneTimePrekeys && data.oneTimePrekeys.length > 0) {
-      const rows = data.oneTimePrekeys.map((prekey) =>
-        this.oneTimePrekeyRepository.create({
-          deviceId,
-          keyId: prekey.keyId,
-          publicKey: prekey.publicKey,
-          isUsed: false,
-        }),
-      );
+      // 客户端可能重复上传同一批 keyId；这里做幂等去重，避免唯一键冲突。
+      const dedupedByKeyId = new Map<number, { keyId: number; publicKey: string }>();
+      for (const prekey of data.oneTimePrekeys) {
+        if (typeof prekey.keyId === 'number') {
+          dedupedByKeyId.set(prekey.keyId, prekey);
+        }
+      }
 
-      await this.oneTimePrekeyRepository.save(rows);
-      insertedCount += rows.length;
+      const incomingKeyIds = [...dedupedByKeyId.keys()];
+      if (incomingKeyIds.length > 0) {
+        const existing = await this.oneTimePrekeyRepository.find({
+          where: {
+            deviceId,
+            keyId: In(incomingKeyIds),
+          },
+          select: ['keyId'],
+        });
+        const existingKeyIds = new Set(existing.map((item) => item.keyId).filter((v): v is number => v !== null));
+        const rows = incomingKeyIds
+          .filter((keyId) => !existingKeyIds.has(keyId))
+          .map((keyId) => {
+            const prekey = dedupedByKeyId.get(keyId)!;
+            return this.oneTimePrekeyRepository.create({
+              deviceId,
+              keyId: prekey.keyId,
+              publicKey: prekey.publicKey,
+              isUsed: false,
+            });
+          });
+
+        if (rows.length > 0) {
+          await this.oneTimePrekeyRepository.save(rows);
+          insertedCount += rows.length;
+        }
+      }
     }
 
     if (data.kyberPrekey) {
-      await this.kyberPrekeyRepository.save(
-        this.kyberPrekeyRepository.create({
+      const existingKyber = await this.kyberPrekeyRepository.findOne({
+        where: {
           userId,
           kyberPreKeyId: data.kyberPrekey.keyId,
-          publicKey: data.kyberPrekey.publicKey,
-          signature: data.kyberPrekey.signature,
-          timestamp: Date.now(),
-        }),
-      );
+        },
+        order: { createdAt: 'DESC' },
+      });
+
+      if (existingKyber) {
+        existingKyber.publicKey = data.kyberPrekey.publicKey;
+        existingKyber.signature = data.kyberPrekey.signature;
+        existingKyber.timestamp = nowUnixSeconds;
+        await this.kyberPrekeyRepository.save(existingKyber);
+      } else {
+        await this.kyberPrekeyRepository.save(
+          this.kyberPrekeyRepository.create({
+            userId,
+            kyberPreKeyId: data.kyberPrekey.keyId,
+            publicKey: data.kyberPrekey.publicKey,
+            signature: data.kyberPrekey.signature,
+            timestamp: nowUnixSeconds,
+          }),
+        );
+      }
       insertedCount += 1;
     }
 

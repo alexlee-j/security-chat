@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException } from '@nestjs/common';
+import { ForbiddenException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
@@ -102,6 +102,9 @@ describe('AuthService device-bound auth', () => {
 
   it('issues jwt tokens with the created device id on register', async () => {
     createService([{ deviceId }]);
+    userService.findByEmail.mockResolvedValueOnce(null);
+    userService.findByUsername.mockResolvedValueOnce(null);
+    userService.findByPhone.mockResolvedValueOnce(null);
     await authService.register({
       username: 'alice',
       email: 'alice@example.com',
@@ -126,15 +129,17 @@ describe('AuthService device-bound auth', () => {
     );
   });
 
-  it('requires deviceId for password login', async () => {
-    await expect(
-      authService.login({
-        account: 'alice',
-        password: 'Password123',
-      } as never),
-    ).rejects.toBeInstanceOf(BadRequestException);
+  it('falls back to an owned device when password login omits deviceId', async () => {
+    await authService.login({
+      account: 'alice',
+      password: 'Password123',
+    } as never);
 
-    expect(jwtService.signAsync).not.toHaveBeenCalled();
+    expect(jwtService.signAsync).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ type: 'access', deviceId }),
+      expect.objectContaining({ expiresIn: '15m' }),
+    );
   });
 
   it('rejects password login when the device does not belong to the user', async () => {
@@ -151,15 +156,8 @@ describe('AuthService device-bound auth', () => {
     expect(jwtService.signAsync).not.toHaveBeenCalled();
   });
 
-  it('requires deviceId for code login and binds tokens to the owned device', async () => {
+  it('falls back to an owned device for code login and binds tokens to that device', async () => {
     redis.get.mockResolvedValueOnce('123456');
-
-    await expect(
-      authService.loginWithCode({
-        account: 'alice',
-        code: '123456',
-      } as never),
-    ).rejects.toBeInstanceOf(BadRequestException);
 
     await authService.loginWithCode({
       account: 'alice',

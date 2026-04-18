@@ -22,6 +22,7 @@ interface AuthTokens {
   accessToken: string;
   refreshToken: string;
   userId: string;
+  deviceId: string;
 }
 
 @Injectable()
@@ -113,16 +114,12 @@ export class AuthService {
 
     await this.securityService.clearLoginFailures(identity, clientIp);
 
-    if (!dto.deviceId) {
-      throw new BadRequestException('deviceId is required');
-    }
-
-    await this.assertUserOwnsDevice(user.id, dto.deviceId);
-    await this.userService.touchDeviceActivity(user.id, dto.deviceId);
-    await this.safeMarkOnline(`online:${user.id}:${dto.deviceId}`);
+    const resolvedDeviceId = await this.resolveLoginDeviceId(user.id, dto.deviceId);
+    await this.userService.touchDeviceActivity(user.id, resolvedDeviceId);
+    await this.safeMarkOnline(`online:${user.id}:${resolvedDeviceId}`);
     await this.safeMarkOnline(`online:${user.id}`);
 
-    return this.issueTokenPair(user.id, dto.deviceId);
+    return this.issueTokenPair(user.id, resolvedDeviceId);
   }
 
   async sendLoginCode(
@@ -161,10 +158,6 @@ export class AuthService {
       await this.securityService.recordLoginFailure(identity, clientIp);
       throw new UnauthorizedException('Invalid credentials');
     }
-    if (!dto.deviceId) {
-      throw new BadRequestException('deviceId is required');
-    }
-
     const key = `auth:login-code:${identity}`;
     const expectedCode = await this.redis.get(key).catch(() => null);
     if (!expectedCode || expectedCode !== dto.code) {
@@ -172,13 +165,13 @@ export class AuthService {
       throw new UnauthorizedException('Invalid verification code');
     }
 
-    await this.assertUserOwnsDevice(user.id, dto.deviceId);
+    const resolvedDeviceId = await this.resolveLoginDeviceId(user.id, dto.deviceId);
     await this.redis.del(key).catch(() => null);
     await this.securityService.clearLoginFailures(identity, clientIp);
-    await this.userService.touchDeviceActivity(user.id, dto.deviceId);
-    await this.safeMarkOnline(`online:${user.id}:${dto.deviceId}`);
+    await this.userService.touchDeviceActivity(user.id, resolvedDeviceId);
+    await this.safeMarkOnline(`online:${user.id}:${resolvedDeviceId}`);
     await this.safeMarkOnline(`online:${user.id}`);
-    return this.issueTokenPair(user.id, dto.deviceId);
+    return this.issueTokenPair(user.id, resolvedDeviceId);
   }
 
   async refresh(dto: RefreshTokenDto): Promise<AuthTokens> {
@@ -353,7 +346,34 @@ export class AuthService {
       ),
     ]);
 
-    return { accessToken, refreshToken, userId };
+    return { accessToken, refreshToken, userId, deviceId };
+  }
+
+  private async resolveLoginDeviceId(userId: string, requestedDeviceId?: string): Promise<string> {
+    if (requestedDeviceId) {
+      await this.assertUserOwnsDevice(userId, requestedDeviceId);
+      return requestedDeviceId;
+    }
+
+    const devices = await this.userService.listDevices(userId);
+    if (devices.length === 0) {
+      throw new BadRequestException('No registered device found for current account');
+    }
+
+    // Prefer the most recently active device so login can recover when local
+    // account->device mapping was cleared (e.g. logout or re-install).
+    const selected = [...devices].sort((a, b) => {
+      const aActive = a.lastActiveAt ? Date.parse(a.lastActiveAt) : 0;
+      const bActive = b.lastActiveAt ? Date.parse(b.lastActiveAt) : 0;
+      if (aActive !== bActive) {
+        return bActive - aActive;
+      }
+      const aCreated = Date.parse(a.createdAt);
+      const bCreated = Date.parse(b.createdAt);
+      return bCreated - aCreated;
+    })[0];
+
+    return selected.deviceId;
   }
 
   private async assertUserOwnsDevice(userId: string, deviceId: string, silent = false): Promise<void> {

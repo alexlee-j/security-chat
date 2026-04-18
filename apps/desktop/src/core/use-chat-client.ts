@@ -745,6 +745,7 @@ export function useChatClient(): {
       const result = await login(accountToUse, passwordToUse, rememberedDeviceId ?? undefined);
       setAuthToken(result.accessToken);
       setAuth({ token: result.accessToken, userId: result.userId });
+      await setDeviceIdForAccount(accountToUse, result.deviceId);
 
       if (rememberOverride !== undefined) {
         setRememberPasswordState(rememberToUse);
@@ -782,8 +783,8 @@ export function useChatClient(): {
         try {
           const devices = await import('./api').then((api) => api.getDevices());
           if (devices && devices.length > 0) {
-            const selectedDevice = (rememberedDeviceId
-              ? devices.find((device) => device.deviceId === rememberedDeviceId)
+            const selectedDevice = (result.deviceId
+              ? devices.find((device) => device.deviceId === result.deviceId)
               : null) || devices[0];
             // 使用 Signal actions 设置设备ID
             await signalActions.setDeviceId(selectedDevice.deviceId);
@@ -858,9 +859,11 @@ export function useChatClient(): {
     try {
       const accountToUse = (codeAccount ?? account).trim();
       const codeToUse = (codeValue ?? loginCode).trim();
-      const result = await loginWithCode({ account: accountToUse, code: codeToUse });
+      const rememberedDeviceId = await getDeviceIdForAccount(accountToUse);
+      const result = await loginWithCode({ account: accountToUse, code: codeToUse, deviceId: rememberedDeviceId ?? undefined });
       setAuthToken(result.accessToken);
       setAuth({ token: result.accessToken, userId: result.userId });
+      await setDeviceIdForAccount(accountToUse, result.deviceId);
 
       // 登录后初始化 Signal 协议并检查预密钥
       // 注意：initialize() 必须在 setDeviceId() 之前调用
@@ -870,11 +873,10 @@ export function useChatClient(): {
 
         // 登录后获取设备列表并更新本地设备ID（在 initialize 之后）
         try {
-          const rememberedDeviceId = await getDeviceIdForAccount(accountToUse);
           const devices = await import('./api').then((api) => api.getDevices());
           if (devices && devices.length > 0) {
-            const selectedDevice = (rememberedDeviceId
-              ? devices.find((device) => device.deviceId === rememberedDeviceId)
+            const selectedDevice = (result.deviceId
+              ? devices.find((device) => device.deviceId === result.deviceId)
               : null) || devices[0];
             await signalActions.setDeviceId(selectedDevice.deviceId);
             await setDeviceIdForAccount(accountToUse, selectedDevice.deviceId);
@@ -1309,12 +1311,6 @@ export function useChatClient(): {
         await signalActions.initialize(authRef.current?.userId);
       }
 
-      // 获取当前设备 ID
-      let currentDeviceId: string | undefined;
-      currentDeviceId = await import('./signal/key-management').then(({ KeyManager }) =>
-        KeyManager.getInstance().getDeviceId(),
-      ) ?? undefined;
-
       // 获取接收方所有设备
       // 同时获取发送方设备（用于自同步），合并为一次 API 调用
       const currentUserId = authRef.current?.userId;
@@ -1342,16 +1338,11 @@ export function useChatClient(): {
         });
       }
 
-      // P2: 添加发送方其他设备自同步（排除当前设备）
-      if (currentUserId && currentDeviceId) {
-        // 显式通过 userId 匹配，而非依赖数组顺序
+      // 发送方自同步：覆盖当前设备 + 其他设备，确保“自己发送自己可见”。
+      if (currentUserId) {
         const selfDeviceInfo = deviceInfoList.find((info) => info.userId === currentUserId);
         const selfDevices = selfDeviceInfo?.devices ?? [];
         for (const selfDevice of selfDevices) {
-          // 跳过当前设备，避免重复
-          if (selfDevice.deviceId === currentDeviceId) {
-            continue;
-          }
           const encryptedPayload = await signalActions.encryptMessage(
             currentUserId,
             selfDevice.deviceId,
@@ -1631,12 +1622,6 @@ export function useChatClient(): {
         await signalActions.initialize(authRef.current?.userId);
       }
 
-      // 获取当前设备 ID
-      let currentDeviceId: string | undefined;
-      currentDeviceId = await import('./signal/key-management').then(({ KeyManager }) =>
-        KeyManager.getInstance().getDeviceId(),
-      ) ?? undefined;
-
       // 获取目标接收方所有设备
       // 同时获取发送方设备（用于自同步），合并为一次 API 调用
       const currentUserId = authRef.current?.userId;
@@ -1688,15 +1673,11 @@ export function useChatClient(): {
         });
       }
 
-      // 添加发送方其他设备自同步
-      if (currentUserId && currentDeviceId) {
-        // 显式通过 userId 匹配，而非依赖数组顺序
+      // 发送方自同步：覆盖当前设备 + 其他设备，保证转发后自己也能看到正文。
+      if (currentUserId) {
         const selfDeviceInfo = deviceInfoList.find((info) => info.userId === currentUserId);
         const selfDevices = selfDeviceInfo?.devices ?? [];
         for (const selfDevice of selfDevices) {
-          if (selfDevice.deviceId === currentDeviceId) {
-            continue;
-          }
           const encryptedPayload = await signalActions.encryptMessage(
             currentUserId,
             selfDevice.deviceId,
