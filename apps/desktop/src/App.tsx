@@ -316,8 +316,7 @@ export function App(): JSX.Element {
               void actions.onStartDirectConversation(targetUserId);
               setWorkspace('chat');
             }}
-            onWorkspaceChange={setWorkspace}
-            onLogout={() => void actions.onLogout()}
+            onNavDrawerOpen={() => setNavDrawerOpen(true)}
           />
         )}
       </div>

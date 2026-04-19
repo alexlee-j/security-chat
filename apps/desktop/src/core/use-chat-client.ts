@@ -69,6 +69,7 @@ import {
   clearCredentials,
   setRememberPassword,
   getRememberPassword,
+  getAutoLogin,
   setAutoLogin,
   clearAutoLogin,
   clearAllAuthData,
@@ -333,6 +334,46 @@ export function useChatClient(): {
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const toastHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const socketRef = useRef<Socket | null>(null);
+  const conversationPrefHydratedRef = useRef(false);
+
+  useEffect(() => {
+    let canceled = false;
+    const hydrateAuthPreferenceState = async (): Promise<void> => {
+      try {
+        const [rememberPref, autoLoginConfig, storedCredentials, draftSnapshot, cursorSnapshot, conversationPrefSnapshot] =
+          await Promise.all([
+            getRememberPassword(),
+            getAutoLogin(),
+            getStoredCredentials(),
+            loadMessageDraftSnapshot(),
+            loadMessageCursorSnapshot(),
+            loadConversationPrefSnapshot(),
+          ]);
+        if (canceled) {
+          return;
+        }
+
+        setRememberPasswordState(Boolean(rememberPref));
+        setAutoLoginState(Boolean(autoLoginConfig?.enabled));
+        setAccount(storedCredentials?.account ?? '');
+        setPassword(rememberPref ? (storedCredentials?.encryptedPassword ?? '') : '');
+
+        messageDraftRef.current = draftSnapshot;
+        setMessageDrafts(draftSnapshot);
+        messageCursorRef.current = cursorSnapshot;
+        setPinnedConversationIds(conversationPrefSnapshot.pinned ?? []);
+        setMutedConversationIds(conversationPrefSnapshot.muted ?? []);
+        conversationPrefHydratedRef.current = true;
+      } catch (error) {
+        console.error('[Auth] Failed to hydrate login preference state:', error);
+        conversationPrefHydratedRef.current = true;
+      }
+    };
+    void hydrateAuthPreferenceState();
+    return () => {
+      canceled = true;
+    };
+  }, []);
 
   async function ensureGroupSessionSynced(conversationId: string): Promise<void> {
     const selected = conversations.find((item) => item.conversationId === conversationId);
@@ -919,8 +960,14 @@ export function useChatClient(): {
     // 注意：使用 !== undefined 判断，因为空字符串是有效值，不应回退到状态
     const accountToUse = loginAccount !== undefined ? loginAccount : account;
     const passwordToUse = loginPassword !== undefined ? loginPassword : password;
-    const rememberToUse = rememberOverride ?? rememberPassword;
-    const autoLoginToUse = autoLoginOverride ?? autoLogin;
+    let rememberToUse = rememberOverride ?? rememberPassword;
+    let autoLoginToUse = autoLoginOverride ?? autoLogin;
+    if (autoLoginToUse) {
+      rememberToUse = true;
+    }
+    if (!rememberToUse) {
+      autoLoginToUse = false;
+    }
     setAuthSubmitting(true);
     try {
       const rememberedDeviceId = await getDeviceIdForAccount(accountToUse);
@@ -928,13 +975,8 @@ export function useChatClient(): {
       setAuthToken(result.accessToken);
       setAuth({ token: result.accessToken, userId: result.userId });
       await setDeviceIdForAccount(accountToUse, result.deviceId);
-
-      if (rememberOverride !== undefined) {
-        setRememberPasswordState(rememberToUse);
-      }
-      if (autoLoginOverride !== undefined) {
-        setAutoLoginState(autoLoginToUse);
-      }
+      setRememberPasswordState(rememberToUse);
+      setAutoLoginState(autoLoginToUse);
 
       // 根据选项保存凭证
       if (rememberToUse) {
@@ -2354,6 +2396,9 @@ export function useChatClient(): {
   }, [auth, activeConversationId, messageText]);
 
   useEffect(() => {
+    if (!conversationPrefHydratedRef.current) {
+      return;
+    }
     saveConversationPrefSnapshot({
       pinned: pinnedConversationIds,
       muted: mutedConversationIds,

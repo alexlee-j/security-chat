@@ -3,6 +3,7 @@
  * 设计稿：2026-04-07-auth-pages-design.md
  */
 import { useForm } from 'react-hook-form';
+import { useEffect } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { Loader2 } from 'lucide-react';
@@ -10,7 +11,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
-import { cn } from '@/lib/utils';
 
 const loginSchema = z.object({
   username: z.string()
@@ -26,6 +26,8 @@ type LoginFormData = z.infer<typeof loginSchema>;
 interface LoginFormProps {
   defaultUsername?: string;
   defaultPassword?: string;
+  rememberPassword?: boolean;
+  autoLogin?: boolean;
   isLoading: boolean;
   onSubmit: (values: LoginFormData) => Promise<void>;
   onSwitchToRegister: () => void;
@@ -36,6 +38,8 @@ interface LoginFormProps {
 export function LoginForm({
   defaultUsername = '',
   defaultPassword = '',
+  rememberPassword = false,
+  autoLogin = false,
   isLoading,
   onSubmit,
   onSwitchToRegister,
@@ -47,13 +51,27 @@ export function LoginForm({
     defaultValues: {
       username: defaultUsername,
       password: defaultPassword,
-      remember: false,
-      autoLogin: false,
+      remember: rememberPassword,
+      autoLogin,
     },
   });
 
+  useEffect(() => {
+    form.reset({
+      username: defaultUsername,
+      password: defaultPassword,
+      remember: rememberPassword || autoLogin,
+      autoLogin: autoLogin && (rememberPassword || autoLogin),
+    });
+  }, [autoLogin, defaultPassword, defaultUsername, form, rememberPassword]);
+
   const handleSubmit = async (values: LoginFormData) => {
-    await onSubmit(values);
+    const normalizedValues: LoginFormData = {
+      ...values,
+      remember: values.remember || values.autoLogin,
+      autoLogin: values.autoLogin && (values.remember || values.autoLogin),
+    };
+    await onSubmit(normalizedValues);
   };
 
   return (
@@ -99,7 +117,13 @@ export function LoginForm({
           <Checkbox
             id="remember"
             checked={form.watch('remember')}
-            onCheckedChange={(checked) => form.setValue('remember', checked as boolean)}
+            onCheckedChange={(checked) => {
+              const nextRemember = Boolean(checked);
+              form.setValue('remember', nextRemember);
+              if (!nextRemember) {
+                form.setValue('autoLogin', false);
+              }
+            }}
             disabled={isLoading}
           />
           <Label htmlFor="remember" className="text-sm cursor-pointer">
@@ -119,7 +143,13 @@ export function LoginForm({
         <Checkbox
           id="autoLogin"
           checked={form.watch('autoLogin')}
-          onCheckedChange={(checked) => form.setValue('autoLogin', checked as boolean)}
+          onCheckedChange={(checked) => {
+            const nextAutoLogin = Boolean(checked);
+            form.setValue('autoLogin', nextAutoLogin);
+            if (nextAutoLogin) {
+              form.setValue('remember', true);
+            }
+          }}
           disabled={isLoading}
         />
         <Label htmlFor="autoLogin" className="text-sm cursor-pointer">

@@ -9,6 +9,7 @@ import * as React from 'react';
 import {
   ContextMenu,
   ContextMenuContent,
+  ContextMenuLabel,
   ContextMenuItem,
   ContextMenuSeparator,
   ContextMenuTrigger,
@@ -23,35 +24,51 @@ export type ConversationContextMenuProps = {
   onMute: (id: string) => void;
   onDelete: (id: string) => void;
   onCopyId: (id: string) => void;
+  allowLocalActions?: boolean;
+  allowServerDelete?: boolean;
 };
 
 export function ConversationContextMenu(props: ConversationContextMenuProps): JSX.Element {
+  const allowLocalActions = props.allowLocalActions ?? true;
+  const allowServerDelete = props.allowServerDelete ?? true;
+
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
         {props.children}
       </ContextMenuTrigger>
       <ContextMenuContent>
-        <ContextMenuItem onSelect={() => props.onPin(props.conversationId)}>
-          <span className="material-symbols-rounded mr-2">push_pin</span>
-          {props.isPinned ? '取消本机置顶' : '本机置顶'}
-        </ContextMenuItem>
-        <ContextMenuItem onSelect={() => props.onMute(props.conversationId)}>
-          <span className="material-symbols-rounded mr-2">{props.isMuted ? 'volume_off' : 'volume_off'}</span>
-          {props.isMuted ? '取消本机静音' : '本机静音'}
-        </ContextMenuItem>
-        <ContextMenuSeparator />
-        <ContextMenuItem
-          onSelect={() => props.onDelete(props.conversationId)}
-          className="text-destructive focus:text-destructive"
-        >
-          <span className="material-symbols-rounded mr-2">delete</span>
-          删除会话
-        </ContextMenuItem>
+        {allowLocalActions ? (
+          <>
+            <ContextMenuLabel>本地会话偏好</ContextMenuLabel>
+            <ContextMenuItem onSelect={() => props.onPin(props.conversationId)}>
+              <span className="material-symbols-rounded mr-2">push_pin</span>
+              {props.isPinned ? '取消本机置顶' : '本机置顶'}
+            </ContextMenuItem>
+            <ContextMenuItem onSelect={() => props.onMute(props.conversationId)}>
+              <span className="material-symbols-rounded mr-2">{props.isMuted ? 'volume_up' : 'volume_off'}</span>
+              {props.isMuted ? '取消本机静音' : '本机静音'}
+            </ContextMenuItem>
+            <ContextMenuSeparator />
+          </>
+        ) : null}
         <ContextMenuItem onSelect={() => props.onCopyId(props.conversationId)}>
           <span className="material-symbols-rounded mr-2">content_copy</span>
           复制ID
         </ContextMenuItem>
+        {allowServerDelete ? (
+          <>
+            <ContextMenuSeparator />
+            <ContextMenuLabel>服务端动作</ContextMenuLabel>
+            <ContextMenuItem
+              onSelect={() => props.onDelete(props.conversationId)}
+              className="text-destructive focus:text-destructive"
+            >
+              <span className="material-symbols-rounded mr-2">delete</span>
+              删除会话记录
+            </ContextMenuItem>
+          </>
+        ) : null}
       </ContextMenuContent>
     </ContextMenu>
   );

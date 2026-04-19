@@ -5,6 +5,7 @@
 import { FormEvent, useMemo, useState } from 'react';
 import * as React from 'react';
 import { ConversationListItem } from '../../core/types';
+import { NavMenuTrigger } from '../navigation/nav-menu-trigger';
 import { ConversationContextMenu } from './conversation-context-menu';
 import { FabMenu } from './fab-menu';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
@@ -191,6 +192,8 @@ export function ConversationSidebar(props: Props): JSX.Element {
         onMute={onMenuToggleMute}
         onDelete={onMenuDeleteConversation}
         onCopyId={onCopyConversationId}
+        allowLocalActions={Boolean(row.conversationId)}
+        allowServerDelete={Boolean(row.conversationId)}
       >
         <div
           className={cn(
@@ -293,14 +296,7 @@ export function ConversationSidebar(props: Props): JSX.Element {
       {/* 顶部工具栏 */}
       <header className="h-16 px-3 flex items-center gap-3 bg-sidebar-background">
         {/* 汉堡菜单按钮 */}
-        <button
-          type="button"
-          className="nav-menu-btn flex items-center justify-center w-9 h-9 rounded-full border-none bg-transparent cursor-pointer transition-all duration-150 hover:bg-accent"
-          aria-label="菜单"
-          onClick={() => props.onNavDrawerOpen?.()}
-        >
-          <span className="material-symbols-rounded text-2xl text-muted-foreground">menu</span>
-        </button>
+        <NavMenuTrigger onClick={() => props.onNavDrawerOpen?.()} />
 
         {/* 搜索框 */}
         <div className="search-shell flex-1 flex items-center gap-2 bg-search-bg rounded-2xl px-3 h-8">

@@ -1,12 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import * as React from 'react';
 import { BlockedFriendItem, FriendListItem, FriendSearchItem, PendingFriendItem } from '../../core/types';
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-} from '@/components/ui/sheet';
+import { NavMenuTrigger } from '../navigation/nav-menu-trigger';
 
 type Props = {
   currentUserId: string;
@@ -22,9 +17,8 @@ type Props = {
   onBlockUser: (targetUserId: string) => Promise<void>;
   onUnblockUser: (targetUserId: string) => Promise<void>;
   onStartDirectConversation: (targetUserId: string) => void;
-  onWorkspaceChange?: (workspace: 'chat' | 'friend') => void;
-  onLogout?: () => void;
-}
+  onNavDrawerOpen?: () => void;
+};
 
 type FriendEntry =
   | { kind: 'friend'; userId: string; username: string; online?: boolean }
@@ -85,27 +79,15 @@ function getAvatarColorIndex(name: string): number {
 }
 
 export function FriendPanel(props: Props): JSX.Element {
-  const { onWorkspaceChange, onLogout, currentUserId } = props;
-  const [navDrawerOpen, setNavDrawerOpen] = useState(false);
-
-  // ESC 键关闭抽屉
-  useEffect(() => {
-    if (!navDrawerOpen) {
-      return;
-    }
-    const onKeyDown = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') {
-        setNavDrawerOpen(false);
-      }
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [navDrawerOpen]);
+  const { currentUserId } = props;
 
   const entries = useMemo(
     () => toFriendEntry(props.friends, props.incomingRequests, props.blockedUsers),
     [props.friends, props.incomingRequests, props.blockedUsers],
   );
+  const friendCount = props.friends.length;
+  const incomingCount = props.incomingRequests.length;
+  const blockedCount = props.blockedUsers.length;
   const [selectedUserId, setSelectedUserId] = useState('');
   const [qrInput, setQrInput] = useState('');
   const [qrHint, setQrHint] = useState('');
@@ -208,23 +190,18 @@ export function FriendPanel(props: Props): JSX.Element {
       <header className="friend-head">
         <div className="friend-head-left">
           <div className="sidebar-nav-menu friend-nav-menu">
-            <button
-              type="button"
-              className="nav-menu-btn"
-              aria-label="导航菜单"
-              onClick={() => setNavDrawerOpen(true)}
-            >
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M4 6h16v2H4V6Zm0 5h16v2H4v-2Zm0 5h16v2H4v-2Z" fill="currentColor" />
-              </svg>
-            </button>
+            <NavMenuTrigger onClick={() => props.onNavDrawerOpen?.()} />
           </div>
           <div>
             <p className="kicker">People</p>
             <h3>好友中心</h3>
           </div>
         </div>
-        <span className="subtle">{props.friends.length} 位好友</span>
+        <div className="friend-head-metrics">
+          <span className="friend-metric">好友 {friendCount}</span>
+          <span className="friend-metric">待处理 {incomingCount}</span>
+          <span className="friend-metric">黑名单 {blockedCount}</span>
+        </div>
       </header>
 
       <div className="friend-layout">
@@ -256,7 +233,7 @@ export function FriendPanel(props: Props): JSX.Element {
                 {item.kind === 'incoming' ? <span className="friend-badge">新</span> : null}
               </button>
             ))}
-            {entries.length === 0 ? <p className="subtle">暂无联系人数据</p> : null}
+            {entries.length === 0 ? <p className="subtle friend-empty-note">暂无联系人数据，可先通过右侧搜索发起好友申请。</p> : null}
           </div>
         </aside>
 
@@ -327,29 +304,49 @@ export function FriendPanel(props: Props): JSX.Element {
             )}
           </article>
 
-          <article className="friend-block friend-qr">
-            <h4>二维码加好友</h4>
-            <div className="friend-qr-body">
-              <small className="subtle">我的加好友码（供二维码承载）</small>
-              <div className="friend-qr-code mono">{ownAddCode}</div>
-              <div className="friend-actions">
-                <button type="button" onClick={() => void onCopyOwnCode()}>
-                  复制我的码
-                </button>
+          <div className="friend-main-grid">
+            <article className="friend-block">
+              <h4>关系总览</h4>
+              <div className="friend-summary-grid">
+                <div className="friend-summary-item">
+                  <span className="friend-summary-value">{friendCount}</span>
+                  <span className="friend-summary-label">好友</span>
+                </div>
+                <div className="friend-summary-item">
+                  <span className="friend-summary-value">{incomingCount}</span>
+                  <span className="friend-summary-label">待处理</span>
+                </div>
+                <div className="friend-summary-item">
+                  <span className="friend-summary-value">{blockedCount}</span>
+                  <span className="friend-summary-label">黑名单</span>
+                </div>
               </div>
-              <form className="friend-qr-form" onSubmit={onAddByCode}>
-                <input
-                  value={qrInput}
-                  onChange={(e) => setQrInput(e.target.value)}
-                  placeholder="粘贴扫码结果（sc:add:...）或用户ID"
-                />
-                <button type="submit" disabled={isPending(`request:${parseTargetFromCode(qrInput)}`)}>
-                  {isPending(`request:${parseTargetFromCode(qrInput)}`) ? '添加中...' : '添加好友'}
-                </button>
-              </form>
-              <small className="subtle">{qrHint || '可将我的加好友码生成二维码供对方扫码。'}</small>
-            </div>
-          </article>
+            </article>
+
+            <article className="friend-block friend-qr">
+              <h4>二维码加好友</h4>
+              <div className="friend-qr-body">
+                <small className="subtle">我的加好友码（供二维码承载）</small>
+                <div className="friend-qr-code mono">{ownAddCode}</div>
+                <div className="friend-actions">
+                  <button type="button" onClick={() => void onCopyOwnCode()}>
+                    复制我的码
+                  </button>
+                </div>
+                <form className="friend-qr-form" onSubmit={onAddByCode}>
+                  <input
+                    value={qrInput}
+                    onChange={(e) => setQrInput(e.target.value)}
+                    placeholder="粘贴扫码结果（sc:add:...）或用户ID"
+                  />
+                  <button type="submit" disabled={isPending(`request:${parseTargetFromCode(qrInput)}`)}>
+                    {isPending(`request:${parseTargetFromCode(qrInput)}`) ? '添加中...' : '添加好友'}
+                  </button>
+                </form>
+                <small className="subtle">{qrHint || '可将我的加好友码生成二维码供对方扫码。'}</small>
+              </div>
+            </article>
+          </div>
 
           {props.incomingRequests.length > 0 ? (
             <article className="friend-block">
@@ -441,64 +438,6 @@ export function FriendPanel(props: Props): JSX.Element {
           ) : null}
         </section>
       </div>
-      
-      {/* 导航抽屉 - 使用 shadcn/ui Sheet 组件 */}
-      <Sheet open={navDrawerOpen} onOpenChange={setNavDrawerOpen}>
-        <SheetContent side="left" className="nav-drawer-sheet w-[280px] p-0">
-          <SheetHeader className="nav-drawer-header px-4 pb-6 pt-6">
-            <SheetTitle className="nav-drawer-title">Security Chat</SheetTitle>
-            <div className="flex items-center gap-3">
-              <span className="nav-drawer-logo">SC</span>
-              <div>
-                <p className="nav-drawer-subtitle">Desktop</p>
-              </div>
-            </div>
-          </SheetHeader>
-
-          <nav className="nav-drawer-nav px-3">
-            <button
-              type="button"
-              className="nav-drawer-item w-full"
-              onClick={() => {
-                onWorkspaceChange?.('chat');
-                setNavDrawerOpen(false);
-              }}
-            >
-              <span className="material-symbols-rounded nav-drawer-icon">chat</span>
-              <span>聊天</span>
-            </button>
-
-            <button
-              type="button"
-              className="nav-drawer-item w-full active"
-            >
-              <span className="material-symbols-rounded nav-drawer-icon">group</span>
-              <span>好友</span>
-            </button>
-          </nav>
-
-          <div className="nav-drawer-divider mx-4" />
-
-          <div className="nav-drawer-user mx-4 my-2">
-            <p className="nav-drawer-user-label">当前用户</p>
-            <p className="nav-drawer-user-id">{currentUserId}</p>
-          </div>
-
-          <div className="mt-auto px-3 pb-4">
-            <button
-              type="button"
-              className="nav-drawer-item nav-drawer-logout w-full"
-              onClick={() => {
-                onLogout?.();
-                setNavDrawerOpen(false);
-              }}
-            >
-              <span className="material-symbols-rounded nav-drawer-icon">logout</span>
-              <span>退出登录</span>
-            </button>
-          </div>
-        </SheetContent>
-      </Sheet>
     </section>
     </>
   );

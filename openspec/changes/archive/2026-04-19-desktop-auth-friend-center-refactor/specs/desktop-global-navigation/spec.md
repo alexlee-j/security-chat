@@ -1,8 +1,5 @@
-# desktop-global-navigation Specification
+## MODIFIED Requirements
 
-## Purpose
-Define the desktop global navigation and account actions needed for a complete non-call product surface.
-## Requirements
 ### Requirement: Desktop SHALL provide complete global navigation surfaces
 The desktop app SHALL provide a single navigation drawer that exposes supported global destinations and account actions across chat and friend workspaces without leaving users in dead-end UI states.
 
@@ -24,4 +21,3 @@ The desktop app SHALL ask for confirmation before logging out and SHALL clear au
 #### Scenario: User confirms logout
 - **WHEN** the user confirms logout
 - **THEN** the desktop app SHALL clear authenticated state and return to the login surface
-

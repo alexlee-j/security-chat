@@ -2794,6 +2794,22 @@ button:disabled {
   background: var(--bg-surface);
 }
 
+.friend-head-metrics {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.friend-metric {
+  font-size: 12px;
+  color: var(--text-secondary);
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border-light);
+  background: var(--bg-surface-soft);
+  padding: 4px 10px;
+}
+
 .friend-head h3 {
   font-size: 24px;
   font-weight: 600;
@@ -2846,6 +2862,14 @@ button:disabled {
   display: grid;
   align-content: start;
   gap: 4px;
+}
+
+.friend-empty-note {
+  border-radius: var(--radius-md);
+  border: 1px dashed var(--border-light);
+  background: var(--bg-surface-soft);
+  padding: 12px;
+  line-height: 1.4;
 }
 
 .friend-nav-item {
@@ -2920,6 +2944,12 @@ button:disabled {
   background: linear-gradient(180deg, #fafbfc 0%, #ffffff 100%);
 }
 
+.friend-main-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
 .friend-block {
   background: var(--bg-surface);
   border-radius: var(--radius-xl);
@@ -2971,6 +3001,34 @@ button:disabled {
 .friend-qr-body {
   display: grid;
   gap: 12px;
+}
+
+.friend-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.friend-summary-item {
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-light);
+  background: var(--bg-surface-soft);
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  padding: 12px 8px;
+}
+
+.friend-summary-value {
+  font-size: 22px;
+  line-height: 1;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.friend-summary-label {
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 
 .friend-qr-code {
@@ -3825,6 +3883,10 @@ button:disabled {
   .friend-layout {
     grid-template-columns: 300px minmax(0, 1fr);
   }
+
+  .friend-main-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 768px) {
@@ -3859,6 +3921,25 @@ button:disabled {
   .friend-sidebar {
     border-right: none;
     border-bottom: 1px solid var(--border-light);
+  }
+
+  .friend-head {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .friend-head-metrics {
+    justify-content: flex-start;
+  }
+
+  .friend-main {
+    padding: 16px;
+    gap: 16px;
+  }
+
+  .friend-summary-grid {
+    grid-template-columns: 1fr;
   }
 }
 

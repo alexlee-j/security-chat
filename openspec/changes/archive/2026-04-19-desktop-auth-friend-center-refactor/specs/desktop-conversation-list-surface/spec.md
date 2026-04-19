@@ -1,8 +1,5 @@
-# desktop-conversation-list-surface Specification
+## MODIFIED Requirements
 
-## Purpose
-Define the desktop conversation list behavior required for stable selection, discovery, and supported conversation-level actions.
-## Requirements
 ### Requirement: Desktop conversation list SHALL support search and stable selection
 The desktop app SHALL let users search conversations and switch selected conversations without losing visible state consistency.
 
@@ -24,4 +21,3 @@ The desktop app SHALL provide conversation context actions for supported state c
 #### Scenario: User deletes conversation
 - **WHEN** the user selects delete conversation and confirms the dialog
 - **THEN** the desktop app SHALL remove or hide the conversation according to the supported deletion contract and SHALL not leave the deleted conversation selected
-

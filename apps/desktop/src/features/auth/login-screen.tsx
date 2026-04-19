@@ -84,14 +84,25 @@ export function LoginScreen(props: Props): JSX.Element {
 
   // Wrapper for login form submit - convert form values to match old interface
   const handleLogin = async (values: LoginFormData) => {
+    const normalizedValues: LoginFormData = {
+      ...values,
+      remember: values.remember || values.autoLogin,
+      autoLogin: values.autoLogin && (values.remember || values.autoLogin),
+    };
     // 更新状态（用于 UI 同步）
-    props.onAccountChange(values.username);
-    props.onPasswordChange(values.password);
-    props.onRememberPasswordChange(values.remember);
-    props.onAutoLoginChange(values.autoLogin);
+    props.onAccountChange(normalizedValues.username);
+    props.onPasswordChange(normalizedValues.password);
+    props.onRememberPasswordChange(normalizedValues.remember);
+    props.onAutoLoginChange(normalizedValues.autoLogin);
     // 直接传递账号密码给 onLogin，避免状态异步问题
     const mockEvent = { preventDefault: () => {} } as unknown as FormEvent<HTMLFormElement>;
-    await props.onLogin(mockEvent, values.username, values.password, values.remember, values.autoLogin);
+    await props.onLogin(
+      mockEvent,
+      normalizedValues.username,
+      normalizedValues.password,
+      normalizedValues.remember,
+      normalizedValues.autoLogin,
+    );
   };
 
   // Wrapper for register form submit
@@ -137,6 +148,8 @@ export function LoginScreen(props: Props): JSX.Element {
             <LoginForm
               defaultUsername={props.account}
               defaultPassword={props.password}
+              rememberPassword={props.rememberPassword}
+              autoLogin={props.autoLogin}
               isLoading={props.authSubmitting}
               onSubmit={handleLogin}
               onSwitchToRegister={() => props.onModeChange('register')}
