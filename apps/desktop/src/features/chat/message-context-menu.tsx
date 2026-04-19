@@ -38,20 +38,20 @@ export function MessageContextMenu(props: MessageContextMenuProps): JSX.Element 
         {!props.isRevoked && (
           <>
             <ContextMenuItem onSelect={props.onCopy} disabled={!props.canCopy}>
-              <span className="mr-2">📋</span>
+              <span className="material-symbols-rounded mr-2">content_copy</span>
               {props.canCopy ? '复制' : '无可复制内容'}
             </ContextMenuItem>
             <ContextMenuItem onSelect={props.onReply}>
-              <span className="mr-2">↩️</span>
+              <span className="material-symbols-rounded mr-2">format_quote</span>
               引用
             </ContextMenuItem>
             <ContextMenuItem onSelect={props.onForward}>
-              <span className="mr-2">↗️</span>
+              <span className="material-symbols-rounded mr-2">send</span>
               转发
             </ContextMenuItem>
             {showDownload && (
               <ContextMenuItem onSelect={props.onDownload}>
-                <span className="mr-2">⬇️</span>
+                <span className="material-symbols-rounded mr-2">download</span>
                 下载
               </ContextMenuItem>
             )}
@@ -60,7 +60,7 @@ export function MessageContextMenu(props: MessageContextMenuProps): JSX.Element 
               onSelect={props.onDelete}
               className="text-destructive focus:text-destructive"
             >
-              <span className="mr-2">🗑</span>
+              <span className="material-symbols-rounded mr-2">delete</span>
               删除
             </ContextMenuItem>
           </>

@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { forwardRef, useState } from 'react';
+import type { HTMLAttributes } from 'react';
 
 enum MessageType {
   Text = 1,
@@ -20,9 +21,9 @@ type MessageBubbleProps = {
   fileSize?: string;
   voiceDuration?: string;
   onRetry?: () => void;
-};
+} & HTMLAttributes<HTMLDivElement>;
 
-export function MessageBubble(props: MessageBubbleProps): JSX.Element {
+export const MessageBubble = forwardRef<HTMLDivElement, MessageBubbleProps>(function MessageBubble(props, ref): JSX.Element {
   const {
     type,
     messageType,
@@ -36,6 +37,8 @@ export function MessageBubble(props: MessageBubbleProps): JSX.Element {
     fileSize,
     voiceDuration,
     onRetry,
+    className,
+    ...rest
   } = props;
 
   const [imageError, setImageError] = useState(false);
@@ -90,7 +93,11 @@ export function MessageBubble(props: MessageBubbleProps): JSX.Element {
   };
 
   return (
-    <div className={`message-bubble ${type}`}>
+    <div
+      ref={ref}
+      className={`message-bubble ${type}${className ? ` ${className}` : ''}`}
+      {...rest}
+    >
       {replyTo && (
         <div className="reply-preview">
           <span className="reply-sender">{replyTo.sender}</span>
@@ -110,4 +117,4 @@ export function MessageBubble(props: MessageBubbleProps): JSX.Element {
       </div>
     </div>
   );
-}
+});

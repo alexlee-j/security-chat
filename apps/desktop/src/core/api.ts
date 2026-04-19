@@ -10,6 +10,7 @@
 
 import axios from 'axios';
 import { encryptPayload, decryptPayload, decryptPayloadSync } from './crypto';
+import { getAutoLogin, setAutoLogin, clearAutoLogin } from './auth-storage';
 import {
   ApiEnvelope,
   AuthResult,
@@ -35,14 +36,95 @@ const http = axios.create({
   }
 });
 
+const AUTH_TOKEN_UPDATED_EVENT = 'security-chat:auth-token-updated';
+const AUTH_SESSION_EXPIRED_EVENT = 'security-chat:auth-session-expired';
+const REFRESH_EXPIRES_MS = 7 * 24 * 60 * 60 * 1000;
+
+let refreshAccessTokenPromise: Promise<{ accessToken: string; refreshToken: string; userId: string; deviceId: string } | null> | null = null;
+
+function notifyAuthTokenUpdated(payload: { accessToken: string; userId: string; deviceId: string }): void {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  window.dispatchEvent(new CustomEvent(AUTH_TOKEN_UPDATED_EVENT, { detail: payload }));
+}
+
+function notifyAuthSessionExpired(): void {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  window.dispatchEvent(new Event(AUTH_SESSION_EXPIRED_EVENT));
+}
+
+async function refreshAuthToken(): Promise<{ accessToken: string; refreshToken: string; userId: string; deviceId: string } | null> {
+  if (!refreshAccessTokenPromise) {
+    refreshAccessTokenPromise = (async () => {
+      const autoLogin = await getAutoLogin().catch(() => null);
+      const refreshToken = autoLogin?.refreshToken;
+      if (!refreshToken) {
+        notifyAuthSessionExpired();
+        return null;
+      }
+      try {
+        const res = await axios.post<ApiEnvelope<AuthResult>>(
+          `${API_BASE}/auth/refresh`,
+          { refreshToken },
+          {
+            timeout: 10000,
+            headers: {
+              'Content-Type': 'application/json',
+            },
+          },
+        );
+        const nextAuth = res.data.data;
+        setAuthToken(nextAuth.accessToken);
+        await setAutoLogin({
+          enabled: autoLogin?.enabled ?? true,
+          refreshToken: nextAuth.refreshToken,
+          expiresAt: Date.now() + REFRESH_EXPIRES_MS,
+        });
+        notifyAuthTokenUpdated(nextAuth);
+        return nextAuth;
+      } catch (error) {
+        await clearAutoLogin().catch(() => null);
+        notifyAuthSessionExpired();
+        return null;
+      }
+    })().finally(() => {
+      refreshAccessTokenPromise = null;
+    });
+  }
+  return refreshAccessTokenPromise;
+}
+
 // 响应拦截器 - 统一错误处理
 http.interceptors.response.use(
   (response) => response,
-  (error) => {
+  async (error) => {
     console.error('API Error:', error?.response?.status, error?.response?.data);
     // 打印完整的错误响应以便调试
     if (error?.response?.data?.error) {
       console.error('Error details:', JSON.stringify(error.response.data.error, null, 2));
+    }
+    const status = error?.response?.status;
+    const originalRequest = error?.config;
+    const requestUrl = String(originalRequest?.url ?? '');
+    const isAuthEndpoint =
+      requestUrl.includes('/auth/login') ||
+      requestUrl.includes('/auth/login-code') ||
+      requestUrl.includes('/auth/register') ||
+      requestUrl.includes('/auth/refresh') ||
+      requestUrl.includes('/auth/logout');
+    if (status === 401 && originalRequest && !originalRequest._retry && !isAuthEndpoint) {
+      originalRequest._retry = true;
+      const refreshed = await refreshAuthToken();
+      if (refreshed?.accessToken) {
+        originalRequest.headers = {
+          ...(originalRequest.headers || {}),
+          Authorization: `Bearer ${refreshed.accessToken}`,
+        };
+        return http.request(originalRequest);
+      }
     }
     return Promise.reject(error);
   }

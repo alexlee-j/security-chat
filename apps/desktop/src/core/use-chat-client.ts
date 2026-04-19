@@ -332,6 +332,7 @@ export function useChatClient(): {
   // Toast 定时器引用，用于清理
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const toastHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const socketRef = useRef<Socket | null>(null);
 
   async function ensureGroupSessionSynced(conversationId: string): Promise<void> {
     const selected = conversations.find((item) => item.conversationId === conversationId);
@@ -944,15 +945,11 @@ export function useChatClient(): {
         await setRememberPassword(false);
       }
 
-      if (autoLoginToUse) {
-        await setAutoLogin({
-          enabled: true,
-          refreshToken: result.refreshToken,
-          expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000,
-        });
-      } else {
-        await clearAutoLogin();
-      }
+      await setAutoLogin({
+        enabled: autoLoginToUse,
+        refreshToken: result.refreshToken,
+        expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000,
+      });
 
       // 登录后初始化 Signal 协议并检查预密钥
       // 注意：initialize() 必须在 setDeviceId() 之前调用
@@ -1045,6 +1042,11 @@ export function useChatClient(): {
       setAuthToken(result.accessToken);
       setAuth({ token: result.accessToken, userId: result.userId });
       await setDeviceIdForAccount(accountToUse, result.deviceId);
+      await setAutoLogin({
+        enabled: false,
+        refreshToken: result.refreshToken,
+        expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000,
+      });
 
       // 登录后初始化 Signal 协议并检查预密钥
       // 注意：initialize() 必须在 setDeviceId() 之前调用
@@ -1162,6 +1164,11 @@ export function useChatClient(): {
 
       setAuthToken(result.accessToken);
       setAuth({ token: result.accessToken, userId: result.userId });
+      await setAutoLogin({
+        enabled: false,
+        refreshToken: result.refreshToken,
+        expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000,
+      });
 
       // 注册成功后，获取设备列表并更新本地设备ID
       try {
@@ -2252,8 +2259,39 @@ export function useChatClient(): {
   }
 
   useEffect(() => {
+    socketRef.current = socket;
+  }, [socket]);
+
+  useEffect(() => {
     authRef.current = auth;
   }, [auth]);
+
+  useEffect(() => {
+    const onAuthTokenUpdated = (event: Event): void => {
+      const customEvent = event as CustomEvent<{ accessToken: string; userId: string; deviceId: string }>;
+      const nextToken = customEvent.detail?.accessToken;
+      const nextUserId = customEvent.detail?.userId;
+      if (!nextToken || !nextUserId) {
+        return;
+      }
+      authRef.current = { token: nextToken, userId: nextUserId };
+      setAuth((prev) => (prev ? { ...prev, token: nextToken } : prev));
+      if (socketRef.current) {
+        socketRef.current.auth = { token: nextToken };
+      }
+    };
+
+    const onAuthSessionExpired = (): void => {
+      void onLogout();
+    };
+
+    window.addEventListener('security-chat:auth-token-updated', onAuthTokenUpdated);
+    window.addEventListener('security-chat:auth-session-expired', onAuthSessionExpired);
+    return () => {
+      window.removeEventListener('security-chat:auth-token-updated', onAuthTokenUpdated);
+      window.removeEventListener('security-chat:auth-session-expired', onAuthSessionExpired);
+    };
+  }, []);
 
   useEffect(() => {
     messagesRef.current = messages;
@@ -2346,6 +2384,9 @@ export function useChatClient(): {
     }
     try {
       await deleteConversation(conversationId);
+      // 先 reload 成功后，再清理本地状态
+      await loadConversations();
+      // reload 成功后清除本地状态
       setPinnedConversationIds((prev) => prev.filter((id) => id !== conversationId));
       setMutedConversationIds((prev) => prev.filter((id) => id !== conversationId));
       if (activeConversationIdRef.current === conversationId) {
@@ -2356,7 +2397,6 @@ export function useChatClient(): {
         setReplyToMessage(null);
         onCancelMediaAttachment();
       }
-      await loadConversations();
       return true;
     } catch (error) {
       console.error('[useChatClient] 删除会话失败:', error);

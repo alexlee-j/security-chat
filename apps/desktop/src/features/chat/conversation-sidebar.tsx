@@ -11,6 +11,14 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 type Props = {
   userId: string;
@@ -95,6 +103,7 @@ function lastMessagePreview(row: ConversationListItem): string {
 
 export function ConversationSidebar(props: Props): JSX.Element {
   const [keyword, setKeyword] = useState('');
+  const [deleteConfirmConversationId, setDeleteConfirmConversationId] = useState<string | null>(null);
   const pinnedSet = useMemo(() => new Set(props.pinnedConversationIds), [props.pinnedConversationIds]);
 
   const mutedSet = useMemo(() => new Set(props.mutedConversationIds), [props.mutedConversationIds]);
@@ -142,8 +151,13 @@ export function ConversationSidebar(props: Props): JSX.Element {
   }
 
   async function onMenuDeleteConversation(conversationId: string): Promise<void> {
-    const confirmed = window.confirm('确定要删除该会话吗？此操作会移除当前会话记录。');
-    if (!confirmed) {
+    setDeleteConfirmConversationId(conversationId);
+  }
+
+  async function confirmDeleteConversation(): Promise<void> {
+    const conversationId = deleteConfirmConversationId;
+    setDeleteConfirmConversationId(null);
+    if (!conversationId) {
       return;
     }
     const success = await props.onDeleteConversation(conversationId);
@@ -336,6 +350,31 @@ export function ConversationSidebar(props: Props): JSX.Element {
           props.onWorkspaceChange?.('friend');
         }}
       />
+
+      {/* 删除会话确认对话框 */}
+      <Dialog open={deleteConfirmConversationId !== null} onOpenChange={(open) => !open && setDeleteConfirmConversationId(null)}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>删除会话</DialogTitle>
+            <DialogDescription>
+              确定要删除该会话吗？此操作会移除当前会话记录，且无法恢复。
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-2">
+            <Button variant="outline" onClick={() => setDeleteConfirmConversationId(null)}>
+              取消
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                void confirmDeleteConversation();
+              }}
+            >
+              删除
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </aside>
   );
 }

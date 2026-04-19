@@ -16,6 +16,8 @@ import { ChatMoreMenu } from './chat-more-menu';
 import { MessageBubble } from './message-bubble';
 import { MessageContextMenu } from './message-context-menu';
 import { EmojiPicker } from './emoji-picker';
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 /**
  * Props 类型定义 - 聊天面板组件属性
@@ -284,6 +286,7 @@ export function ChatPanel(props: Props): JSX.Element {
   const [forwardConversations, setForwardConversations] = useState<ConversationListItem[]>([]);
   const [selectedForwardConversation, setSelectedForwardConversation] = useState('');
   const [forwardLoading, setForwardLoading] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info'; visible: boolean } | null>(null);
   const [confirmDialog, setConfirmDialog] = useState<{ open: boolean; messageId: string; message?: MessageItem } | null>(null);
   // 阅后即焚倒计时状态
@@ -903,10 +906,7 @@ export function ChatPanel(props: Props): JSX.Element {
             }}
             onDeleteConversation={() => {
               if (props.activeConversationId) {
-                const confirmed = window.confirm('确定要删除该会话吗？此操作会移除当前会话记录。');
-                if (confirmed) {
-                  void props.onDeleteConversation(props.activeConversationId);
-                }
+                setDeleteConfirmOpen(true);
               }
             }}
           >
@@ -1056,9 +1056,7 @@ export function ChatPanel(props: Props): JSX.Element {
                   </MessageContextMenu>
                   {showBurnTimer ? (
                     <span className="message-burn-countdown">
-                      <svg viewBox="0 0 24 24" aria-hidden="true">
-                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" fill="currentColor"/>
-                      </svg>
+                      <span className="material-symbols-rounded">check_circle</span>
                       {burnCountdown}s
                     </span>
                   ) : row.isBurn && !isRevoked && !isOut ? (
@@ -1120,9 +1118,7 @@ export function ChatPanel(props: Props): JSX.Element {
                 onClick={() => props.onReplyToMessageChange(null)}
                 aria-label="取消引用"
               >
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" fill="currentColor"/>
-                </svg>
+                <span className="material-symbols-rounded">close</span>
               </button>
             </div>
           ) : null}
@@ -1132,9 +1128,7 @@ export function ChatPanel(props: Props): JSX.Element {
                 <img src={pendingAttachment.previewUrl} alt="附件预览" className="attachment-preview-image" />
               ) : (
                 <div className="attachment-preview-file">
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6z" fill="currentColor" />
-                  </svg>
+                  <span className="material-symbols-rounded">description</span>
                   <span>{pendingAttachment.file.name}</span>
                 </div>
               )}
@@ -1150,9 +1144,7 @@ export function ChatPanel(props: Props): JSX.Element {
                 }}
                 aria-label="取消附件"
               >
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" fill="currentColor"/>
-                </svg>
+                <span className="material-symbols-rounded">close</span>
               </button>
             </div>
           ) : null}
@@ -1186,9 +1178,7 @@ export function ChatPanel(props: Props): JSX.Element {
               }
               aria-label="发送消息"
             >
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="m21 12-17 7 3.6-7L4 5l17 7Z" fill="currentColor" />
-              </svg>
+              <span className="material-symbols-rounded">send</span>
             </button>
           </div>
         </form>
@@ -1200,12 +1190,7 @@ export function ChatPanel(props: Props): JSX.Element {
             aria-label="附加"
             onClick={() => fileInputRef.current?.click()}
           >
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path
-                d="M16.5 6v11.5a4 4 0 0 1-8 0V5a2.5 2.5 0 0 1 5 0v10a3.5 3.5 0 0 0 7 0V6a4.5 4.5 0 0 0-9 0v10.5A5.5 5.5 0 0 0 19 22h.5a5.5 5.5 0 0 0 .5-11V6H16.5Z"
-                fill="currentColor"
-              />
-            </svg>
+            <span className="material-symbols-rounded">attach_file</span>
           </button>
           <button
             type="button"
@@ -1214,12 +1199,7 @@ export function ChatPanel(props: Props): JSX.Element {
             aria-label="表情"
             onClick={() => setEmojiOpen((v) => !v)}
           >
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path
-                d="M12 2a8 8 0 1 0 8 8 8 8 0 0 0-8-8Zm0 14a6 6 0 1 1 6-6 6 6 0 0 1-6 6Zm-3-7a1 1 0 1 0-1-1 1 1 0 0 0 1 1Zm6 0a1 1 0 1 0-1-1 1 1 0 0 0 1 1Zm-6.2 2.6a4.1 4.1 0 0 0 6.4 0l1.6 1a6 6 0 0 1-9.6 0l1.6-1Z"
-                fill="currentColor"
-              />
-            </svg>
+            <span className="material-symbols-rounded">emoji_emotions</span>
           </button>
           <button
             type="button"
@@ -1227,12 +1207,7 @@ export function ChatPanel(props: Props): JSX.Element {
             disabled={!hasActiveConversation}
             aria-label="麦克风"
           >
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path
-                d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 13 11h2Z"
-                fill="currentColor"
-              />
-            </svg>
+            <span className="material-symbols-rounded">mic</span>
           </button>
         </div>
         {emojiOpen ? (
@@ -1387,6 +1362,34 @@ export function ChatPanel(props: Props): JSX.Element {
         <span>{toast.message}</span>
       </div>
     ) : null}
+
+    {/* 删除会话确认对话框 */}
+    <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>删除会话</DialogTitle>
+          <DialogDescription>
+            确定要删除该会话吗？此操作会移除当前会话记录，且无法恢复。
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter className="gap-2 sm:gap-2">
+          <Button variant="outline" onClick={() => setDeleteConfirmOpen(false)}>
+            取消
+          </Button>
+          <Button
+            variant="destructive"
+            onClick={() => {
+              if (props.activeConversationId) {
+                setDeleteConfirmOpen(false);
+                void props.onDeleteConversation(props.activeConversationId);
+              }
+            }}
+          >
+            删除
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
     </>
   );
 }
