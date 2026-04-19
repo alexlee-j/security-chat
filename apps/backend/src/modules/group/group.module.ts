@@ -7,11 +7,13 @@ import { GroupMember } from './entities/group-member.entity';
 import { SenderKey } from './entities/sender-key.entity';
 import { User } from '../user/entities/user.entity';
 import { FriendModule } from '../friend/friend.module';
+import { NotificationModule } from '../notification/notification.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([Group, GroupMember, SenderKey, User]),
     FriendModule,
+    NotificationModule,
   ],
   controllers: [GroupController],
   providers: [GroupService],

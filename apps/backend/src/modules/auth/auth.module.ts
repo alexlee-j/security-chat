@@ -8,12 +8,14 @@ import { SecurityModule } from '../security/security.module';
 import { UserModule } from '../user/user.module';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { MailModule } from '../mail/mail.module';
+import { NotificationModule } from '../notification/notification.module';
 
 @Module({
   imports: [
     UserModule,
     SecurityModule,
     MailModule,
+    NotificationModule,
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.registerAsync({
       inject: [ConfigService],

@@ -11,7 +11,8 @@ import { GroupMember } from './entities/group-member.entity';
 import { SenderKey } from './entities/sender-key.entity';
 import { User } from '../user/entities/user.entity';
 import { FriendService } from '../friend/friend.service';
-import { CreateGroupDto, AddGroupMembersDto } from './dto/create-group.dto';
+import { NotificationService } from '../notification/notification.service';
+import { CreateGroupDto, AddGroupMembersDto, UpdateGroupProfileDto } from './dto/create-group.dto';
 
 /**
  * 群组成员角色
@@ -41,6 +42,7 @@ export class GroupService {
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
     private readonly friendService: FriendService,
+    private readonly notificationService: NotificationService,
   ) {}
 
   /**
@@ -50,6 +52,7 @@ export class GroupService {
     // 创建群组
     const group = this.groupRepository.create({
       name: dto.name,
+      description: dto.description ?? null,
       type: dto.type || GroupType.Private,
       creatorId: userId,
     });
@@ -85,6 +88,7 @@ export class GroupService {
     id: string;
     name: string;
     avatarUrl: string | null;
+    description: string | null;
     type: number;
     creatorId: string;
     memberCount: number;
@@ -114,12 +118,54 @@ export class GroupService {
       id: group.id,
       name: group.name,
       avatarUrl: group.avatarUrl,
+      description: group.description,
       type: group.type,
       creatorId: group.creatorId,
       memberCount,
       isMember: !!membership,
       role: membership?.role || null,
       createdAt: group.createdAt,
+    };
+  }
+
+  /**
+   * 更新群资料（管理员可操作）
+   */
+  async updateGroupProfile(
+    groupId: string,
+    requesterId: string,
+    dto: UpdateGroupProfileDto,
+  ): Promise<{
+    id: string;
+    name: string;
+    avatarUrl: string | null;
+    description: string | null;
+    updatedAt: Date;
+  }> {
+    const group = await this.groupRepository.findOne({ where: { id: groupId } });
+    if (!group) {
+      throw new NotFoundException('Group not found');
+    }
+
+    await this.assertAdmin(groupId, requesterId);
+
+    if (dto.name !== undefined) {
+      group.name = dto.name.trim();
+    }
+    if (dto.avatarUrl !== undefined) {
+      group.avatarUrl = dto.avatarUrl || null;
+    }
+    if (dto.description !== undefined) {
+      group.description = dto.description || null;
+    }
+
+    const saved = await this.groupRepository.save(group);
+    return {
+      id: saved.id,
+      name: saved.name,
+      avatarUrl: saved.avatarUrl,
+      description: saved.description,
+      updatedAt: saved.updatedAt,
     };
   }
 
@@ -223,6 +269,10 @@ export class GroupService {
 
     await this.memberRepository.save(members);
     await this.rotateGroupSenderKeys(groupId);
+    await this.emitGroupLifecycleNotifications(newUserIds, groupId, '成员加入群聊', '您已被加入群聊。', {
+      action: 'member_added',
+      groupId,
+    });
     return { addedCount: members.length };
   }
 
@@ -259,6 +309,14 @@ export class GroupService {
     }
 
     await this.rotateGroupSenderKeys(groupId);
+    const remainingMemberIds = await this.getGroupMemberUserIds(groupId);
+    await this.emitGroupLifecycleNotifications(
+      [targetUserId, ...remainingMemberIds],
+      groupId,
+      '群成员发生变更',
+      requesterId === targetUserId ? '您已退出群聊。' : '群成员已被移除，请留意成员变更。',
+      { action: requesterId === targetUserId ? 'member_left' : 'member_removed', groupId, targetUserId },
+    );
   }
 
   /**
@@ -281,6 +339,14 @@ export class GroupService {
     }
 
     await this.rotateGroupSenderKeys(groupId);
+    const remainingMemberIds = await this.getGroupMemberUserIds(groupId);
+    await this.emitGroupLifecycleNotifications(
+      [userId, ...remainingMemberIds],
+      groupId,
+      '群成员发生变更',
+      '有成员退出了群聊。',
+      { action: 'member_left', groupId, targetUserId: userId },
+    );
   }
 
   /**
@@ -383,5 +449,46 @@ export class GroupService {
       role: m.role,
       joinedAt: m.joinedAt,
     }));
+  }
+
+  private async getGroupMemberUserIds(groupId: string): Promise<string[]> {
+    const members = await this.memberRepository.find({
+      where: { groupId },
+      select: ['userId'],
+    });
+    return members.map((m) => m.userId);
+  }
+
+  private async emitGroupLifecycleNotifications(
+    userIds: string[],
+    groupId: string,
+    title: string,
+    body: string,
+    data: Record<string, unknown>,
+  ): Promise<void> {
+    const uniqUserIds = [...new Set(userIds)];
+    const dtos: Array<{
+      userId: string;
+      type: 'group_lifecycle';
+      title: string;
+      body: string;
+      data: Record<string, unknown>;
+    }> = [];
+    for (const uid of uniqUserIds) {
+      const enabled = await this.notificationService.isNotificationEnabled(uid, 'group_lifecycle');
+      if (!enabled) {
+        continue;
+      }
+      dtos.push({
+        userId: uid,
+        type: 'group_lifecycle',
+        title,
+        body,
+        data: { ...data, groupId },
+      });
+    }
+    if (dtos.length > 0) {
+      await this.notificationService.createBatchNotifications(dtos);
+    }
   }
 }

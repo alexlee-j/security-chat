@@ -14,6 +14,7 @@ import { User } from '../../modules/user/entities/user.entity';
 import { Device } from '../../modules/user/entities/device.entity';
 import { OneTimePrekey } from '../../modules/user/entities/one-time-prekey.entity';
 import { Notification } from '../../modules/notification/entities/notification.entity';
+import { NotificationSettings } from '../../modules/notification/entities/notification-settings.entity';
 import { SignedPreKey, KyberPreKey } from '../../modules/prekey/entities/prekey.entity';
 import { IdentityKey } from '../../modules/identity/identity.entity';
 import { Group } from '../../modules/group/entities/group.entity';
@@ -48,6 +49,7 @@ import { SenderKey } from '../../modules/group/entities/sender-key.entity';
           BurnEvent,
           Friendship,
           Notification,
+          NotificationSettings,
           IdentityKey,
           Group,
           GroupMember,

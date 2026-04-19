@@ -19,6 +19,9 @@ export class Group {
   @Column({ name: 'avatar_url', type: 'text', nullable: true })
   avatarUrl!: string | null;
 
+  @Column({ type: 'text', nullable: true })
+  description!: string | null;
+
   /** 群组类型: 1 = 私密(仅好友可加入), 2 = 公开(任何人可加入) */
   @Column({ type: 'smallint', default: 1 })
   type!: number;

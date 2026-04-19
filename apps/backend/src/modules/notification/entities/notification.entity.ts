@@ -18,7 +18,7 @@ export class Notification {
   userId!: string;
 
   @Column({ type: 'varchar', length: 50 })
-  type!: 'friend_request' | 'message' | 'system' | 'burn' | 'group';
+  type!: 'friend_request' | 'message' | 'system' | 'burn' | 'group' | 'account_recovery' | 'security_event' | 'group_lifecycle';
 
   @Column({ type: 'text' })
   title!: string;

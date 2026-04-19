@@ -19,7 +19,7 @@ export class NotificationController {
   ): Promise<{
     notifications: Array<{
       id: string;
-      type: 'friend_request' | 'message' | 'system' | 'burn' | 'group';
+      type: 'friend_request' | 'message' | 'system' | 'burn' | 'group' | 'account_recovery' | 'security_event' | 'group_lifecycle';
       title: string;
       body: string;
       data: Record<string, unknown> | null;
@@ -68,7 +68,7 @@ export class NotificationController {
     totalUnread: number;
     recentUnread: Array<{
       id: string;
-      type: 'friend_request' | 'message' | 'system' | 'burn' | 'group';
+      type: 'friend_request' | 'message' | 'system' | 'burn' | 'group' | 'account_recovery' | 'security_event' | 'group_lifecycle';
       title: string;
       body: string;
       data: Record<string, unknown> | null;
@@ -86,6 +86,9 @@ export class NotificationController {
     friendRequestEnabled: boolean;
     burnEnabled: boolean;
     groupEnabled: boolean;
+    accountRecoveryEnabled: boolean;
+    securityEventEnabled: boolean;
+    groupLifecycleEnabled: boolean;
   }> {
     return this.notificationService.getNotificationSettings(user.userId);
   }
@@ -99,6 +102,9 @@ export class NotificationController {
     friendRequestEnabled: boolean;
     burnEnabled: boolean;
     groupEnabled: boolean;
+    accountRecoveryEnabled: boolean;
+    securityEventEnabled: boolean;
+    groupLifecycleEnabled: boolean;
   }> {
     return this.notificationService.updateNotificationSettings(user.userId, dto);
   }

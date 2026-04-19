@@ -9,6 +9,7 @@ import { RequestUser } from '../../common/decorators/current-user.decorator';
 import { SecurityService } from '../security/security.service';
 import { UserService } from '../user/user.service';
 import { MailService } from '../mail/mail.service';
+import { NotificationService } from '../notification/notification.service';
 import { LoginDto } from './dto/login.dto';
 import { LoginWithCodeDto } from './dto/login-with-code.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
@@ -36,6 +37,7 @@ export class AuthService {
     private readonly securityService: SecurityService,
     private readonly jwtService: JwtService,
     private readonly mailService: MailService,
+    private readonly notificationService: NotificationService,
     @Inject(REDIS_CLIENT)
     private readonly redis: Redis,
   ) {
@@ -322,6 +324,21 @@ export class AuthService {
 
     // 使该用户的所有活跃会话失效
     await this.markUserLogoutAfter(user.id);
+
+    try {
+      const enabled = await this.notificationService.isNotificationEnabled(user.id, 'account_recovery');
+      if (enabled) {
+        await this.notificationService.createNotification({
+          userId: user.id,
+          type: 'account_recovery',
+          title: '密码已重置',
+          body: '您的账号密码已重置，请使用新密码重新登录。',
+          data: { event: 'password_reset' },
+        });
+      }
+    } catch (error) {
+      this.logger.warn('Failed to create account recovery notification', error as Error);
+    }
 
     this.logger.log(`Password reset successfully for user ${user.id}`);
 

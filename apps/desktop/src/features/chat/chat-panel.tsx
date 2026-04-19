@@ -66,6 +66,7 @@ type Props = {
   onResolveMediaUrl: (message: MessageItem) => Promise<string | null>;
   onReadMessageOnce: (message: MessageItem) => Promise<void>;
   onSubmit: (event: FormEvent<HTMLFormElement>) => Promise<void>;
+  onRetryMessage: (messageId: string) => Promise<void>;
   onStartTyping: () => void;
   onStopTyping: () => void;
   onForwardMessage: (originalMessageId: string, targetConversationId: string) => Promise<{ messageId: string; messageIndex: string }>;
@@ -1004,6 +1005,10 @@ export function ChatPanel(props: Props): JSX.Element {
 
               const bubbleStatus: 'sending' | 'sent' | 'delivered' | 'read' | 'failed' = isRevoked
                 ? 'sent'
+                : row.localDeliveryState === 'queued' || row.localDeliveryState === 'sending'
+                ? 'sending'
+                : row.localDeliveryState === 'failed'
+                ? 'failed'
                 : row.readAt
                 ? 'read'
                 : row.deliveredAt
@@ -1037,7 +1042,11 @@ export function ChatPanel(props: Props): JSX.Element {
                     fileName={payload.fileName}
                     fileSize={undefined}
                     voiceDuration={undefined}
-                    onRetry={undefined}
+                    onRetry={
+                      row.localDeliveryState === 'failed'
+                        ? () => void props.onRetryMessage(row.id)
+                        : undefined
+                    }
                   />
                   {showBurnTimer ? (
                     <span className="message-burn-countdown">

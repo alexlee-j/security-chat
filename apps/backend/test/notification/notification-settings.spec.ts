@@ -49,6 +49,9 @@ describe('NotificationService settings', () => {
         friendRequestEnabled: true,
         burnEnabled: true,
         groupEnabled: true,
+        accountRecoveryEnabled: true,
+        securityEventEnabled: true,
+        groupLifecycleEnabled: true,
       } as NotificationSettings);
       settingsRepository.save.mockResolvedValue({
         userId,
@@ -56,6 +59,9 @@ describe('NotificationService settings', () => {
         friendRequestEnabled: true,
         burnEnabled: true,
         groupEnabled: true,
+        accountRecoveryEnabled: true,
+        securityEventEnabled: true,
+        groupLifecycleEnabled: true,
       } as NotificationSettings);
 
       const result = await notificationService.getNotificationSettings(userId);
@@ -65,6 +71,9 @@ describe('NotificationService settings', () => {
         friendRequestEnabled: true,
         burnEnabled: true,
         groupEnabled: true,
+        accountRecoveryEnabled: true,
+        securityEventEnabled: true,
+        groupLifecycleEnabled: true,
       });
     });
 
@@ -75,6 +84,9 @@ describe('NotificationService settings', () => {
         friendRequestEnabled: true,
         burnEnabled: false,
         groupEnabled: true,
+        accountRecoveryEnabled: true,
+        securityEventEnabled: true,
+        groupLifecycleEnabled: true,
       } as NotificationSettings;
       settingsRepository.findOne.mockResolvedValue(existingSettings);
 
@@ -85,6 +97,9 @@ describe('NotificationService settings', () => {
         friendRequestEnabled: true,
         burnEnabled: false,
         groupEnabled: true,
+        accountRecoveryEnabled: true,
+        securityEventEnabled: true,
+        groupLifecycleEnabled: true,
       });
     });
   });
@@ -98,6 +113,9 @@ describe('NotificationService settings', () => {
         friendRequestEnabled: true,
         burnEnabled: true,
         groupEnabled: true,
+        accountRecoveryEnabled: true,
+        securityEventEnabled: true,
+        groupLifecycleEnabled: true,
       } as NotificationSettings);
       settingsRepository.save.mockResolvedValue({
         userId,
@@ -105,6 +123,9 @@ describe('NotificationService settings', () => {
         friendRequestEnabled: true,
         burnEnabled: true,
         groupEnabled: true,
+        accountRecoveryEnabled: true,
+        securityEventEnabled: true,
+        groupLifecycleEnabled: true,
       } as NotificationSettings);
 
       const result = await notificationService.updateNotificationSettings(userId, {
@@ -113,6 +134,7 @@ describe('NotificationService settings', () => {
 
       expect(result.messageEnabled).toBe(false);
       expect(result.friendRequestEnabled).toBe(true);
+      expect(result.accountRecoveryEnabled).toBe(true);
     });
 
     it('updates only specified fields', async () => {
@@ -122,6 +144,9 @@ describe('NotificationService settings', () => {
         friendRequestEnabled: true,
         burnEnabled: true,
         groupEnabled: true,
+        accountRecoveryEnabled: true,
+        securityEventEnabled: true,
+        groupLifecycleEnabled: true,
       } as NotificationSettings;
       settingsRepository.findOne.mockResolvedValue(existingSettings);
       settingsRepository.save.mockResolvedValue({
@@ -137,6 +162,7 @@ describe('NotificationService settings', () => {
       expect(result.friendRequestEnabled).toBe(true);
       expect(result.burnEnabled).toBe(true);
       expect(result.groupEnabled).toBe(true);
+      expect(result.accountRecoveryEnabled).toBe(true);
     });
   });
 
@@ -148,6 +174,9 @@ describe('NotificationService settings', () => {
         friendRequestEnabled: true,
         burnEnabled: true,
         groupEnabled: true,
+        accountRecoveryEnabled: true,
+        securityEventEnabled: true,
+        groupLifecycleEnabled: true,
       } as NotificationSettings);
 
       const result = await notificationService.isNotificationEnabled(userId, 'message');
@@ -162,6 +191,9 @@ describe('NotificationService settings', () => {
         friendRequestEnabled: true,
         burnEnabled: true,
         groupEnabled: true,
+        accountRecoveryEnabled: true,
+        securityEventEnabled: true,
+        groupLifecycleEnabled: true,
       } as NotificationSettings);
 
       const result = await notificationService.isNotificationEnabled(userId, 'message');
@@ -176,6 +208,9 @@ describe('NotificationService settings', () => {
         friendRequestEnabled: true,
         burnEnabled: false,
         groupEnabled: false,
+        accountRecoveryEnabled: true,
+        securityEventEnabled: true,
+        groupLifecycleEnabled: false,
       } as NotificationSettings);
 
       const result = await notificationService.isNotificationEnabled(userId, 'friend_request');
@@ -190,11 +225,48 @@ describe('NotificationService settings', () => {
         friendRequestEnabled: false,
         burnEnabled: true,
         groupEnabled: true,
+        accountRecoveryEnabled: false,
+        securityEventEnabled: true,
+        groupLifecycleEnabled: true,
       } as NotificationSettings);
 
       const result = await notificationService.isNotificationEnabled(userId, 'friend_request');
 
       expect(result).toBe(false);
+    });
+
+    it('returns false for account_recovery when disabled', async () => {
+      settingsRepository.findOne.mockResolvedValue({
+        userId,
+        messageEnabled: true,
+        friendRequestEnabled: true,
+        burnEnabled: true,
+        groupEnabled: true,
+        accountRecoveryEnabled: false,
+        securityEventEnabled: true,
+        groupLifecycleEnabled: true,
+      } as NotificationSettings);
+
+      const result = await notificationService.isNotificationEnabled(userId, 'account_recovery');
+
+      expect(result).toBe(false);
+    });
+
+    it('returns true for group_lifecycle when enabled', async () => {
+      settingsRepository.findOne.mockResolvedValue({
+        userId,
+        messageEnabled: false,
+        friendRequestEnabled: false,
+        burnEnabled: false,
+        groupEnabled: false,
+        accountRecoveryEnabled: false,
+        securityEventEnabled: false,
+        groupLifecycleEnabled: true,
+      } as NotificationSettings);
+
+      const result = await notificationService.isNotificationEnabled(userId, 'group_lifecycle');
+
+      expect(result).toBe(true);
     });
 
     it('returns true when user has no settings (default to enabled)', async () => {
@@ -205,6 +277,9 @@ describe('NotificationService settings', () => {
         friendRequestEnabled: true,
         burnEnabled: true,
         groupEnabled: true,
+        accountRecoveryEnabled: true,
+        securityEventEnabled: true,
+        groupLifecycleEnabled: true,
       } as NotificationSettings);
       settingsRepository.save.mockResolvedValue({
         userId,
@@ -212,6 +287,9 @@ describe('NotificationService settings', () => {
         friendRequestEnabled: true,
         burnEnabled: true,
         groupEnabled: true,
+        accountRecoveryEnabled: true,
+        securityEventEnabled: true,
+        groupLifecycleEnabled: true,
       } as NotificationSettings);
 
       const result = await notificationService.isNotificationEnabled(userId, 'message');

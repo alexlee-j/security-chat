@@ -52,6 +52,8 @@ export type MessageItem = {
   deliveredAt: string | null;
   readAt: string | null;
   createdAt: string;
+  localDeliveryState?: 'draft' | 'queued' | 'sending' | 'sent' | 'failed' | 'replayed';
+  retryToken?: string;
 };
 
 export type WsConversationEvent = {
@@ -187,4 +189,7 @@ export type NotificationSettings = {
   friendRequestEnabled: boolean;
   burnEnabled: boolean;
   groupEnabled: boolean;
+  accountRecoveryEnabled: boolean;
+  securityEventEnabled: boolean;
+  groupLifecycleEnabled: boolean;
 };

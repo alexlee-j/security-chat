@@ -16,4 +16,16 @@ export class UpdateNotificationSettingsDto {
   @IsOptional()
   @IsBoolean()
   groupEnabled?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  accountRecoveryEnabled?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  securityEventEnabled?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  groupLifecycleEnabled?: boolean;
 }

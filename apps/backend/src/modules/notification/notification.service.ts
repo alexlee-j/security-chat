@@ -35,9 +35,9 @@ export class NotificationService {
     userId: string,
     dto: QueryNotificationsDto,
   ): Promise<{
-    notifications: Array<{
-      id: string;
-      type: 'friend_request' | 'message' | 'system' | 'burn' | 'group';
+      notifications: Array<{
+        id: string;
+        type: 'friend_request' | 'message' | 'system' | 'burn' | 'group' | 'account_recovery' | 'security_event' | 'group_lifecycle';
       title: string;
       body: string;
       data: Record<string, unknown> | null;
@@ -123,7 +123,7 @@ export class NotificationService {
 
   async createBatchNotifications(dtos: Array<{
     userId: string;
-    type: 'friend_request' | 'message' | 'system' | 'burn' | 'group';
+    type: 'friend_request' | 'message' | 'system' | 'burn' | 'group' | 'account_recovery' | 'security_event' | 'group_lifecycle';
     title: string;
     body: string;
     data: Record<string, unknown> | null;
@@ -145,7 +145,7 @@ export class NotificationService {
     totalUnread: number;
     recentUnread: Array<{
       id: string;
-      type: 'friend_request' | 'message' | 'system' | 'burn' | 'group';
+      type: 'friend_request' | 'message' | 'system' | 'burn' | 'group' | 'account_recovery' | 'security_event' | 'group_lifecycle';
       title: string;
       body: string;
       data: Record<string, unknown> | null;
@@ -184,6 +184,9 @@ export class NotificationService {
     friendRequestEnabled: boolean;
     burnEnabled: boolean;
     groupEnabled: boolean;
+    accountRecoveryEnabled: boolean;
+    securityEventEnabled: boolean;
+    groupLifecycleEnabled: boolean;
   }> {
     let settings = await this.settingsRepository.findOne({ where: { userId } });
 
@@ -194,6 +197,9 @@ export class NotificationService {
         friendRequestEnabled: true,
         burnEnabled: true,
         groupEnabled: true,
+        accountRecoveryEnabled: true,
+        securityEventEnabled: true,
+        groupLifecycleEnabled: true,
       });
       await this.settingsRepository.save(settings);
     }
@@ -203,6 +209,9 @@ export class NotificationService {
       friendRequestEnabled: settings.friendRequestEnabled,
       burnEnabled: settings.burnEnabled,
       groupEnabled: settings.groupEnabled,
+      accountRecoveryEnabled: settings.accountRecoveryEnabled,
+      securityEventEnabled: settings.securityEventEnabled,
+      groupLifecycleEnabled: settings.groupLifecycleEnabled,
     };
   }
 
@@ -214,6 +223,9 @@ export class NotificationService {
     friendRequestEnabled: boolean;
     burnEnabled: boolean;
     groupEnabled: boolean;
+    accountRecoveryEnabled: boolean;
+    securityEventEnabled: boolean;
+    groupLifecycleEnabled: boolean;
   }> {
     let settings = await this.settingsRepository.findOne({ where: { userId } });
 
@@ -224,6 +236,9 @@ export class NotificationService {
         friendRequestEnabled: true,
         burnEnabled: true,
         groupEnabled: true,
+        accountRecoveryEnabled: true,
+        securityEventEnabled: true,
+        groupLifecycleEnabled: true,
       });
     }
 
@@ -239,6 +254,15 @@ export class NotificationService {
     if (dto.groupEnabled !== undefined) {
       settings.groupEnabled = dto.groupEnabled;
     }
+    if (dto.accountRecoveryEnabled !== undefined) {
+      settings.accountRecoveryEnabled = dto.accountRecoveryEnabled;
+    }
+    if (dto.securityEventEnabled !== undefined) {
+      settings.securityEventEnabled = dto.securityEventEnabled;
+    }
+    if (dto.groupLifecycleEnabled !== undefined) {
+      settings.groupLifecycleEnabled = dto.groupLifecycleEnabled;
+    }
 
     await this.settingsRepository.save(settings);
 
@@ -247,10 +271,16 @@ export class NotificationService {
       friendRequestEnabled: settings.friendRequestEnabled,
       burnEnabled: settings.burnEnabled,
       groupEnabled: settings.groupEnabled,
+      accountRecoveryEnabled: settings.accountRecoveryEnabled,
+      securityEventEnabled: settings.securityEventEnabled,
+      groupLifecycleEnabled: settings.groupLifecycleEnabled,
     };
   }
 
-  async isNotificationEnabled(userId: string, type: 'message' | 'friend_request' | 'burn' | 'group'): Promise<boolean> {
+  async isNotificationEnabled(
+    userId: string,
+    type: 'message' | 'friend_request' | 'burn' | 'group' | 'account_recovery' | 'security_event' | 'group_lifecycle',
+  ): Promise<boolean> {
     const settings = await this.getNotificationSettings(userId);
 
     switch (type) {
@@ -262,6 +292,12 @@ export class NotificationService {
         return settings.burnEnabled;
       case 'group':
         return settings.groupEnabled;
+      case 'account_recovery':
+        return settings.accountRecoveryEnabled;
+      case 'security_event':
+        return settings.securityEventEnabled;
+      case 'group_lifecycle':
+        return settings.groupLifecycleEnabled;
       default:
         return true;
     }

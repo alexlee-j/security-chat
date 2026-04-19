@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Patch,
   Delete,
   Body,
   Param,
@@ -12,11 +13,11 @@ import { CurrentUser, RequestUser } from '../../common/decorators/current-user.d
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { GroupService } from './group.service';
 import {
-  CreateGroupDto,
-  AddGroupMembersDto,
-  RemoveGroupMemberDto,
-  DistributeSenderKeyDto,
-} from './dto/create-group.dto';
+    CreateGroupDto,
+    AddGroupMembersDto,
+    UpdateGroupProfileDto,
+    DistributeSenderKeyDto,
+  } from './dto/create-group.dto';
 
 @Controller('group')
 @UseGuards(JwtAuthGuard)
@@ -48,6 +49,7 @@ export class GroupController {
     id: string;
     name: string;
     avatarUrl: string | null;
+    description: string | null;
     type: number;
     creatorId: string;
     memberCount: number;
@@ -56,6 +58,25 @@ export class GroupController {
     createdAt: Date;
   }> {
     return this.groupService.getGroupInfo(groupId, user.userId);
+  }
+
+  /**
+   * 更新群资料
+   * PATCH /group/:id/profile
+   */
+  @Patch(':id/profile')
+  async updateGroupProfile(
+    @CurrentUser() user: RequestUser,
+    @Param('id', new ParseUUIDPipe()) groupId: string,
+    @Body() dto: UpdateGroupProfileDto,
+  ): Promise<{
+    id: string;
+    name: string;
+    avatarUrl: string | null;
+    description: string | null;
+    updatedAt: Date;
+  }> {
+    return this.groupService.updateGroupProfile(groupId, user.userId, dto);
   }
 
   /**

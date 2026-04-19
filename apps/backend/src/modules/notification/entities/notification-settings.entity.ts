@@ -13,24 +13,33 @@ export class NotificationSettings {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
-  @Column({ type: 'uuid', unique: true })
+  @Column({ name: 'user_id', type: 'uuid', unique: true })
   userId!: string;
 
-  @Column({ type: 'boolean', default: true })
+  @Column({ name: 'message_enabled', type: 'boolean', default: true })
   messageEnabled!: boolean;
 
-  @Column({ type: 'boolean', default: true })
+  @Column({ name: 'friend_request_enabled', type: 'boolean', default: true })
   friendRequestEnabled!: boolean;
 
-  @Column({ type: 'boolean', default: true })
+  @Column({ name: 'burn_enabled', type: 'boolean', default: true })
   burnEnabled!: boolean;
 
-  @Column({ type: 'boolean', default: true })
+  @Column({ name: 'group_enabled', type: 'boolean', default: true })
   groupEnabled!: boolean;
 
-  @CreateDateColumn({ type: 'timestamptz' })
+  @Column({ name: 'account_recovery_enabled', type: 'boolean', default: true })
+  accountRecoveryEnabled!: boolean;
+
+  @Column({ name: 'security_event_enabled', type: 'boolean', default: true })
+  securityEventEnabled!: boolean;
+
+  @Column({ name: 'group_lifecycle_enabled', type: 'boolean', default: true })
+  groupLifecycleEnabled!: boolean;
+
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt!: Date;
 
-  @UpdateDateColumn({ type: 'timestamptz' })
+  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt!: Date;
 }

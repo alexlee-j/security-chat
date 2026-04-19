@@ -39,6 +39,8 @@ import {
   respondFriend,
   searchUsers,
   sendMessage,
+  sendMessageV2,
+  SendMessageInput,
   sendLoginCode,
   setAuthToken,
   triggerBurn,
@@ -48,6 +50,7 @@ import {
   wsBaseUrl,
 } from './api';
 import { clearEncryptionKey } from './crypto';
+import { useLocalDb } from './use-local-db';
 import {
   AuthState,
   BlockedFriendItem,
@@ -76,6 +79,21 @@ import {
 const MESSAGE_CURSOR_STORAGE_KEY = 'security-chat.desktop.message-cursors.v1';
 const MESSAGE_DRAFT_STORAGE_KEY = 'security-chat.desktop.message-drafts.v1';
 const CONVERSATION_PREF_STORAGE_KEY = 'security-chat.desktop.conversation-prefs.v1';
+
+type PendingRetryRequest =
+  | { kind: 'group_v1'; input: SendMessageInput }
+  | {
+      kind: 'direct_v2';
+      input: {
+        conversationId: string;
+        messageType: 1 | 2 | 3 | 4;
+        nonce: string;
+        envelopes: Array<{ targetUserId: string; targetDeviceId: string; encryptedPayload: string }>;
+        mediaAssetId?: string;
+        isBurn: boolean;
+        burnDuration?: number;
+      };
+    };
 
 async function loadMessageCursorSnapshot(): Promise<Record<string, number>> {
   return await getSecureJSON<Record<string, number>>(MESSAGE_CURSOR_STORAGE_KEY) || {};
@@ -202,6 +220,7 @@ export type ChatClientActions = {
   onSendForgotCode: (event: FormEvent<HTMLFormElement>) => Promise<void>;
   onResetPassword: (event: FormEvent<HTMLFormElement>) => Promise<void>;
   onSendMessage: (event: FormEvent<HTMLFormElement>) => Promise<void>;
+  onRetryMessage: (messageId: string) => Promise<void>;
   onCreateDirect: (event: FormEvent<HTMLFormElement>) => Promise<void>;
   onSearchFriends: (event: FormEvent<HTMLFormElement>) => Promise<void>;
   onRequestFriend: (targetUserId: string) => Promise<void>;
@@ -235,6 +254,7 @@ export function useChatClient(): {
 } {
   // ==================== Signal协议 ====================
   const { state: signalState, actions: signalActions } = useSignal();
+  const localDb = useLocalDb();
 
   // ==================== 认证相关状态 ====================
   const [auth, setAuth] = useState<AuthState | null>(null);
@@ -305,6 +325,8 @@ export function useChatClient(): {
   const payloadCacheRef = useRef<Map<string, string>>(new Map());
   // 群聊会话同步缓存：Map<conversationId, sortedMemberIdsSignature>
   const groupSyncSignatureRef = useRef<Map<string, string>>(new Map());
+  // 失败消息重试缓存：Map<localMessageId, pendingRequest>
+  const retryRequestRef = useRef<Record<string, PendingRetryRequest>>({});
   // Toast 定时器引用，用于清理
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const toastHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -514,6 +536,64 @@ export function useChatClient(): {
     return Array.from(merged.values()).sort((a, b) => Number(a.messageIndex) - Number(b.messageIndex));
   };
 
+  async function persistMessagesToLocal(rows: MessageItem[]): Promise<void> {
+    if (!rows.length) {
+      return;
+    }
+    try {
+      await Promise.all(
+        rows.map(async (row) => {
+          const decrypted = payloadCacheRef.current.get(row.encryptedPayload) ?? decodePayloadSync(row.encryptedPayload);
+          await localDb.saveMessage({
+            id: row.id,
+            conversationId: row.conversationId,
+            senderId: row.senderId,
+            messageType: row.messageType,
+            content: decrypted || null,
+            nonce: row.nonce,
+            isBurn: row.isBurn,
+            burnDuration: row.burnDuration,
+            isRead: !!row.readAt,
+            createdAt: new Date(row.createdAt).getTime(),
+            serverTimestamp: Number.isFinite(Number(row.messageIndex)) ? Number(row.messageIndex) : null,
+            localTimestamp: Date.now(),
+          });
+        }),
+      );
+    } catch (error) {
+      console.warn('[LocalDb] Persist messages failed, fallback to remote-only mode:', error);
+    }
+  }
+
+  async function restoreMessagesFromLocal(conversationId: string): Promise<MessageItem[]> {
+    try {
+      const localRows = await localDb.getMessages(conversationId, 100);
+      return localRows.map((row) => {
+        const payload = row.content ?? '';
+        const fallbackEncryptedPayload = payload ? btoa(unescape(encodeURIComponent(payload))) : '';
+        return {
+          id: row.id,
+          conversationId: row.conversationId,
+          senderId: row.senderId,
+          messageType: row.messageType,
+          encryptedPayload: fallbackEncryptedPayload,
+          nonce: row.nonce,
+          mediaAssetId: null,
+          messageIndex: String(row.serverTimestamp ?? row.localTimestamp),
+          isBurn: row.isBurn,
+          burnDuration: row.burnDuration,
+          deliveredAt: row.isRead ? new Date(row.createdAt).toISOString() : null,
+          readAt: row.isRead ? new Date(row.createdAt).toISOString() : null,
+          createdAt: new Date(row.createdAt).toISOString(),
+          localDeliveryState: 'replayed',
+        } satisfies MessageItem;
+      });
+    } catch (error) {
+      console.warn('[LocalDb] Restore messages failed:', error);
+      return [];
+    }
+  }
+
   async function loadConversations(): Promise<ConversationListItem[]> {
     const rows = await getConversations();
     const dedupedRows = rows.filter(
@@ -544,6 +624,7 @@ export function useChatClient(): {
   async function loadMessages(conversationId: string): Promise<void> {
     try {
       const rows = await getMessages(conversationId, 0, 100);
+      const cursorBeforeLoad = messageCursorRef.current[conversationId] ?? 0;
       
       // 预先解密消息
       for (const row of rows) {
@@ -560,7 +641,13 @@ export function useChatClient(): {
       }
       
       const nowMs = Date.now();
-      setMessages(rows.filter((row) => !isBurnExpired(row, nowMs)));
+      const normalizedRows = rows.map((row) =>
+        cursorBeforeLoad > 0
+          ? { ...row, localDeliveryState: 'replayed' as const }
+          : row,
+      );
+      setMessages(normalizedRows.filter((row) => !isBurnExpired(row, nowMs)));
+      void persistMessagesToLocal(normalizedRows);
       setHasMoreHistory(rows.length >= 100);
 
       const maxIndex = rows.reduce((max, row) => Math.max(max, Number(row.messageIndex)), 0);
@@ -576,9 +663,16 @@ export function useChatClient(): {
       }
     } catch (error) {
       console.error('加载消息失败:', error);
-      setError('加载消息失败，请稍后重试。');
-      setMessages([]);
-      setHasMoreHistory(false);
+      const localRows = await restoreMessagesFromLocal(conversationId);
+      if (localRows.length > 0) {
+        setMessages(localRows);
+        setHasMoreHistory(false);
+        setError('');
+      } else {
+        setError('加载消息失败，请稍后重试。');
+        setMessages([]);
+        setHasMoreHistory(false);
+      }
     }
   }
 
@@ -609,7 +703,9 @@ export function useChatClient(): {
         }
         
         const nowMs = Date.now();
-        setMessages((prev) => mergeMessages(prev, rows).filter((row) => !isBurnExpired(row, nowMs)));
+        const replayedRows = rows.map((row) => ({ ...row, localDeliveryState: 'replayed' as const }));
+        setMessages((prev) => mergeMessages(prev, replayedRows).filter((row) => !isBurnExpired(row, nowMs)));
+        void persistMessagesToLocal(replayedRows);
       }
       const latestMax = [...currentRows, ...rows].reduce((max, row) => Math.max(max, Number(row.messageIndex)), 0);
       updateConversationCursor(conversationId, latestMax);
@@ -655,7 +751,9 @@ export function useChatClient(): {
 
       if (applyToActive && activeConversationIdRef.current === conversationId) {
         const nowMs = Date.now();
-        setMessages((prev) => mergeMessages(prev, rows).filter((row) => !isBurnExpired(row, nowMs)));
+        const replayedRows = rows.map((row) => ({ ...row, localDeliveryState: 'replayed' as const }));
+        setMessages((prev) => mergeMessages(prev, replayedRows).filter((row) => !isBurnExpired(row, nowMs)));
+        void persistMessagesToLocal(replayedRows);
         await Promise.all([ackDelivered(conversationId, maxIndex), ackRead(conversationId, maxIndex)])
           .then(() => {
             if (authRef.current) {
@@ -704,7 +802,9 @@ export function useChatClient(): {
         }
       }
       const nowMs = Date.now();
-      setMessages((prev) => mergeMessages(olderRows, prev).filter((row) => !isBurnExpired(row, nowMs)));
+      const replayedRows = olderRows.map((row) => ({ ...row, localDeliveryState: 'replayed' as const }));
+      setMessages((prev) => mergeMessages(replayedRows, prev).filter((row) => !isBurnExpired(row, nowMs)));
+      void persistMessagesToLocal(replayedRows);
       const oldestFetched = olderRows.reduce((min, row) => Math.min(min, Number(row.messageIndex)), oldestIndex);
       if (olderRows.length < 100 || oldestFetched <= 1) {
         setHasMoreHistory(false);
@@ -973,6 +1073,14 @@ export function useChatClient(): {
     // 密码长度验证（8-64字符）
     if (trimmedPassword.length < 8 || trimmedPassword.length > 64) {
       showToast('密码长度需在 8-64 个字符之间', 'error');
+      setAuthSubmitting(false);
+      return;
+    }
+
+    // 与后端保持一致：密码必须同时包含数字和字母
+    const passwordRegex = /^(?=.*[0-9])(?=.*[a-zA-Z])/;
+    if (!passwordRegex.test(trimmedPassword)) {
+      showToast('密码必须包含数字和字母', 'error');
       setAuthSubmitting(false);
       return;
     }
@@ -1294,7 +1402,46 @@ export function useChatClient(): {
       return;
     }
 
+    const tempMessageId = `local-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+    const localNowIso = new Date().toISOString();
+    const nextLocalMessageIndex = String(
+      messagesRef.current.reduce((max, row) => Math.max(max, Number(row.messageIndex) || 0), 0) + 1,
+    );
+
     setSendingMessage(true);
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: tempMessageId,
+        conversationId: activeConversationIdRef.current,
+        senderId: authRef.current?.userId ?? 'unknown',
+        messageType,
+        encryptedPayload: btoa(unescape(encodeURIComponent(JSON.stringify({
+          type: messageType,
+          text: text || undefined,
+          mediaUrl: messageType === 1 ? undefined : mediaUrl.trim() || undefined,
+          fileName: messageType === 4 ? (mediaUrl.trim() || 'file') : undefined,
+          replyTo: replyToMessage
+            ? {
+                messageId: replyToMessage.id,
+                senderId: replyToMessage.senderId,
+                text: '[消息]',
+              }
+            : undefined,
+        })))),
+        nonce: crypto.randomUUID().replace(/-/g, '').slice(0, 24),
+        mediaAssetId: messageType === 1 ? null : pendingMediaAssetIdRef.current,
+        messageIndex: nextLocalMessageIndex,
+        isBurn: messageType !== 4 && burnEnabled,
+        burnDuration: messageType !== 4 && burnEnabled ? burnDuration : null,
+        deliveredAt: null,
+        readAt: null,
+        createdAt: localNowIso,
+        localDeliveryState: 'queued',
+        retryToken: tempMessageId,
+      },
+    ]);
+
     try {
       const isBurnForThisMessage = messageType !== 4 && burnEnabled;
       
@@ -1325,9 +1472,10 @@ export function useChatClient(): {
       };
 
       // 序列化消息内容
-      const messageText = JSON.stringify(messageContent);
+      const serializedMessage = JSON.stringify(messageContent);
 
       const isGroupConversation = activeConversation?.type === 2;
+      const nonce = crypto.randomUUID().replace(/-/g, '').slice(0, 24);
 
       // 初始化 Signal 协议
       if (!signalState.initialized) {
@@ -1335,6 +1483,13 @@ export function useChatClient(): {
       }
 
       let sendResult: { messageId: string; messageIndex: string };
+      setMessages((prev) =>
+        prev.map((row) =>
+          row.id === tempMessageId
+            ? { ...row, localDeliveryState: 'sending' }
+            : row,
+        ),
+      );
       if (isGroupConversation) {
         const currentUserId = authRef.current?.userId;
         if (!currentUserId) {
@@ -1346,20 +1501,23 @@ export function useChatClient(): {
         await signalActions.syncGroupMembers(activeConversationIdRef.current, memberUserIds);
         const encryptedPayload = await signalActions.encryptGroupMessage(
           activeConversationIdRef.current,
-          messageText,
+          serializedMessage,
         );
-        payloadCacheRef.current.set(encryptedPayload, messageText);
-        sendResult = await sendMessage({
+        payloadCacheRef.current.set(encryptedPayload, serializedMessage);
+        const groupInput: SendMessageInput = {
           conversationId: activeConversationIdRef.current,
           messageType,
           text: '',
+          nonce,
           mediaUrl: messageType === 1 ? undefined : mediaUrl.trim() || undefined,
           fileName: messageType === 4 ? (mediaUrl.trim() || 'file') : undefined,
           mediaAssetId: messageType === 1 ? undefined : pendingMediaAssetIdRef.current ?? undefined,
           isBurn: isBurnForThisMessage,
           burnDuration: isBurnForThisMessage ? burnDuration : undefined,
           encryptedPayload,
-        });
+        };
+        retryRequestRef.current[tempMessageId] = { kind: 'group_v1', input: groupInput };
+        sendResult = await sendMessage(groupInput);
       } else {
         // 获取接收方信息
         const recipientUserId = activeConversation?.peerUser?.userId;
@@ -1379,13 +1537,12 @@ export function useChatClient(): {
         }
 
         // 对接收方所有设备进行加密（fan-out）
-        const nonce = crypto.randomUUID().replace(/-/g, '').slice(0, 24);
         const envelopes: Array<{ targetUserId: string; targetDeviceId: string; encryptedPayload: string }> = [];
         for (const recipientDevice of recipientDevices) {
           const encryptedPayload = await signalActions.encryptMessage(
             recipientUserId,
             recipientDevice.deviceId,
-            messageText,
+            serializedMessage,
           );
           envelopes.push({
             targetUserId: recipientUserId,
@@ -1402,7 +1559,7 @@ export function useChatClient(): {
             const encryptedPayload = await signalActions.encryptMessage(
               currentUserId,
               selfDevice.deviceId,
-              messageText,
+              serializedMessage,
             );
             envelopes.push({
               targetUserId: currentUserId,
@@ -1414,12 +1571,11 @@ export function useChatClient(): {
 
         // 对于自己发送的消息，预先缓存明文，避免解密时无法显示
         for (const envelope of envelopes) {
-          payloadCacheRef.current.set(envelope.encryptedPayload, messageText);
+          payloadCacheRef.current.set(envelope.encryptedPayload, serializedMessage);
         }
 
         // 调用 send-v2 接口，提交所有设备信封
-        const { sendMessageV2 } = await import('./api');
-        sendResult = await sendMessageV2({
+        const directInput = {
           conversationId: activeConversationIdRef.current,
           messageType,
           nonce,
@@ -1427,13 +1583,17 @@ export function useChatClient(): {
           mediaAssetId: messageType === 1 ? undefined : pendingMediaAssetIdRef.current ?? undefined,
           isBurn: isBurnForThisMessage,
           burnDuration: isBurnForThisMessage ? burnDuration : undefined,
-        });
+        };
+        retryRequestRef.current[tempMessageId] = { kind: 'direct_v2', input: directInput };
+        sendResult = await sendMessageV2(directInput);
       }
 
       // 按消息ID缓存明文，支持后续转发等场景
       if (sendResult?.messageId) {
-        payloadCacheRef.current.set(`msg:${sendResult.messageId}`, messageText);
+        payloadCacheRef.current.set(`msg:${sendResult.messageId}`, serializedMessage);
       }
+      delete retryRequestRef.current[tempMessageId];
+      setMessages((prev) => prev.filter((row) => row.id !== tempMessageId));
       setMessageText('');
       setReplyToMessage(null);
       if (activeConversationIdRef.current) {
@@ -1451,9 +1611,55 @@ export function useChatClient(): {
       await loadMessages(activeConversationIdRef.current);
       await loadConversations();
     } catch {
+      setMessages((prev) =>
+        prev.map((row) =>
+          row.id === tempMessageId
+            ? { ...row, localDeliveryState: 'failed', retryToken: tempMessageId }
+            : row,
+        ),
+      );
       setError('发送消息失败，请稍后重试。');
     } finally {
       setSendingMessage(false);
+    }
+  }
+
+  async function onRetryMessage(messageId: string): Promise<void> {
+    const request = retryRequestRef.current[messageId];
+    if (!request) {
+      return;
+    }
+
+    setMessages((prev) =>
+      prev.map((row) =>
+        row.id === messageId
+          ? { ...row, localDeliveryState: 'sending' }
+          : row,
+      ),
+    );
+
+    try {
+      if (request.kind === 'group_v1') {
+        await sendMessage(request.input);
+      } else {
+        await sendMessageV2(request.input);
+      }
+      delete retryRequestRef.current[messageId];
+      setMessages((prev) => prev.filter((row) => row.id !== messageId));
+      if (activeConversationIdRef.current) {
+        await loadMessages(activeConversationIdRef.current);
+      }
+      await loadConversations();
+      setError('');
+    } catch {
+      setMessages((prev) =>
+        prev.map((row) =>
+          row.id === messageId
+            ? { ...row, localDeliveryState: 'failed' }
+            : row,
+        ),
+      );
+      setError('重试发送失败，请稍后再试。');
     }
   }
 
@@ -2370,6 +2576,7 @@ export function useChatClient(): {
       onSendForgotCode,
       onResetPassword,
       onSendMessage,
+      onRetryMessage,
       onCreateDirect,
       onSearchFriends,
       onRequestFriend,

@@ -8,7 +8,15 @@
 
 import { FormEvent, useState } from 'react';
 import { FriendSearchItem } from '../../core/types';
-import { searchUsers, createGroup, addGroupMember, removeGroupMember, getGroupMembers } from '../../core/api';
+import {
+  searchUsers,
+  createGroup,
+  addGroupMember,
+  removeGroupMember,
+  getGroupMembers,
+  getGroup,
+  updateGroupProfile,
+} from '../../core/api';
 
 type Props = {
   /** 是否显示弹窗 */
@@ -46,6 +54,13 @@ export function GroupCreateModal(props: Props): JSX.Element | null {
     role: number;
   }>>([]);
   const [isLoadingMembers, setIsLoadingMembers] = useState(false);
+  const [manageSearchKeyword, setManageSearchKeyword] = useState('');
+  const [manageSearchResults, setManageSearchResults] = useState<FriendSearchItem[]>([]);
+  const [isManageSearching, setIsManageSearching] = useState(false);
+  const [manageName, setManageName] = useState('');
+  const [manageDescription, setManageDescription] = useState('');
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [manageHint, setManageHint] = useState('');
 
   if (!isOpen) {
     return null;
@@ -106,7 +121,7 @@ export function GroupCreateModal(props: Props): JSX.Element | null {
       const result = await createGroup({
         name: groupName.trim(),
         type: groupType,
-        memberIds,
+        memberUserIds: memberIds,
       });
       onGroupCreated(result.groupId);
       // 重置表单
@@ -127,11 +142,15 @@ export function GroupCreateModal(props: Props): JSX.Element | null {
   async function handleLoadMembers(groupId: string): Promise<void> {
     setManageGroupId(groupId);
     setIsLoadingMembers(true);
+    setManageHint('');
     try {
-      const members = await getGroupMembers(groupId);
+      const [members, group] = await Promise.all([getGroupMembers(groupId), getGroup(groupId)]);
       setGroupMembers(members);
+      setManageName(group.name);
+      setManageDescription(group.description ?? '');
     } catch (error) {
       console.error('[GroupCreateModal] Load members failed:', error);
+      setManageHint('加载群组失败，请检查群组ID与权限。');
     } finally {
       setIsLoadingMembers(false);
     }
@@ -146,8 +165,63 @@ export function GroupCreateModal(props: Props): JSX.Element | null {
     try {
       await removeGroupMember(manageGroupId, userId);
       setGroupMembers(groupMembers.filter((m) => m.userId !== userId));
+      setManageHint('成员已移除。');
     } catch (error) {
       console.error('[GroupCreateModal] Remove member failed:', error);
+      setManageHint('移除成员失败，请确认当前账号有管理员权限。');
+    }
+  }
+
+  async function handleManageSearch(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    if (!manageSearchKeyword.trim()) {
+      return;
+    }
+    setIsManageSearching(true);
+    setManageHint('');
+    try {
+      const results = await searchUsers(manageSearchKeyword.trim(), 20);
+      setManageSearchResults(results.filter((r) => r.userId !== currentUserId));
+    } catch (error) {
+      console.error('[GroupCreateModal] Manage search failed:', error);
+      setManageHint('搜索成员失败，请稍后重试。');
+    } finally {
+      setIsManageSearching(false);
+    }
+  }
+
+  async function handleAddGroupMember(userId: string): Promise<void> {
+    if (!manageGroupId) return;
+    try {
+      await addGroupMember(manageGroupId, userId);
+      await handleLoadMembers(manageGroupId);
+      setManageSearchResults([]);
+      setManageSearchKeyword('');
+      setManageHint('成员已添加。');
+    } catch (error) {
+      console.error('[GroupCreateModal] Add member failed:', error);
+      setManageHint('添加成员失败，请确认当前账号有管理员权限。');
+    }
+  }
+
+  async function handleUpdateProfile(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    if (!manageGroupId || !manageName.trim()) {
+      return;
+    }
+    setIsSavingProfile(true);
+    setManageHint('');
+    try {
+      await updateGroupProfile(manageGroupId, {
+        name: manageName.trim(),
+        description: manageDescription.trim() || undefined,
+      });
+      setManageHint('群资料已更新。');
+    } catch (error) {
+      console.error('[GroupCreateModal] Update profile failed:', error);
+      setManageHint('更新群资料失败，请确认当前账号有管理员权限。');
+    } finally {
+      setIsSavingProfile(false);
     }
   }
 
@@ -297,7 +371,105 @@ export function GroupCreateModal(props: Props): JSX.Element | null {
 
           {activeTab === 'manage' && (
             <div className="group-manage-form">
-              <p className="hint">群组管理功能（成员管理、群信息修改等）将在后续版本提供</p>
+              <div className="form-group">
+                <label>群组 ID</label>
+                <div className="search-form">
+                  <input
+                    type="text"
+                    value={manageGroupId}
+                    onChange={(e) => setManageGroupId(e.target.value)}
+                    placeholder="输入要管理的群组 ID"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void handleLoadMembers(manageGroupId.trim())}
+                    disabled={!manageGroupId.trim() || isLoadingMembers}
+                  >
+                    {isLoadingMembers ? '加载中...' : '加载'}
+                  </button>
+                </div>
+              </div>
+
+              {manageGroupId ? (
+                <>
+                  <form className="form-group" onSubmit={handleUpdateProfile}>
+                    <label>群资料</label>
+                    <input
+                      type="text"
+                      value={manageName}
+                      onChange={(e) => setManageName(e.target.value)}
+                      placeholder="群名称"
+                      maxLength={50}
+                    />
+                    <input
+                      type="text"
+                      value={manageDescription}
+                      onChange={(e) => setManageDescription(e.target.value)}
+                      placeholder="群描述"
+                      maxLength={200}
+                    />
+                    <div className="form-actions">
+                      <button type="submit" className="btn-primary" disabled={isSavingProfile || !manageName.trim()}>
+                        {isSavingProfile ? '保存中...' : '更新群资料'}
+                      </button>
+                    </div>
+                  </form>
+
+                  <div className="form-group">
+                    <label>添加成员</label>
+                    <form onSubmit={handleManageSearch} className="search-form">
+                      <input
+                        type="text"
+                        value={manageSearchKeyword}
+                        onChange={(e) => setManageSearchKeyword(e.target.value)}
+                        placeholder="搜索用户名"
+                      />
+                      <button type="submit" disabled={isManageSearching}>
+                        {isManageSearching ? '搜索中...' : '搜索'}
+                      </button>
+                    </form>
+                    {manageSearchResults.length > 0 ? (
+                      <div className="search-results">
+                        {manageSearchResults.map((user) => (
+                          <div key={user.userId} className="search-result-item">
+                            <div className="user-info">
+                              <span className="username">{user.username}</span>
+                            </div>
+                            <button type="button" className="btn-primary" onClick={() => void handleAddGroupMember(user.userId)}>
+                              添加
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <div className="form-group">
+                    <label>成员列表 ({groupMembers.length})</label>
+                    <div className="member-list">
+                      {groupMembers.map((member) => (
+                        <div key={member.userId} className="member-item">
+                          <div className="user-info">
+                            <span className="username">{member.username}</span>
+                            <small>{member.role === 1 ? '管理员' : '成员'}</small>
+                          </div>
+                          {member.userId !== currentUserId ? (
+                            <button
+                              type="button"
+                              className="btn-remove"
+                              onClick={() => void handleRemoveGroupMember(member.userId)}
+                            >
+                              移除
+                            </button>
+                          ) : null}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              ) : null}
+
+              {manageHint ? <p className="hint">{manageHint}</p> : null}
             </div>
           )}
         </div>

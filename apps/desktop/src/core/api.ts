@@ -51,7 +51,7 @@ http.interceptors.response.use(
 /**
  * 发送消息输入参数
  */
-type SendMessageInput = {
+export type SendMessageInput = {
   conversationId: string;
   messageType: 1 | 2 | 3 | 4;
   text: string;
@@ -65,6 +65,7 @@ type SendMessageInput = {
     senderId: string;
     text: string;
   };
+  nonce?: string;
   sourceDeviceId?: string;
   encryptedPayload?: string; // Signal 加密后的 payload
 };
@@ -257,7 +258,7 @@ export async function sendMessage(input: SendMessageInput): Promise<{ messageId:
     encryptedPayload = btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
   }
   
-  const nonce = crypto.randomUUID().replace(/-/g, '').slice(0, 24);
+  const nonce = input.nonce ?? crypto.randomUUID().replace(/-/g, '').slice(0, 24);
   const res = await http.post<ApiEnvelope<{ messageId: string; messageIndex: string }>>('/message/send', {
     conversationId: input.conversationId,
     messageType: input.messageType,
@@ -630,8 +631,9 @@ export async function uploadPrekeys(data: {
  */
 export async function createGroup(data: {
   name: string;
+  description?: string;
   type: 1 | 2;
-  memberIds: string[];
+  memberUserIds: string[];
 }): Promise<{ groupId: string }> {
   const res = await http.post<ApiEnvelope<{ groupId: string }>>('/group/create', data);
   return res.data.data;
@@ -644,6 +646,7 @@ export async function getGroup(groupId: string): Promise<{
   id: string;
   name: string;
   avatarUrl: string | null;
+  description: string | null;
   type: number;
   creatorId: string;
   createdAt: number;
@@ -653,11 +656,33 @@ export async function getGroup(groupId: string): Promise<{
     id: string;
     name: string;
     avatarUrl: string | null;
+    description: string | null;
     type: number;
     creatorId: string;
     createdAt: number;
     updatedAt: number;
   }>>(`/group/${groupId}`);
+  return res.data.data;
+}
+
+export async function updateGroupProfile(groupId: string, data: {
+  name?: string;
+  avatarUrl?: string;
+  description?: string;
+}): Promise<{
+  id: string;
+  name: string;
+  avatarUrl: string | null;
+  description: string | null;
+  updatedAt: string;
+}> {
+  const res = await http.patch<ApiEnvelope<{
+    id: string;
+    name: string;
+    avatarUrl: string | null;
+    description: string | null;
+    updatedAt: string;
+  }>>(`/group/${groupId}/profile`, data);
   return res.data.data;
 }
 
@@ -685,7 +710,7 @@ export async function getGroupMembers(groupId: string): Promise<Array<{
  * 添加群成员
  */
 export async function addGroupMember(groupId: string, userId: string): Promise<void> {
-  await http.post<ApiEnvelope<null>>(`/group/${groupId}/members`, { userId });
+  await http.post<ApiEnvelope<null>>(`/group/${groupId}/members`, { userIds: [userId] });
 }
 
 /**
@@ -731,12 +756,18 @@ export async function getNotificationSettings(): Promise<{
   friendRequestEnabled: boolean;
   burnEnabled: boolean;
   groupEnabled: boolean;
+  accountRecoveryEnabled: boolean;
+  securityEventEnabled: boolean;
+  groupLifecycleEnabled: boolean;
 }> {
   const res = await http.get<ApiEnvelope<{
     messageEnabled: boolean;
     friendRequestEnabled: boolean;
     burnEnabled: boolean;
     groupEnabled: boolean;
+    accountRecoveryEnabled: boolean;
+    securityEventEnabled: boolean;
+    groupLifecycleEnabled: boolean;
   }>>('/notification/settings');
   return res.data.data;
 }
@@ -746,17 +777,26 @@ export async function updateNotificationSettings(settings: {
   friendRequestEnabled?: boolean;
   burnEnabled?: boolean;
   groupEnabled?: boolean;
+  accountRecoveryEnabled?: boolean;
+  securityEventEnabled?: boolean;
+  groupLifecycleEnabled?: boolean;
 }): Promise<{
   messageEnabled: boolean;
   friendRequestEnabled: boolean;
   burnEnabled: boolean;
   groupEnabled: boolean;
+  accountRecoveryEnabled: boolean;
+  securityEventEnabled: boolean;
+  groupLifecycleEnabled: boolean;
 }> {
   const res = await http.post<ApiEnvelope<{
     messageEnabled: boolean;
     friendRequestEnabled: boolean;
     burnEnabled: boolean;
     groupEnabled: boolean;
+    accountRecoveryEnabled: boolean;
+    securityEventEnabled: boolean;
+    groupLifecycleEnabled: boolean;
   }>>('/notification/settings', settings);
   return res.data.data;
 }

@@ -6,6 +6,11 @@ export class CreateGroupDto {
   @MaxLength(100)
   name!: string;
 
+  @IsString()
+  @IsOptional()
+  @MaxLength(2000)
+  description?: string;
+
   /** 群组类型: 1 = 私密, 2 = 公开 (默认私密) */
   @IsNumber()
   @IsOptional()
@@ -17,6 +22,23 @@ export class CreateGroupDto {
   @IsString({ each: true })
   @IsOptional()
   memberUserIds?: string[];
+}
+
+export class UpdateGroupProfileDto {
+  @IsString()
+  @IsOptional()
+  @MaxLength(100)
+  name?: string;
+
+  @IsString()
+  @IsOptional()
+  @MaxLength(2048)
+  avatarUrl?: string;
+
+  @IsString()
+  @IsOptional()
+  @MaxLength(2000)
+  description?: string;
 }
 
 export class AddGroupMembersDto {

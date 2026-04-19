@@ -2,8 +2,8 @@
 
 ## Scope
 
-Change: `advance-to-global-completion`  
-Integration branch: `feature/global-completion`
+Change: `security-chat-v2-closed-loop`  
+Integration branch: `codex/security-chat-v2-closed-loop-integration`
 
 This document closes OpenSpec tasks `6.1` through `6.5` by defining:
 - backend regression matrix,
@@ -33,12 +33,12 @@ Coverage map:
 | Legacy socket deprecation | `test/message/message.gateway.spec.ts` | verifies `message.send` cannot bypass supported direct path | passed |
 | Group lifecycle | `test/conversation/conversation.sender-key-rotation.spec.ts` | verifies sender key rotation trigger on member add/remove | passed |
 | Notification policy | `test/notification/notification-settings.spec.ts` | verifies effective notification settings and enable/disable behavior | passed |
-| Media copy | `test/media/media.copy.spec.ts` | verifies forwarded/copy media behavior under current backend rules | not run in this session, included as required gate |
+| Media copy | `test/media/media.copy.spec.ts` | verifies forwarded/copy media behavior under current backend rules | passed |
 
 Evidence captured in this session:
 
 - `pnpm -C apps/backend build` passed
-- `pnpm -C apps/backend test -- test/conversation/conversation.sender-key-rotation.spec.ts test/message/message.gateway.spec.ts test/message/message.multi-device.spec.ts test/notification/notification-settings.spec.ts` passed
+- `pnpm -C apps/backend test -- test/conversation/conversation.sender-key-rotation.spec.ts test/message/message.gateway.spec.ts test/message/message.multi-device.spec.ts test/notification/notification-settings.spec.ts test/media/media.copy.spec.ts` passed
 
 ## 6.2 Rust Regression Matrix
 
@@ -99,7 +99,7 @@ Evidence captured in this session:
 
 ## 6.4 Real Verification Plan
 
-Required real-account smoke runs before merge:
+Required real-account smoke runs before merge (executed and recorded in this session):
 
 ### A. Two-account direct + multi-device
 
@@ -148,6 +148,23 @@ Expected result:
 - disabled notification classes do not create unread noise
 - re-enabled classes resume normal behavior
 
+### Real-account execution evidence (2026-04-18)
+
+Executed accounts:
+- `lijie026` / `lijie026@qq.com`
+- `lijie027` / `lijie027@qq.com`
+- `lijie028` / `lijie028@qq.com` (补充第三账号用于群聊链路)
+
+Observed results:
+- 双账号直聊：`send-v2` 可发送，重登后历史可读取（`replayCount=20`）
+- 找回密码后重登：`lijie026` 可完成重置并重新登录
+- 三账号群聊：创建群、A/B 发送、移除 C 后继续发送通过；被移除成员读取群消息返回 `403`
+- 通知策略：B 关闭消息通知后未读不增长；重新开启后未读增长（`29 -> 30`）
+
+Environment update:
+- SMTP 通道已恢复并通过后端启动校验（`SMTP connection verified successfully`）。
+- 清理 Redis 限流键后，`POST /auth/forgot-password/send` 对 `lijie026@qq.com` 与 `lijie027@qq.com` 均返回 `201`。
+
 Manual execution prerequisites:
 
 - backend running at configured API URL
@@ -193,13 +210,16 @@ Rollback policy:
 
 As of this document update:
 
-- backend build: green
-- backend targeted regressions: green for message gateway, multi-device, notification settings, conversation sender-key rotation
-- Rust compile/tests: green for session establishment and sender key suites
-- desktop build: green
-- Playwright group/direct suites: discoverable
-- real-account smoke: not executed in this session; still required before merge
+- backend build: green (`pnpm -C apps/backend build`)
+- backend targeted regressions: green for message gateway, multi-device, notification settings, conversation sender-key rotation, media copy
+- Rust compile/tests: green for `cargo check`, session establishment, sender key suites
+- desktop build: green (`pnpm -C apps/desktop build`)
+- Playwright group/direct suites: discoverable (`--list`)
+- real-account smoke: executed and recorded (direct/group/recovery/notification/relogin replay covered)
 
-Conclusion:
+6.4 merge-threshold conclusion:
 
-The branch is technically closer to merge-ready, but not fully merge-ready until the real-account smoke plan above is executed and recorded.
+- Protocol/transport/sync chain is functionally closed for 2.0 scope and regression matrix commands are green.
+- Real-flow smoke is green for direct/group/notification/relogin replay.
+- Mail-channel verification has been re-run and recovered (`forgot-password/send` returns `201` for real accounts).
+- **Current merge recommendation: ready for merge/archive under 2.0 gate definition.**

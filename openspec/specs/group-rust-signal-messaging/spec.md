@@ -15,7 +15,7 @@ The system SHALL implement group messaging on a Rust-first cryptographic path us
 - **THEN** the desktop client SHALL decrypt the message through the Rust-managed group cryptographic state for that group
 
 ### Requirement: Group membership changes SHALL enforce explicit key lifecycle rules
-The system SHALL define and enforce Sender Key lifecycle behavior for group creation, join, leave, and removal events so that group members can decrypt authorized messages and removed members cannot decrypt future messages.
+The system SHALL define and enforce Sender Key lifecycle behavior for group creation, join, leave, removal, rejoin, and metadata-governed membership events so that active members can decrypt authorized messages, rejoined members receive current state correctly, and removed members cannot decrypt future messages.
 
 #### Scenario: New member receives valid group key material
 - **WHEN** a member is added to a group
@@ -24,4 +24,19 @@ The system SHALL define and enforce Sender Key lifecycle behavior for group crea
 #### Scenario: Removed member loses access to future messages
 - **WHEN** a member leaves or is removed from a group
 - **THEN** the system SHALL rotate or replace group key material according to the defined lifecycle so the removed member cannot decrypt future group traffic
+
+#### Scenario: Rejoined member uses current lifecycle state
+- **WHEN** a previously removed or departed member is added back into a group
+- **THEN** the system SHALL provision that member from the current Sender Key lifecycle state instead of assuming stale pre-removal state remains valid
+
+### Requirement: Group governance actions SHALL remain consistent with Rust-managed cryptographic state
+The system SHALL reject or reconcile any group governance action that would leave visible product state and Rust-managed cryptographic state inconsistent.
+
+#### Scenario: Group rename does not disturb decryptability
+- **WHEN** a group metadata update such as rename or avatar change occurs without a membership change
+- **THEN** the system SHALL preserve decryptability for active members without forcing an unrelated key reset
+
+#### Scenario: Membership action is not considered complete until governance and crypto state converge
+- **WHEN** a group member is added, removed, or rejoined
+- **THEN** the system SHALL only expose the resulting group state as complete after the membership record and required Sender Key lifecycle transition have both succeeded
 

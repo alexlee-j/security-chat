@@ -4,8 +4,8 @@ export class CreateNotificationDto {
   @IsString()
   userId!: string;
 
-  @IsIn(['friend_request', 'message', 'system', 'burn', 'group'])
-  type!: 'friend_request' | 'message' | 'system' | 'burn' | 'group';
+  @IsIn(['friend_request', 'message', 'system', 'burn', 'group', 'account_recovery', 'security_event', 'group_lifecycle'])
+  type!: 'friend_request' | 'message' | 'system' | 'burn' | 'group' | 'account_recovery' | 'security_event' | 'group_lifecycle';
 
   @IsString()
   title!: string;

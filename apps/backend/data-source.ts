@@ -12,6 +12,7 @@ import { MediaAsset } from './src/modules/media/entities/media-asset.entity';
 import { BurnEvent } from './src/modules/burn/entities/burn-event.entity';
 import { Friendship } from './src/modules/friend/entities/friendship.entity';
 import { Notification } from './src/modules/notification/entities/notification.entity';
+import { NotificationSettings } from './src/modules/notification/entities/notification-settings.entity';
 
 const options: DataSourceOptions = {
   type: 'postgres',
@@ -35,6 +36,7 @@ const options: DataSourceOptions = {
     BurnEvent,
     Friendship,
     Notification,
+    NotificationSettings,
   ],
   migrations: ['src/migrations/*.ts'],
   synchronize: false,

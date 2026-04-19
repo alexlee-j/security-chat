@@ -280,6 +280,7 @@ export function App(): JSX.Element {
               onResolveMediaUrl={actions.onResolveMediaUrl}
               onReadMessageOnce={actions.onReadMessageOnce}
               onSubmit={actions.onSendMessage}
+              onRetryMessage={actions.onRetryMessage}
               onStartTyping={actions.startTyping}
               onStopTyping={actions.stopTyping}
               onForwardMessage={actions.onForwardMessage}

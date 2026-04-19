@@ -1,10 +1,11 @@
-# Global Completion Execution Baseline (Frozen Scope)
+# Security Chat 2.0 Closed-Loop Execution Baseline (Frozen Scope)
 
 ## Branch Rule
 
-- Integration branch for this initiative: `feature/global-completion`
+- Integration branch for this initiative: `codex/security-chat-v2-closed-loop-integration`
 - Baseline branch: `main`
 - No direct implementation merge to `main` before all regression gates in this file are green
+- This branch is the only integration entry for `security-chat-v2-closed-loop`.
 
 ## Role Boundary
 
