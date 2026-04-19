@@ -8,7 +8,7 @@
  * 更新说明：2026-03-14 添加消息引用、转发、下载功能，优化图片预览和右键菜单交互
  */
 
-import { FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as React from 'react';
 import { ConversationListItem, MessageItem } from '../../core/types';
 import { TopBar } from './top-bar';
@@ -62,6 +62,7 @@ type Props = {
   onRefreshConversation: () => Promise<void>;
   onLoadOlderMessages: () => Promise<void>;
   onAttachMedia: (file: File) => Promise<void>;
+  onCancelMediaAttachment: () => void;
   onOpenMedia: (message: MessageItem) => Promise<void>;
   onResolveMediaUrl: (message: MessageItem) => Promise<string | null>;
   onReadMessageOnce: (message: MessageItem) => Promise<void>;
@@ -70,6 +71,11 @@ type Props = {
   onStartTyping: () => void;
   onStopTyping: () => void;
   onForwardMessage: (originalMessageId: string, targetConversationId: string) => Promise<{ messageId: string; messageIndex: string }>;
+  isConversationPinned: boolean;
+  isConversationMuted: boolean;
+  onToggleConversationPin: (conversationId: string) => void;
+  onToggleConversationMute: (conversationId: string) => void;
+  onDeleteConversation: (conversationId: string) => Promise<boolean>;
 };
 
 const QUICK_EMOJIS = ['😀', '😂', '😍', '😎', '🤔', '😭', '👍', '🙏', '🎉', '❤️', '🔥', '✅'];
@@ -195,6 +201,27 @@ function getTypeLabel(messageType: number): string {
   return '文本';
 }
 
+function getCopyableText(message: MessageItem, payload: PayloadData): string {
+  const text = payload.text?.trim();
+  if (text) {
+    return text;
+  }
+  const fileName = payload.fileName?.trim();
+  if (fileName) {
+    return fileName;
+  }
+  if (message.messageType === 2) {
+    return '[图片]';
+  }
+  if (message.messageType === 3) {
+    return '[语音]';
+  }
+  if (message.messageType === 4) {
+    return '[文件]';
+  }
+  return '';
+}
+
 /**
  * 渲染高亮文本，将关键词标记为黄色背景
  * @param text - 原始文本
@@ -241,19 +268,17 @@ export function ChatPanel(props: Props): JSX.Element {
   // UI 状态
   const [searchOpen, setSearchOpen] = useState(false);          // 搜索面板开关
   const [searchKeyword, setSearchKeyword] = useState('');       // 搜索关键词
-  const [menuOpen, setMenuOpen] = useState(false);              // 菜单开关
-  const [isPinned, setIsPinned] = useState(false);              // 置顶状态
-  const [isMuted, setIsMuted] = useState(false);              // 静音状态
   const [focusedMessageId, setFocusedMessageId] = useState(''); // 聚焦的消息ID
   const [emojiOpen, setEmojiOpen] = useState(false);            // 表情面板开关
   const [audioSourceMap, setAudioSourceMap] = useState<Record<string, string>>({});
   const [imagePreviewOpen, setImagePreviewOpen] = useState(false);
   const [imagePreviewSrc, setImagePreviewSrc] = useState('');
   const [imageSourceMap, setImageSourceMap] = useState<Record<string, string>>({});
+  // 附件预览状态
+  const [pendingAttachment, setPendingAttachment] = useState<{ file: File; previewUrl: string } | null>(null);
   // 图片懒加载 - 追踪哪些图片应该在视口内加载
   const [visibleImageIds, setVisibleImageIds] = useState<Set<string>>(new Set());
   const imageObserverRef = useRef<IntersectionObserver | null>(null);
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; message: MessageItem } | null>(null);
   const [forwardDialogOpen, setForwardDialogOpen] = useState(false);
   const [forwardMessageId, setForwardMessageId] = useState('');
   const [forwardConversations, setForwardConversations] = useState<ConversationListItem[]>([]);
@@ -338,14 +363,12 @@ export function ChatPanel(props: Props): JSX.Element {
     props.onMediaUrlChange('');
     props.onMessageTypeChange(1);
     props.onBurnEnabledChange(false);
-    setMenuOpen(false);
   }
 
   function scrollToBottom(): void {
     if (messageListRef.current) {
       messageListRef.current.scrollTop = messageListRef.current.scrollHeight;
     }
-    setMenuOpen(false);
     stickToBottomRef.current = true;
   }
 
@@ -370,31 +393,6 @@ export function ChatPanel(props: Props): JSX.Element {
   function appendEmoji(emoji: string): void {
     props.onMessageTextChange(`${props.messageText}${emoji}`);
   }
-
-  useEffect(() => {
-    if (!contextMenu) {
-      return;
-    }
-    const close = (): void => setContextMenu(null);
-    window.addEventListener('click', close);
-    window.addEventListener('contextmenu', close);
-    return () => {
-      window.removeEventListener('click', close);
-      window.removeEventListener('contextmenu', close);
-    };
-  }, [contextMenu]);
-
-  // 更多菜单点击外部关闭
-  useEffect(() => {
-    if (!menuOpen) {
-      return;
-    }
-    const close = (): void => setMenuOpen(false);
-    window.addEventListener('click', close);
-    return () => {
-      window.removeEventListener('click', close);
-    };
-  }, [menuOpen]);
 
   useEffect(() => {
     return () => {
@@ -509,16 +507,41 @@ export function ChatPanel(props: Props): JSX.Element {
       }
       if (event.key === 'Escape') {
         setEmojiOpen(false);
-        setMenuOpen(false);
-        closeContextMenu();
         closeImagePreview();
+        if (searchOpen) {
+          setSearchOpen(false);
+          setSearchKeyword('');
+          setFocusedMessageId('');
+        }
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [hasActiveConversation]);
+  }, [hasActiveConversation, searchOpen]);
 
-  // 阅后即焚倒计时计时器
+  // 搜索关闭或关键词清空时清除焦点
+  useEffect(() => {
+    if (!searchOpen || !searchKeyword.trim()) {
+      setFocusedMessageId('');
+    }
+  }, [searchOpen, searchKeyword]);
+
+  // 父级清空媒体状态后，同步清理本地预览。
+  useEffect(() => {
+    if (!props.mediaUrl && pendingAttachment) {
+      URL.revokeObjectURL(pendingAttachment.previewUrl);
+      setPendingAttachment(null);
+    }
+  }, [props.mediaUrl]);
+
+  useEffect(() => {
+    return () => {
+      if (pendingAttachment) {
+        URL.revokeObjectURL(pendingAttachment.previewUrl);
+      }
+    };
+  }, [pendingAttachment]);
+
   useEffect(() => {
     // 初始化需要倒计时的消息
     const burnMessages = visibleMessages.filter((row) => row.isBurn && row.burnDuration && row.readAt);
@@ -533,6 +556,28 @@ export function ChatPanel(props: Props): JSX.Element {
 
     setBurnCountdowns(initialCountdowns);
   }, [visibleMessages]);
+
+  // handleBurnComplete 必须在 useEffect 之前定义，以便闭包正确捕获
+  const handleBurnComplete = useCallback(async function handleBurnComplete(messageId: string): Promise<void> {
+    // 等待动画完成
+    setTimeout(async () => {
+      try {
+        await props.onTriggerBurn(messageId);
+      } catch (error) {
+        console.error('[ChatPanel] Burn message failed:', error);
+      }
+      setBurningMessageIds((prev) => {
+        const next = new Set(prev);
+        next.delete(messageId);
+        return next;
+      });
+      setBurnCountdowns((prev) => {
+        const next = { ...prev };
+        delete next[messageId];
+        return next;
+      });
+    }, 800); // 动画时长
+  }, [props.onTriggerBurn]);
 
   // 倒计时更新
   useEffect(() => {
@@ -563,28 +608,7 @@ export function ChatPanel(props: Props): JSX.Element {
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [visibleMessages]);
-
-  async function handleBurnComplete(messageId: string): Promise<void> {
-    // 等待动画完成
-    setTimeout(async () => {
-      try {
-        await props.onTriggerBurn(messageId);
-      } catch (error) {
-        console.error('[ChatPanel] Burn message failed:', error);
-      }
-      setBurningMessageIds((prev) => {
-        const next = new Set(prev);
-        next.delete(messageId);
-        return next;
-      });
-      setBurnCountdowns((prev) => {
-        const next = { ...prev };
-        delete next[messageId];
-        return next;
-      });
-    }, 800); // 动画时长
-  }
+  }, [visibleMessages, handleBurnComplete]);
 
   async function prepareAudioSource(row: MessageItem, payload: PayloadData): Promise<void> {
     if (audioSourceMap[row.id]) {
@@ -641,22 +665,6 @@ export function ChatPanel(props: Props): JSX.Element {
     setImagePreviewSrc('');
   }
 
-  function openContextMenu(event: React.MouseEvent, message: MessageItem, isOwn: boolean): void {
-    event.preventDefault();
-    event.stopPropagation();
-    // isOwn=true: 菜单位置偏右; isOwn=false: 菜单位置偏左
-    const x = isOwn ? event.clientX + 120 : event.clientX - 120;
-    setContextMenu({
-      x,
-      y: event.clientY,
-      message,
-    });
-  }
-
-  function closeContextMenu(): void {
-    setContextMenu(null);
-  }
-
   async function copyMessage(messageId: string): Promise<void> {
     const message = props.messages.find((m: MessageItem) => m.id === messageId);
     if (!message) {
@@ -665,7 +673,7 @@ export function ChatPanel(props: Props): JSX.Element {
     const payload = parsePayload(
       props.decodePayload(message.encryptedPayload, message.senderId, message.sourceDeviceId),
     );
-    const text = payload.text ?? '';
+    const text = getCopyableText(message, payload);
     if (text) {
       try {
         await navigator.clipboard.writeText(text);
@@ -673,8 +681,9 @@ export function ChatPanel(props: Props): JSX.Element {
       } catch {
         showToast('复制失败', 'error');
       }
+    } else {
+      showToast('当前消息没有可复制内容', 'info');
     }
-    closeContextMenu();
   }
 
   function replyMessage(messageId: string): void {
@@ -683,7 +692,6 @@ export function ChatPanel(props: Props): JSX.Element {
       return;
     }
     props.onReplyToMessageChange(message);
-    closeContextMenu();
     // 聚焦到输入框
     window.requestAnimationFrame(() => {
       const textarea = document.querySelector<HTMLTextAreaElement>('.composer textarea');
@@ -706,7 +714,6 @@ export function ChatPanel(props: Props): JSX.Element {
     setSelectedForwardConversation('');
     void loadForwardConversations();
     setForwardDialogOpen(true);
-    closeContextMenu();
   }
 
   async function downloadMedia(message: MessageItem): Promise<void> {
@@ -790,7 +797,6 @@ export function ChatPanel(props: Props): JSX.Element {
       console.error('下载失败:', error);
       showToast('下载失败，请重试', 'error');
     }
-    closeContextMenu();
   }
 
   async function handleForwardSubmit(): Promise<void> {
@@ -826,12 +832,10 @@ export function ChatPanel(props: Props): JSX.Element {
     }
     if (message.senderId !== props.currentUserId) {
       showToast('只能撤回自己发送的消息', 'error');
-      closeContextMenu();
       return;
     }
     if (message.isRevoked) {
       showToast('消息已撤回', 'info');
-      closeContextMenu();
       return;
     }
     // 显示确认对话框
@@ -840,7 +844,6 @@ export function ChatPanel(props: Props): JSX.Element {
       messageId,
       message,
     });
-    closeContextMenu();
   }
 
   async function confirmDelete(): Promise<void> {
@@ -878,50 +881,41 @@ export function ChatPanel(props: Props): JSX.Element {
             }
             return next;
           });
-          setMenuOpen(false);
         }}
-        onMore={() => setMenuOpen((v) => !v)}
-      />
-
-      {menuOpen ? (
-        <div onClick={(e) => e.stopPropagation()}>
+        moreMenu={
           <ChatMoreMenu
             type={props.activeConversation?.type === 2 ? 'group' : 'chat'}
             burnEnabled={props.burnEnabled}
-            isPinned={isPinned}
-            isMuted={isMuted}
+            isPinned={props.isConversationPinned}
+            isMuted={props.isConversationMuted}
             onToggleBurn={() => {
               props.onBurnEnabledChange(!props.burnEnabled);
-              setMenuOpen(false);
             }}
             onTogglePin={() => {
-              setIsPinned((v) => !v);
-              setMenuOpen(false);
+              if (props.activeConversationId) {
+                props.onToggleConversationPin(props.activeConversationId);
+              }
             }}
             onToggleMute={() => {
-              setIsMuted((v) => !v);
-              setMenuOpen(false);
+              if (props.activeConversationId) {
+                props.onToggleConversationMute(props.activeConversationId);
+              }
             }}
             onDeleteConversation={() => {
-              console.log('删除会话');
-              setMenuOpen(false);
+              if (props.activeConversationId) {
+                const confirmed = window.confirm('确定要删除该会话吗？此操作会移除当前会话记录。');
+                if (confirmed) {
+                  void props.onDeleteConversation(props.activeConversationId);
+                }
+              }
             }}
-            onStartGroupChat={() => {
-              console.log('发起群聊');
-              setMenuOpen(false);
-            }}
-            onExitGroup={() => {
-              console.log('退出群聊');
-              setMenuOpen(false);
-            }}
-            onAddMember={() => {
-              console.log('添加成员');
-              setMenuOpen(false);
-            }}
-            onClose={() => setMenuOpen(false)}
-          />
-        </div>
-      ) : null}
+          >
+            <button className="chat-action-btn" aria-label="更多">
+              <span className="material-symbols-rounded">more_vert</span>
+            </button>
+          </ChatMoreMenu>
+        }
+      />
 
       {searchOpen ? (
         <div className="chat-search-row">
@@ -1002,6 +996,7 @@ export function ChatPanel(props: Props): JSX.Element {
                 : row.messageType === 3
                 ? (audioSourceMap[row.id] || payload.mediaUrl || '')
                 : (payload.mediaUrl || '');
+              const canCopy = Boolean(getCopyableText(row, payload));
 
               const bubbleStatus: 'sending' | 'sent' | 'delivered' | 'read' | 'failed' = isRevoked
                 ? 'sent'
@@ -1028,26 +1023,37 @@ export function ChatPanel(props: Props): JSX.Element {
                   data-msg-id={row.id}
                   data-msg-type={row.messageType}
                   className={`${isOut ? 'message self' : 'message'}${focusedMessageId === row.id ? ' focused' : ''}${isBurning ? ' message-burning' : ''}${isRevoked ? ' message-revoked' : ''}`}
-                  onContextMenu={(e) => openContextMenu(e, row, isOut)}
                 >
-                  <MessageBubble
-                    type={isOut ? 'out' : 'in'}
-                    messageType={row.messageType}
-                    content={String(bubbleContent)}
-                    time={formatTime(row.createdAt)}
-                    status={bubbleStatus}
-                    isBurn={row.isBurn && !isRevoked}
-                    burnSeconds={showBurnTimer ? burnCountdown : undefined}
-                    replyTo={bubbleReplyTo}
-                    fileName={payload.fileName}
-                    fileSize={undefined}
-                    voiceDuration={undefined}
-                    onRetry={
-                      row.localDeliveryState === 'failed'
-                        ? () => void props.onRetryMessage(row.id)
-                        : undefined
-                    }
-                  />
+                  <MessageContextMenu
+                    messageType={row.messageType as 1 | 2 | 3 | 4}
+                    isOwn={isOut}
+                    isRevoked={!!isRevoked}
+                    canCopy={canCopy}
+                    onCopy={() => copyMessage(row.id)}
+                    onReply={() => replyMessage(row.id)}
+                    onForward={() => forwardMessage(row.id)}
+                    onDownload={([2, 4].includes(row.messageType) && !isRevoked) ? () => downloadMedia(row) : undefined}
+                    onDelete={() => deleteMessage(row.id)}
+                  >
+                    <MessageBubble
+                      type={isOut ? 'out' : 'in'}
+                      messageType={row.messageType}
+                      content={String(bubbleContent)}
+                      time={formatTime(row.createdAt)}
+                      status={bubbleStatus}
+                      isBurn={row.isBurn && !isRevoked}
+                      burnSeconds={showBurnTimer ? burnCountdown : undefined}
+                      replyTo={bubbleReplyTo}
+                      fileName={payload.fileName}
+                      fileSize={undefined}
+                      voiceDuration={undefined}
+                      onRetry={
+                        row.localDeliveryState === 'failed'
+                          ? () => void props.onRetryMessage(row.id)
+                          : undefined
+                      }
+                    />
+                  </MessageContextMenu>
                   {showBurnTimer ? (
                     <span className="message-burn-countdown">
                       <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -1075,6 +1081,9 @@ export function ChatPanel(props: Props): JSX.Element {
           onChange={(e) => {
             const file = e.target.files?.[0];
             if (file) {
+              // 创建本地预览 URL
+              const previewUrl = URL.createObjectURL(file);
+              setPendingAttachment({ file, previewUrl });
               void props.onAttachMedia(file);
             }
             e.currentTarget.value = '';
@@ -1092,14 +1101,15 @@ export function ChatPanel(props: Props): JSX.Element {
                 </div>
                 <div className="reply-preview-text">
                   {(() => {
+                    const replyMsg = props.replyToMessage;
                     const payload = parsePayload(
                       props.decodePayload(
-                        props.replyToMessage!.encryptedPayload,
-                        props.replyToMessage!.senderId,
-                        props.replyToMessage!.sourceDeviceId,
+                        replyMsg.encryptedPayload,
+                        replyMsg.senderId,
+                        replyMsg.sourceDeviceId,
                       ),
                     );
-                    const content = payload.text || (props.replyToMessage!.messageType === 2 ? '[图片]' : props.replyToMessage!.messageType === 3 ? '[语音]' : '[文件]');
+                    const content = payload.text || (replyMsg.messageType === 2 ? '[图片]' : replyMsg.messageType === 3 ? '[语音]' : '[文件]');
                     return content.slice(0, 60) + (content.length > 60 ? '...' : '');
                   })()}
                 </div>
@@ -1109,6 +1119,36 @@ export function ChatPanel(props: Props): JSX.Element {
                 className="reply-preview-close"
                 onClick={() => props.onReplyToMessageChange(null)}
                 aria-label="取消引用"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" fill="currentColor"/>
+                </svg>
+              </button>
+            </div>
+          ) : null}
+          {pendingAttachment ? (
+            <div className="attachment-preview">
+              {pendingAttachment.file.type.startsWith('image/') ? (
+                <img src={pendingAttachment.previewUrl} alt="附件预览" className="attachment-preview-image" />
+              ) : (
+                <div className="attachment-preview-file">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6z" fill="currentColor" />
+                  </svg>
+                  <span>{pendingAttachment.file.name}</span>
+                </div>
+              )}
+              <button
+                type="button"
+                className="attachment-preview-close"
+                onClick={() => {
+                  if (pendingAttachment) {
+                    URL.revokeObjectURL(pendingAttachment.previewUrl);
+                    setPendingAttachment(null);
+                  }
+                  props.onCancelMediaAttachment();
+                }}
+                aria-label="取消附件"
               >
                 <svg viewBox="0 0 24 24" aria-hidden="true">
                   <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" fill="currentColor"/>
@@ -1223,23 +1263,6 @@ export function ChatPanel(props: Props): JSX.Element {
         </button>
         <img src={imagePreviewSrc} alt="预览" className="image-preview-image" onClick={(e) => e.stopPropagation()} />
       </div>
-    ) : null}
-
-    {/* 消息右键菜单 */}
-    {contextMenu ? (
-      <MessageContextMenu
-        x={contextMenu.x}
-        y={contextMenu.y}
-        messageType={contextMenu.message.messageType as 1 | 2 | 3 | 4}
-        isOwn={contextMenu.message.senderId === props.currentUserId}
-        isRevoked={contextMenu.message.isRevoked ?? false}
-        onCopy={() => copyMessage(contextMenu.message.id)}
-        onReply={() => replyMessage(contextMenu.message.id)}
-        onForward={() => forwardMessage(contextMenu.message.id)}
-        onDownload={() => downloadMedia(contextMenu.message)}
-        onDelete={() => deleteMessage(contextMenu.message.id)}
-        onClose={closeContextMenu}
-      />
     ) : null}
 
     {/* 转发对话框 */}

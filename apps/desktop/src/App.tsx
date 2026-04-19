@@ -15,6 +15,9 @@ import { LoginScreen } from './features/auth/login-screen';
 import { ChatPanel } from './features/chat/chat-panel';
 import { ConversationSidebar } from './features/chat/conversation-sidebar';
 import { FriendPanel } from './features/friend/friend-panel';
+import { ProfileSheet } from './features/navigation/profile-sheet';
+import { AboutSheet } from './features/navigation/about-sheet';
+import { LogoutConfirmDialog } from './features/navigation/logout-confirm-dialog';
 import { NotificationSettingsSheet } from './features/settings/notification-settings-sheet';
 import { useChatClient } from './core/use-chat-client';
 import { useTheme } from './core/use-theme';
@@ -42,8 +45,11 @@ export function App(): JSX.Element {
   const [workspace, setWorkspace] = useState<'chat' | 'friend'>('chat');
   // 导航抽屉开关状态
   const [navDrawerOpen, setNavDrawerOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
   // 通知设置抽屉开关状态
   const [notificationSettingsOpen, setNotificationSettingsOpen] = useState(false);
+  const [aboutOpen, setAboutOpen] = useState(false);
+  const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
   // 用于跟踪是否已经尝试过自动登录
   const autoLoginAttemptedRef = useRef(false);
   // 使用 ref 保存 actions 以避免闭包问题
@@ -276,6 +282,7 @@ export function App(): JSX.Element {
               onRefreshConversation={actions.onRefreshActiveConversation}
               onLoadOlderMessages={actions.onLoadOlderMessages}
               onAttachMedia={actions.onAttachMedia}
+              onCancelMediaAttachment={actions.onCancelMediaAttachment}
               onOpenMedia={actions.onOpenMedia}
               onResolveMediaUrl={actions.onResolveMediaUrl}
               onReadMessageOnce={actions.onReadMessageOnce}
@@ -284,6 +291,11 @@ export function App(): JSX.Element {
               onStartTyping={actions.startTyping}
               onStopTyping={actions.stopTyping}
               onForwardMessage={actions.onForwardMessage}
+              isConversationPinned={state.pinnedConversationIds.includes(state.activeConversationId)}
+              isConversationMuted={state.mutedConversationIds.includes(state.activeConversationId)}
+              onToggleConversationPin={actions.toggleConversationPin}
+              onToggleConversationMute={actions.toggleConversationMute}
+              onDeleteConversation={actions.deleteConversation}
             />
           </div>
         ) : (
@@ -397,6 +409,17 @@ export function App(): JSX.Element {
               className="nav-drawer-item w-full"
               onClick={() => {
                 setNavDrawerOpen(false);
+                setProfileOpen(true);
+              }}
+            >
+              <span className="material-symbols-rounded nav-drawer-icon">person</span>
+              <span>个人中心</span>
+            </button>
+            <button
+              type="button"
+              className="nav-drawer-item w-full"
+              onClick={() => {
+                setNavDrawerOpen(false);
                 setNotificationSettingsOpen(true);
               }}
             >
@@ -405,10 +428,21 @@ export function App(): JSX.Element {
             </button>
             <button
               type="button"
+              className="nav-drawer-item w-full"
+              onClick={() => {
+                setNavDrawerOpen(false);
+                setAboutOpen(true);
+              }}
+            >
+              <span className="material-symbols-rounded nav-drawer-icon">info</span>
+              <span>关于</span>
+            </button>
+            <button
+              type="button"
               className="nav-drawer-item nav-drawer-logout w-full"
               onClick={() => {
-                actions.onLogout();
                 setNavDrawerOpen(false);
+                setLogoutConfirmOpen(true);
               }}
             >
               <span className="material-symbols-rounded nav-drawer-icon">logout</span>
@@ -422,6 +456,20 @@ export function App(): JSX.Element {
       <NotificationSettingsSheet
         open={notificationSettingsOpen}
         onOpenChange={setNotificationSettingsOpen}
+      />
+      <ProfileSheet
+        open={profileOpen}
+        onOpenChange={setProfileOpen}
+        userId={state.auth.userId}
+      />
+      <AboutSheet
+        open={aboutOpen}
+        onOpenChange={setAboutOpen}
+      />
+      <LogoutConfirmDialog
+        open={logoutConfirmOpen}
+        onOpenChange={setLogoutConfirmOpen}
+        onConfirm={() => void actions.onLogout()}
       />
     </main>
   );

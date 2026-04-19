@@ -16,9 +16,7 @@ export type TopBarProps = {
   memberCount?: number;
   isOnline?: boolean;
   onSearch: () => void;
-  onMore: () => void;
-  onVideoCall?: () => void;
-  onVoiceCall?: () => void;
+  moreMenu: React.ReactNode;
 };
 
 export function TopBar(props: TopBarProps): JSX.Element {
@@ -44,17 +42,25 @@ export function TopBar(props: TopBarProps): JSX.Element {
         </button>
         {props.type === 'chat' && (
           <>
-            <button className="chat-action-btn" aria-label="语音通话">
+            <button
+              className="chat-action-btn"
+              aria-label="语音通话暂不可用"
+              title="音视频通话暂未开放"
+              disabled
+            >
               <span className="material-symbols-rounded">call</span>
             </button>
-            <button className="chat-action-btn" aria-label="视频通话">
+            <button
+              className="chat-action-btn"
+              aria-label="视频通话暂不可用"
+              title="音视频通话暂未开放"
+              disabled
+            >
               <span className="material-symbols-rounded">videocam</span>
             </button>
           </>
         )}
-        <button className="chat-action-btn" aria-label="更多" onClick={props.onMore}>
-          <span className="material-symbols-rounded">more_vert</span>
-        </button>
+        {props.moreMenu}
       </div>
     </header>
   );

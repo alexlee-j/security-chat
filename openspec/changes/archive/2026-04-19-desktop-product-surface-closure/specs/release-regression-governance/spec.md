@@ -1,8 +1,5 @@
-# release-regression-governance Specification
+## MODIFIED Requirements
 
-## Purpose
-TBD - created by archiving change advance-to-global-completion. Update Purpose after archive.
-## Requirements
 ### Requirement: This initiative SHALL execute on a dedicated integration branch with explicit role ownership
 The system delivery process for this initiative SHALL use a dedicated development branch and SHALL assign protocol-critical work to GPT and supporting lower-risk work to MiniMax. For the desktop product surface closure initiative, implementation SHALL occur on `feature/desktop-product-surface-closure`.
 
@@ -36,14 +33,3 @@ The initiative SHALL NOT be considered complete until backend, Rust, frontend, a
 #### Scenario: Desktop product surface gate
 - **WHEN** desktop product surface changes are proposed for merge
 - **THEN** desktop build, desktop interaction smoke, design coverage checklist, and documented deferrals for out-of-scope call/video interactions SHALL all be present
-
-### Requirement: Version 2.0 SHALL publish one maintained regression matrix and one maintained rollback plan
-The system delivery process SHALL keep the release matrix and rollback instructions current with the implemented 2.0 scope so the version can be evaluated and, if necessary, reversed by milestone.
-
-#### Scenario: Regression matrix matches implemented scope
-- **WHEN** a 2.0 feature area is added or materially changed
-- **THEN** the release matrix SHALL be updated so its required commands and real-flow checks match the new scope
-
-#### Scenario: Rollback plan is milestone-based
-- **WHEN** a severe regression is found in a 2.0 release candidate
-- **THEN** the documented rollback plan SHALL identify which milestone can be reverted without requiring ad hoc manual rollback steps

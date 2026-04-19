@@ -1,8 +1,5 @@
-# group-governance-and-lifecycle Specification
+## MODIFIED Requirements
 
-## Purpose
-TBD - created by archiving change security-chat-v2-closed-loop. Update Purpose after archive.
-## Requirements
 ### Requirement: Group conversations SHALL support managed group metadata
 The system SHALL allow authorized users to read and update group metadata such as group name, avatar, and descriptive information through supported APIs and UI, and the desktop app SHALL expose those supported metadata actions through a group product surface.
 
@@ -17,17 +14,6 @@ The system SHALL allow authorized users to read and update group metadata such a
 #### Scenario: Desktop user opens group profile surface
 - **WHEN** a desktop user opens a group conversation profile or management surface
 - **THEN** the desktop app SHALL show supported group metadata and available management actions according to the user's permissions
-
-### Requirement: Group membership SHALL follow explicit governance rules
-The system SHALL define who can invite, remove, leave, and re-add members, and SHALL surface the resulting membership state consistently across backend and supported clients.
-
-#### Scenario: Member is removed from group
-- **WHEN** an authorized actor removes a member from a group
-- **THEN** the system SHALL persist the membership change and SHALL show the removed member a state that prevents future participation in that group
-
-#### Scenario: Member leaves voluntarily
-- **WHEN** a member chooses to leave a group
-- **THEN** the system SHALL remove that member from the active membership set and SHALL update the remaining members' visible group state
 
 ### Requirement: Group lifecycle events SHALL be visible to affected users
 The system SHALL emit or persist group lifecycle events so that members can understand material group changes such as rename, invite, leave, remove, and rejoin, and the desktop app SHALL render those lifecycle events or equivalent visible state.

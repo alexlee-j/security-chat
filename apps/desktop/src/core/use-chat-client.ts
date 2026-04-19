@@ -50,7 +50,7 @@ import {
   wsBaseUrl,
 } from './api';
 import { clearEncryptionKey } from './crypto';
-import { useLocalDb } from './use-local-db';
+import { LocalConversation, useLocalDb } from './use-local-db';
 import {
   AuthState,
   BlockedFriendItem,
@@ -232,6 +232,7 @@ export type ChatClientActions = {
   onRefreshActiveConversation: () => Promise<void>;
   onLoadOlderMessages: () => Promise<void>;
   onAttachMedia: (file: File) => Promise<void>;
+  onCancelMediaAttachment: () => void;
   onOpenMedia: (message: MessageItem) => Promise<void>;
   onResolveMediaUrl: (message: MessageItem) => Promise<string | null>;
   onReadMessageOnce: (message: MessageItem) => Promise<void>;
@@ -319,6 +320,7 @@ export function useChatClient(): {
   const messageCursorRef = useRef<Record<string, number>>({});  // 消息游标引用
   const fallbackPollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);  // 轮询定时器
   const pendingMediaAssetIdRef = useRef<string | null>(null);  // 待上传媒体ID
+  const mediaUploadTokenRef = useRef(0);
   const messageDraftRef = useRef<Record<string, string>>({});  // 消息草稿引用
   const autoBurnPendingRef = useRef<Set<string>>(new Set());   // 待焚毁消息集合
   // 解密缓存：Map<encryptedPayload, decryptedPayload>
@@ -536,11 +538,61 @@ export function useChatClient(): {
     return Array.from(merged.values()).sort((a, b) => Number(a.messageIndex) - Number(b.messageIndex));
   };
 
+  function toLocalConversationSnapshot(row: ConversationListItem | null, conversationId: string): LocalConversation {
+    const now = Date.now();
+    const lastMessageAt = row?.lastMessage?.createdAt ? Date.parse(row.lastMessage.createdAt) : null;
+    const effectiveTimestamp = Number.isFinite(lastMessageAt ?? NaN) ? (lastMessageAt as number) : now;
+    const displayName = row?.peerUser?.username ?? row?.groupInfo?.name ?? conversationId.slice(0, 8);
+    return {
+      id: conversationId,
+      type: row?.type ?? 1,
+      name: displayName,
+      avatarUrl: row?.peerUser?.avatarUrl ?? null,
+      createdAt: effectiveTimestamp,
+      updatedAt: effectiveTimestamp,
+      lastMessageAt: Number.isFinite(lastMessageAt ?? NaN) ? (lastMessageAt as number) : null,
+      lastMessagePreview: row?.lastMessage
+        ? row.lastMessage.messageType === 2
+          ? '[图片]'
+          : row.lastMessage.messageType === 3
+            ? '[语音]'
+            : row.lastMessage.messageType === 4
+              ? '[文件]'
+              : '[文本]'
+        : null,
+    };
+  }
+
+  async function ensureLocalConversation(conversationId: string): Promise<void> {
+    if (!conversationId) {
+      return;
+    }
+    const selectedConversation = conversations.find((row) => row.conversationId === conversationId);
+    try {
+      await localDb.saveConversation(toLocalConversationSnapshot(selectedConversation ?? null, conversationId));
+    } catch (error) {
+      console.warn('[LocalDb] Failed to ensure conversation before saving messages:', error);
+    }
+  }
+
+  async function persistConversationsToLocal(rows: ConversationListItem[]): Promise<void> {
+    if (!rows.length) {
+      return;
+    }
+    try {
+      await Promise.all(rows.map((row) => localDb.saveConversation(toLocalConversationSnapshot(row, row.conversationId))));
+    } catch (error) {
+      console.warn('[LocalDb] Persist conversations failed:', error);
+    }
+  }
+
   async function persistMessagesToLocal(rows: MessageItem[]): Promise<void> {
     if (!rows.length) {
       return;
     }
     try {
+      const conversationIds = Array.from(new Set(rows.map((row) => row.conversationId).filter(Boolean)));
+      await Promise.all(conversationIds.map((conversationId) => ensureLocalConversation(conversationId)));
       await Promise.all(
         rows.map(async (row) => {
           const decrypted = payloadCacheRef.current.get(row.encryptedPayload) ?? decodePayloadSync(row.encryptedPayload);
@@ -599,6 +651,7 @@ export function useChatClient(): {
     const dedupedRows = rows.filter(
       (row, index, array) => array.findIndex((item) => item.conversationId === row.conversationId) === index,
     );
+    void persistConversationsToLocal(dedupedRows);
     setConversations(dedupedRows);
     if (!activeConversationIdRef.current && dedupedRows.length > 0) {
       setActiveConversationId(dedupedRows[0].conversationId);
@@ -1669,6 +1722,8 @@ export function useChatClient(): {
       return;
     }
 
+    const uploadToken = mediaUploadTokenRef.current + 1;
+    mediaUploadTokenRef.current = uploadToken;
     const nextType: 2 | 3 | 4 = file.type.startsWith('image/')
       ? 2
       : file.type.startsWith('audio/')
@@ -1680,14 +1735,30 @@ export function useChatClient(): {
     setError('');
     try {
       const uploaded = await uploadMedia(file, nextType);
+      if (mediaUploadTokenRef.current !== uploadToken) {
+        return;
+      }
       pendingMediaAssetIdRef.current = uploaded.mediaAssetId;
     } catch {
+      if (mediaUploadTokenRef.current !== uploadToken) {
+        return;
+      }
       pendingMediaAssetIdRef.current = null;
       setMediaUrl('');
       setError('媒体上传失败，请重试。');
     } finally {
-      setMediaUploading(false);
+      if (mediaUploadTokenRef.current === uploadToken) {
+        setMediaUploading(false);
+      }
     }
+  }
+
+  function onCancelMediaAttachment(): void {
+    mediaUploadTokenRef.current += 1;
+    pendingMediaAssetIdRef.current = null;
+    setMediaUploading(false);
+    setMediaUrl('');
+    handleMessageTypeChange(1);
   }
 
   async function onOpenMedia(message: MessageItem): Promise<void> {
@@ -2275,6 +2346,17 @@ export function useChatClient(): {
     }
     try {
       await deleteConversation(conversationId);
+      setPinnedConversationIds((prev) => prev.filter((id) => id !== conversationId));
+      setMutedConversationIds((prev) => prev.filter((id) => id !== conversationId));
+      if (activeConversationIdRef.current === conversationId) {
+        activeConversationIdRef.current = '';
+        setActiveConversationId('');
+        setMessages([]);
+        setMessageText('');
+        setReplyToMessage(null);
+        onCancelMediaAttachment();
+      }
+      await loadConversations();
       return true;
     } catch (error) {
       console.error('[useChatClient] 删除会话失败:', error);
@@ -2588,6 +2670,7 @@ export function useChatClient(): {
       onRefreshActiveConversation,
       onLoadOlderMessages,
       onAttachMedia,
+      onCancelMediaAttachment,
       onOpenMedia,
       onResolveMediaUrl,
       onReadMessageOnce,

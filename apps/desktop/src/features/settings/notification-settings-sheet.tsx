@@ -10,6 +10,9 @@ import {
 import { Separator } from '@/components/ui/separator';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 
 interface NotificationSettingsSheetProps {
   open: boolean;
@@ -55,12 +58,27 @@ export function NotificationSettingsSheet({ open, onOpenChange }: NotificationSe
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-[320px] sm:w-[360px]">
-        <SheetHeader>
-          <SheetTitle>通知设置</SheetTitle>
-        </SheetHeader>
+      <SheetContent side="right" className="w-[360px] sm:w-[420px] p-0">
+        <div className="flex h-full flex-col">
+          <SheetHeader className="border-b border-border px-6 py-5 text-left">
+            <SheetTitle>设置</SheetTitle>
+            <p className="text-sm text-muted-foreground">
+              通知设置与未来设置结构
+            </p>
+          </SheetHeader>
 
-        <div className="mt-6 space-y-6">
+          <div className="flex-1 space-y-6 overflow-y-auto p-6">
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">通知设置</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-muted-foreground">
+                  这里展示后端已支持的通知分类，并保持当前有效值与保存后状态一致。
+                </p>
+              </CardContent>
+            </Card>
+
           {loading ? (
             <div className="text-center text-muted-foreground py-8">加载中...</div>
           ) : settings ? (
@@ -208,6 +226,44 @@ export function NotificationSettingsSheet({ open, onOpenChange }: NotificationSe
               加载失败，请重试
             </div>
           )}
+            <Card>
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between gap-3">
+                  <CardTitle className="text-base">未来设置</CardTitle>
+                  <Badge variant="secondary">预留</Badge>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="flex items-center justify-between gap-3 rounded-lg border border-border p-3">
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium">隐私设置</p>
+                    <p className="text-xs text-muted-foreground">后续阶段再接入可见性和安全偏好。</p>
+                  </div>
+                  <Button variant="outline" size="sm" disabled>
+                    待开放
+                  </Button>
+                </div>
+                <div className="flex items-center justify-between gap-3 rounded-lg border border-border p-3">
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium">聊天设置</p>
+                    <p className="text-xs text-muted-foreground">对话显示、输入行为和会话偏好预留位。</p>
+                  </div>
+                  <Button variant="outline" size="sm" disabled>
+                    待开放
+                  </Button>
+                </div>
+                <div className="flex items-center justify-between gap-3 rounded-lg border border-border p-3">
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium">安全设置</p>
+                    <p className="text-xs text-muted-foreground">用于后续身份验证和设备管理入口。</p>
+                  </div>
+                  <Button variant="outline" size="sm" disabled>
+                    待开放
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
         </div>
       </SheetContent>
     </Sheet>

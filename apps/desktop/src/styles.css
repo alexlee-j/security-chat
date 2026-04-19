@@ -2467,6 +2467,70 @@ button:disabled {
   white-space: nowrap;
 }
 
+.attachment-preview {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  margin-bottom: 6px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+  position: relative;
+}
+
+.attachment-preview .attachment-preview-image {
+  max-width: 120px;
+  max-height: 80px;
+  border-radius: 4px;
+  object-fit: cover;
+}
+
+.attachment-preview .attachment-preview-file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.attachment-preview .attachment-preview-file svg {
+  width: 24px;
+  height: 24px;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.attachment-preview .attachment-preview-file span {
+  font-size: 13px;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachment-preview .attachment-preview-close {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  color: var(--text-secondary);
+}
+
+.attachment-preview .attachment-preview-close:hover {
+  background: var(--accent);
+  color: var(--destructive);
+}
+
+.attachment-preview .attachment-preview-close svg {
+  width: 16px;
+  height: 16px;
+}
+
 .retry-btn {
   background: none;
   border: none;

@@ -1,8 +1,5 @@
-# conversation-sync-and-reliability Specification
+## MODIFIED Requirements
 
-## Purpose
-TBD - created by archiving change security-chat-v2-closed-loop. Update Purpose after archive.
-## Requirements
 ### Requirement: Supported clients SHALL maintain explicit local message delivery states
 The system SHALL track local message lifecycle states so users can distinguish draft, queued, sending, sent, failed, and replayed message behavior, and the desktop product surface SHALL render those states consistently in the conversation list, chat thread, and input area.
 
@@ -17,17 +14,6 @@ The system SHALL track local message lifecycle states so users can distinguish d
 #### Scenario: Failed message surface is consistent
 - **WHEN** a desktop message is in failed state
 - **THEN** the conversation list, chat thread, and input recovery affordance SHALL not contradict each other about whether the message was sent
-
-### Requirement: Clients SHALL recover message history after reconnect or re-login
-The system SHALL support deterministic catch-up after reconnect, restart, or re-login so the active device can recover missing history for its authorized conversations.
-
-#### Scenario: Client catches up after reconnect
-- **WHEN** a device reconnects after being offline while conversation activity occurred
-- **THEN** the client SHALL request and persist the missing history required to bring the conversation into a consistent state
-
-#### Scenario: Client replays readable history after re-login
-- **WHEN** a user logs back into a device that has previously participated in a supported conversation
-- **THEN** the system SHALL restore the readable conversation history that remains authorized for that device
 
 ### Requirement: Conversation previews SHALL use one consistent summary strategy
 The system SHALL define a single source of truth for conversation preview text under encrypted delivery so preview rows do not drift from message reality, and the desktop conversation list SHALL render that strategy without ad hoc fallback text.

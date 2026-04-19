@@ -97,6 +97,15 @@ export async function logout(): Promise<void> {
   await http.post('/auth/logout');
 }
 
+export async function getUserProfile(userId: string): Promise<{
+  id: string;
+  username: string;
+  avatarUrl: string | null;
+}> {
+  const res = await http.get<ApiEnvelope<{ id: string; username: string; avatarUrl: string | null }>>(`/user/${userId}`);
+  return res.data.data;
+}
+
 export async function login(account: string, password: string, deviceId?: string): Promise<AuthResult> {
   const res = await http.post<ApiEnvelope<AuthResult>>('/auth/login', { account, password, deviceId });
   return res.data.data;

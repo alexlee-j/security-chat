@@ -2,13 +2,14 @@
  * 会话侧边栏组件
  * 设计规范：2026-04-07-ui-redesign.md
  */
-import { FormEvent, MouseEvent, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useMemo, useState } from 'react';
 import * as React from 'react';
 import { ConversationListItem } from '../../core/types';
 import { ConversationContextMenu } from './conversation-context-menu';
 import { FabMenu } from './fab-menu';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
 type Props = {
@@ -94,7 +95,6 @@ function lastMessagePreview(row: ConversationListItem): string {
 
 export function ConversationSidebar(props: Props): JSX.Element {
   const [keyword, setKeyword] = useState('');
-  const [menu, setMenu] = useState<{ x: number; y: number; conversationId: string } | null>(null);
   const pinnedSet = useMemo(() => new Set(props.pinnedConversationIds), [props.pinnedConversationIds]);
 
   const mutedSet = useMemo(() => new Set(props.mutedConversationIds), [props.mutedConversationIds]);
@@ -125,60 +125,31 @@ export function ConversationSidebar(props: Props): JSX.Element {
     return sorted;
   }, [props.conversations, keyword, pinnedSet]);
 
-  useEffect(() => {
-    if (!menu) {
-      return;
-    }
-    const close = (): void => setMenu(null);
-    const onEsc = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') {
-        close();
-      }
-    };
-    window.addEventListener('click', close);
-    window.addEventListener('contextmenu', close);
-    window.addEventListener('keydown', onEsc);
-    return () => {
-      window.removeEventListener('click', close);
-      window.removeEventListener('contextmenu', close);
-      window.removeEventListener('keydown', onEsc);
-    };
-  }, [menu]);
-
   async function onCopyConversationId(conversationId: string): Promise<void> {
     try {
       await navigator.clipboard.writeText(conversationId);
     } catch {
       // Ignore clipboard failures (system-level permissions etc).
     }
-    setMenu(null);
   }
 
   function onMenuTogglePin(conversationId: string): void {
     props.onTogglePin(conversationId);
-    setMenu(null);
   }
 
   function onMenuToggleMute(conversationId: string): void {
     props.onToggleMute(conversationId);
-    setMenu(null);
   }
 
   async function onMenuDeleteConversation(conversationId: string): Promise<void> {
-    setMenu(null);
+    const confirmed = window.confirm('确定要删除该会话吗？此操作会移除当前会话记录。');
+    if (!confirmed) {
+      return;
+    }
     const success = await props.onDeleteConversation(conversationId);
     if (!success) {
       console.error('[conversation-sidebar] 删除会话失败');
     }
-  }
-
-  function openConversationMenu(event: MouseEvent<HTMLDivElement>, conversationId: string): void {
-    event.preventDefault();
-    setMenu({
-      x: event.clientX,
-      y: event.clientY,
-      conversationId,
-    });
   }
 
   function renderConversationRow(row: ConversationListItem): JSX.Element {
@@ -197,20 +168,28 @@ export function ConversationSidebar(props: Props): JSX.Element {
         : previewBase;
 
     return (
-      <div
+      <ConversationContextMenu
         key={row.conversationId}
-        className={cn(
-          'conversation-card flex items-center gap-3 p-3 h-[72px] rounded-xl cursor-pointer',
-          'transition-colors duration-150',
-          isActive
-            ? 'bg-primary text-primary-foreground'
-            : 'bg-card hover:bg-accent text-foreground'
-        )}
-        onClick={() => props.onSelectConversation(row.conversationId)}
-        onContextMenu={(event) => openConversationMenu(event, row.conversationId)}
-        role="button"
-        tabIndex={0}
+        conversationId={row.conversationId}
+        isPinned={isPinned}
+        isMuted={isMuted}
+        onPin={onMenuTogglePin}
+        onMute={onMenuToggleMute}
+        onDelete={onMenuDeleteConversation}
+        onCopyId={onCopyConversationId}
       >
+        <div
+          className={cn(
+            'conversation-card flex items-center gap-3 p-3 h-[72px] rounded-xl cursor-pointer',
+            'transition-colors duration-150',
+            isActive
+              ? 'bg-primary text-primary-foreground'
+              : 'bg-card hover:bg-accent text-foreground'
+          )}
+          onClick={() => props.onSelectConversation(row.conversationId)}
+          role="button"
+          tabIndex={0}
+        >
         {/* 头像 */}
         <div className="relative shrink-0">
           <Avatar className="h-10 w-10">
@@ -290,7 +269,8 @@ export function ConversationSidebar(props: Props): JSX.Element {
             <span className="w-5 h-5" />
           ) : null}
         </div>
-      </div>
+        </div>
+      </ConversationContextMenu>
     );
   }
 
@@ -317,14 +297,29 @@ export function ConversationSidebar(props: Props): JSX.Element {
             onChange={(e) => setKeyword(e.target.value)}
             placeholder="搜索"
           />
+          {keyword ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6 rounded-full text-muted-foreground hover:bg-accent"
+              onClick={() => setKeyword('')}
+              aria-label="清空搜索"
+            >
+              <span className="material-symbols-rounded text-base">close</span>
+            </Button>
+          ) : null}
         </div>
       </header>
 
       {/* 会话列表 */}
       <div className="flex-1 overflow-y-auto px-3 pb-3">
         {filteredConversations.length === 0 ? (
-          <div className="flex items-center justify-center h-32 text-muted-foreground text-sm">
-            暂无会话
+          <div className="flex flex-col items-center justify-center gap-2 h-32 text-muted-foreground text-sm text-center px-4">
+            <span>暂无会话</span>
+            <span className="text-xs">
+              {keyword ? '尝试清空搜索条件或切换到新的联系人。' : '通过右下角 FAB 新建群聊或发起私聊。'}
+            </span>
           </div>
         ) : (
           <div className="flex flex-col gap-1">
@@ -332,22 +327,6 @@ export function ConversationSidebar(props: Props): JSX.Element {
           </div>
         )}
       </div>
-
-      {/* 右键菜单 */}
-      {menu ? (
-        <ConversationContextMenu
-          x={menu.x}
-          y={menu.y}
-          conversationId={menu.conversationId}
-          isPinned={pinnedSet.has(menu.conversationId)}
-          isMuted={mutedSet.has(menu.conversationId)}
-          onPin={onMenuTogglePin}
-          onMute={onMenuToggleMute}
-          onDelete={onMenuDeleteConversation}
-          onCopyId={onCopyConversationId}
-          onClose={() => setMenu(null)}
-        />
-      ) : null}
 
       {/* FAB 菜单 */}
       <FabMenu
