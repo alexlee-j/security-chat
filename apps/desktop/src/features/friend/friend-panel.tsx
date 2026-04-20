@@ -2,6 +2,11 @@ import { FormEvent, useEffect, useMemo, useState } from 'react';
 import * as React from 'react';
 import { BlockedFriendItem, FriendListItem, FriendSearchItem, PendingFriendItem } from '../../core/types';
 import { NavMenuTrigger } from '../navigation/nav-menu-trigger';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { cn } from '@/lib/utils';
 
 type Props = {
   currentUserId: string;
@@ -19,6 +24,8 @@ type Props = {
   onStartDirectConversation: (targetUserId: string) => void;
   onNavDrawerOpen?: () => void;
 };
+
+type TabType = 'friends' | 'pending' | 'blocked';
 
 type FriendEntry =
   | { kind: 'friend'; userId: string; username: string; online?: boolean }
@@ -40,36 +47,10 @@ function relationActionLabel(relation: FriendSearchItem['relation']): string {
   }
 }
 
-function toFriendEntry(
-  friends: FriendListItem[],
-  incomingRequests: PendingFriendItem[],
-  blockedUsers: BlockedFriendItem[],
-): FriendEntry[] {
-  return [
-    ...friends.map((row) => ({
-      kind: 'friend' as const,
-      userId: row.userId,
-      username: row.username,
-      online: row.online,
-    })),
-    ...incomingRequests.map((row) => ({
-      kind: 'incoming' as const,
-      userId: row.requesterUserId,
-      username: row.username,
-    })),
-    ...blockedUsers.map((row) => ({
-      kind: 'blocked' as const,
-      userId: row.userId,
-      username: row.username,
-    })),
-  ];
-}
-
 function getInitials(value: string): string {
   return value.trim().slice(0, 2).toUpperCase();
 }
 
-// 根据用户名生成头像渐变色索引
 function getAvatarColorIndex(name: string): number {
   let hash = 0;
   for (let i = 0; i < name.length; i++) {
@@ -80,19 +61,9 @@ function getAvatarColorIndex(name: string): number {
 
 export function FriendPanel(props: Props): JSX.Element {
   const { currentUserId } = props;
-
-  const entries = useMemo(
-    () => toFriendEntry(props.friends, props.incomingRequests, props.blockedUsers),
-    [props.friends, props.incomingRequests, props.blockedUsers],
-  );
-  const friendCount = props.friends.length;
-  const incomingCount = props.incomingRequests.length;
-  const blockedCount = props.blockedUsers.length;
+  const [activeTab, setActiveTab] = useState<TabType>('friends');
   const [selectedUserId, setSelectedUserId] = useState('');
-  const [qrInput, setQrInput] = useState('');
-  const [qrHint, setQrHint] = useState('');
   const [pendingOps, setPendingOps] = useState<Record<string, boolean>>({});
-  const ownAddCode = `sc:add:${currentUserId}`;
 
   function isPending(key: string): boolean {
     return Boolean(pendingOps[key]);
@@ -114,331 +85,384 @@ export function FriendPanel(props: Props): JSX.Element {
     }
   }
 
-  async function runBulk(
-    key: string,
-    ids: string[],
-    action: (id: string) => Promise<void>,
-  ): Promise<void> {
-    if (isPending(key) || ids.length === 0) {
-      return;
-    }
-    setPendingOps((prev) => ({ ...prev, [key]: true }));
-    try {
-      for (const id of ids) {
-        await action(id);
-      }
-    } finally {
-      setPendingOps((prev) => {
-        const next = { ...prev };
-        delete next[key];
-        return next;
-      });
-    }
-  }
+  // 构建所有联系人条目
+  const allEntries = useMemo(
+    () => [
+      ...props.friends.map((row) => ({
+        kind: 'friend' as const,
+        userId: row.userId,
+        username: row.username,
+        online: row.online,
+      })),
+      ...props.incomingRequests.map((row) => ({
+        kind: 'incoming' as const,
+        userId: row.requesterUserId,
+        username: row.username,
+      })),
+      ...props.blockedUsers.map((row) => ({
+        kind: 'blocked' as const,
+        userId: row.userId,
+        username: row.username,
+      })),
+    ],
+    [props.friends, props.incomingRequests, props.blockedUsers],
+  );
 
+  // Tab 数据
+  const tabs: { key: TabType; label: string; count: number }[] = useMemo(
+    () => [
+      { key: 'friends', label: '好友', count: props.friends.length },
+      { key: 'pending', label: '待处理', count: props.incomingRequests.length },
+      { key: 'blocked', label: '黑名单', count: props.blockedUsers.length },
+    ],
+    [props.friends.length, props.incomingRequests.length, props.blockedUsers.length],
+  );
+
+  // 当前 Tab 的联系人列表
+  const filteredEntries = useMemo(() => {
+    switch (activeTab) {
+      case 'friends':
+        return allEntries.filter((e) => e.kind === 'friend');
+      case 'pending':
+        return allEntries.filter((e) => e.kind === 'incoming');
+      case 'blocked':
+        return allEntries.filter((e) => e.kind === 'blocked');
+    }
+  }, [activeTab, allEntries]);
+
+  // 自动选中第一个
   useEffect(() => {
-    if (!entries.find((row) => row.userId === selectedUserId)) {
-      setSelectedUserId(entries[0]?.userId ?? '');
+    if (filteredEntries.length > 0 && !filteredEntries.find((e) => e.userId === selectedUserId)) {
+      setSelectedUserId(filteredEntries[0].userId);
     }
-  }, [entries, selectedUserId]);
+    if (filteredEntries.length === 0) {
+      setSelectedUserId('');
+    }
+  }, [filteredEntries, selectedUserId]);
 
-  const selectedEntry = entries.find((row) => row.userId === selectedUserId) ?? null;
+  const selectedEntry = allEntries.find((e) => e.userId === selectedUserId) ?? null;
 
-  function parseTargetFromCode(raw: string): string {
-    const value = raw.trim();
-    if (!value) {
-      return '';
-    }
-    if (value.startsWith('sc:add:')) {
-      return value.slice('sc:add:'.length).trim();
-    }
-    return value;
-  }
+  // 搜索结果处理
+  const showSearchResults = props.friendKeyword.trim() || props.friendSearchResults.length > 0;
+  const searchResultEntries: FriendEntry[] = useMemo(
+    () =>
+      props.friendSearchResults.map((row) => ({
+        kind: 'friend' as const,
+        userId: row.userId,
+        username: row.username,
+        online: false,
+      })),
+    [props.friendSearchResults],
+  );
 
-  async function onCopyOwnCode(): Promise<void> {
-    try {
-      await navigator.clipboard.writeText(ownAddCode);
-      setQrHint('已复制加好友码');
-    } catch {
-      setQrHint('复制失败，请手动复制');
-    }
-  }
+  const displayEntries = showSearchResults ? searchResultEntries : filteredEntries;
 
-  async function onAddByCode(event: FormEvent<HTMLFormElement>): Promise<void> {
-    event.preventDefault();
-    const targetUserId = parseTargetFromCode(qrInput);
-    if (!targetUserId) {
-      setQrHint('请输入扫码结果或用户ID');
-      return;
-    }
-    if (targetUserId === currentUserId) {
-      setQrHint('不能添加自己');
-      return;
-    }
-    try {
-      await withPending(`request:${targetUserId}`, () => props.onRequestFriend(targetUserId));
-      setQrHint('好友申请已发送');
-      setQrInput('');
-    } catch {
-      setQrHint('添加失败，请检查扫码结果');
-    }
-  }
+  function renderContactCard(entry: FriendEntry, isActive: boolean): JSX.Element {
+    const isOnline = entry.kind === 'friend' && entry.online;
+    const hasNewBadge = entry.kind === 'incoming';
 
-  return (
-    <>
-      <section className="friend-panel card telegram-friends">
-      <header className="friend-head">
-        <div className="friend-head-left">
-          <div className="sidebar-nav-menu friend-nav-menu">
-            <NavMenuTrigger onClick={() => props.onNavDrawerOpen?.()} />
-          </div>
-          <div>
-            <p className="kicker">People</p>
-            <h3>好友中心</h3>
-          </div>
+    return (
+      <div
+        key={`${entry.kind}-${entry.userId}`}
+        className={cn(
+          'conversation-card flex items-center gap-3 p-3 h-[72px] rounded-xl cursor-pointer',
+          'transition-colors duration-150',
+          isActive
+            ? 'bg-primary text-primary-foreground'
+            : 'bg-card hover:bg-accent text-foreground',
+        )}
+        onClick={() => setSelectedUserId(entry.userId)}
+        role="button"
+        tabIndex={0}
+      >
+        {/* 头像 */}
+        <div className="relative shrink-0">
+          <Avatar className="h-10 w-10">
+            <AvatarFallback
+              className="text-sm font-semibold"
+              style={
+                isActive
+                  ? { background: 'white', color: 'var(--primary)' }
+                  : { background: `var(--avatar-gradient-${(getAvatarColorIndex(entry.username) % 5) + 1})` }
+              }
+            >
+              {getInitials(entry.username)}
+            </AvatarFallback>
+          </Avatar>
+          {/* 在线状态点 */}
+          {isOnline && !isActive && (
+            <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-success rounded-full border-2 border-card" />
+          )}
         </div>
-        <div className="friend-head-metrics">
-          <span className="friend-metric">好友 {friendCount}</span>
-          <span className="friend-metric">待处理 {incomingCount}</span>
-          <span className="friend-metric">黑名单 {blockedCount}</span>
-        </div>
-      </header>
 
-      <div className="friend-layout">
-        <aside className="friend-sidebar">
-          <form onSubmit={props.onSearch} className="friend-search">
-            <input
-              value={props.friendKeyword}
-              onChange={(e) => props.onKeywordChange(e.target.value)}
-              placeholder="搜索用户名/邮箱/手机号"
-            />
-            <button type="submit">查找</button>
-          </form>
-
-          <div className="friend-nav-list">
-            {entries.map((item) => (
-              <button
-                key={`${item.kind}-${item.userId}`}
-                type="button"
-                className={item.userId === selectedUserId ? 'friend-nav-item active' : 'friend-nav-item'}
-                onClick={() => setSelectedUserId(item.userId)}
-              >
-                <span className="avatar" style={{ background: `var(--avatar-gradient-${(getAvatarColorIndex(item.username) % 5) + 1})` }}>{getInitials(item.username)}</span>
-                <span className="friend-nav-main">
-                  <span>{item.username}</span>
-                  <small className="subtle">
-                    {item.kind === 'friend' ? (item.online ? '在线' : '离线') : item.kind === 'incoming' ? '待处理请求' : '黑名单'}
-                  </small>
-                </span>
-                {item.kind === 'incoming' ? <span className="friend-badge">新</span> : null}
-              </button>
-            ))}
-            {entries.length === 0 ? <p className="subtle friend-empty-note">暂无联系人数据，可先通过右侧搜索发起好友申请。</p> : null}
-          </div>
-        </aside>
-
-        <section className="friend-main">
-          <article className="friend-block friend-profile">
-            <h4>联系人详情</h4>
-            {!selectedEntry ? (
-              <p className="subtle">请选择左侧联系人</p>
-            ) : (
-              <div className="friend-profile-body">
-                <div className="friend-identity">
-                  <span className="avatar avatar-large" style={{ background: `var(--avatar-gradient-${(getAvatarColorIndex(selectedEntry.username) % 5) + 1})` }}>{getInitials(selectedEntry.username)}</span>
-                  <div>
-                    <strong>{selectedEntry.username}</strong>
-                    <small className="subtle mono">{selectedEntry.userId}</small>
-                  </div>
-                </div>
-                <div className="friend-actions">
-                  {selectedEntry.kind === 'incoming' ? (
-                    <>
-                      <button
-                        type="button"
-                        disabled={isPending(`respond:${selectedEntry.userId}`)}
-                        onClick={() => void withPending(`respond:${selectedEntry.userId}`, () => props.onRespondFriend(selectedEntry.userId, true))}
-                      >
-                        {isPending(`respond:${selectedEntry.userId}`) ? '处理中...' : '同意'}
-                      </button>
-                      <button
-                        type="button"
-                        className="ghost-btn"
-                        disabled={isPending(`respond:${selectedEntry.userId}`)}
-                        onClick={() => void withPending(`respond:${selectedEntry.userId}`, () => props.onRespondFriend(selectedEntry.userId, false))}
-                      >
-                        拒绝
-                      </button>
-                    </>
-                  ) : null}
-                  {selectedEntry.kind === 'friend' ? (
-                    <>
-                      <button
-                        type="button"
-                        disabled={isPending(`direct:${selectedEntry.userId}`)}
-                        onClick={() => void withPending(`direct:${selectedEntry.userId}`, () => props.onStartDirectConversation(selectedEntry.userId))}
-                      >
-                        {isPending(`direct:${selectedEntry.userId}`) ? '跳转中...' : '发消息'}
-                      </button>
-                      <button
-                        type="button"
-                        className="ghost-btn"
-                        disabled={isPending(`block:${selectedEntry.userId}`)}
-                        onClick={() => void withPending(`block:${selectedEntry.userId}`, () => props.onBlockUser(selectedEntry.userId))}
-                      >
-                        {isPending(`block:${selectedEntry.userId}`) ? '处理中...' : '拉黑'}
-                      </button>
-                    </>
-                  ) : null}
-                  {selectedEntry.kind === 'blocked' ? (
-                    <button
-                      type="button"
-                      disabled={isPending(`unblock:${selectedEntry.userId}`)}
-                      onClick={() => void withPending(`unblock:${selectedEntry.userId}`, () => props.onUnblockUser(selectedEntry.userId))}
-                    >
-                      {isPending(`unblock:${selectedEntry.userId}`) ? '处理中...' : '解除黑名单'}
-                    </button>
-                  ) : null}
-                </div>
-              </div>
+        {/* 中间内容 */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center justify-between gap-2">
+            <span
+              className={cn(
+                'font-semibold text-sm truncate',
+                isActive ? 'text-primary-foreground' : 'text-foreground',
+              )}
+            >
+              {entry.username}
+            </span>
+            {hasNewBadge && !isActive && (
+              <Badge variant="destructive" className="h-5 px-1.5 text-[10px]">
+                新
+              </Badge>
             )}
-          </article>
+          </div>
+          <div className="text-xs truncate">
+            <span
+              className={cn(
+                isActive ? 'text-primary-foreground/70' : 'text-muted-foreground',
+              )}
+            >
+              {entry.kind === 'friend'
+                ? isOnline
+                  ? '在线'
+                  : '离线'
+                : entry.kind === 'incoming'
+                  ? '待处理请求'
+                  : '黑名单'}
+            </span>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
-          <div className="friend-main-grid">
-            <article className="friend-block">
-              <h4>关系总览</h4>
-              <div className="friend-summary-grid">
-                <div className="friend-summary-item">
-                  <span className="friend-summary-value">{friendCount}</span>
-                  <span className="friend-summary-label">好友</span>
-                </div>
-                <div className="friend-summary-item">
-                  <span className="friend-summary-value">{incomingCount}</span>
-                  <span className="friend-summary-label">待处理</span>
-                </div>
-                <div className="friend-summary-item">
-                  <span className="friend-summary-value">{blockedCount}</span>
-                  <span className="friend-summary-label">黑名单</span>
-                </div>
-              </div>
-            </article>
+  function renderDetailPanel(): JSX.Element {
+    if (!selectedEntry) {
+      return (
+        <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
+          <span className="text-sm">请选择左侧联系人</span>
+        </div>
+      );
+    }
 
-            <article className="friend-block friend-qr">
-              <h4>二维码加好友</h4>
-              <div className="friend-qr-body">
-                <small className="subtle">我的加好友码（供二维码承载）</small>
-                <div className="friend-qr-code mono">{ownAddCode}</div>
-                <div className="friend-actions">
-                  <button type="button" onClick={() => void onCopyOwnCode()}>
-                    复制我的码
-                  </button>
-                </div>
-                <form className="friend-qr-form" onSubmit={onAddByCode}>
-                  <input
-                    value={qrInput}
-                    onChange={(e) => setQrInput(e.target.value)}
-                    placeholder="粘贴扫码结果（sc:add:...）或用户ID"
-                  />
-                  <button type="submit" disabled={isPending(`request:${parseTargetFromCode(qrInput)}`)}>
-                    {isPending(`request:${parseTargetFromCode(qrInput)}`) ? '添加中...' : '添加好友'}
-                  </button>
-                </form>
-                <small className="subtle">{qrHint || '可将我的加好友码生成二维码供对方扫码。'}</small>
+    return (
+      <div className="flex flex-col gap-6">
+        {/* 联系人详情卡片 */}
+        <div className="conversation-card p-6">
+          <div className="flex items-start gap-4">
+            {/* 大头像 */}
+            <Avatar className="h-14 w-14">
+              <AvatarFallback
+                className="text-lg font-semibold"
+                style={{
+                  background: `var(--avatar-gradient-${(getAvatarColorIndex(selectedEntry.username) % 5) + 1})`,
+                }}
+              >
+                {getInitials(selectedEntry.username)}
+              </AvatarFallback>
+            </Avatar>
+
+            {/* 用户信息 */}
+            <div className="flex-1 min-w-0">
+              <h3 className="font-semibold text-lg truncate">{selectedEntry.username}</h3>
+              <p className="text-xs text-muted-foreground font-mono mt-1">
+                {selectedEntry.userId}
+              </p>
+              <div className="flex items-center gap-2 mt-2">
+                {selectedEntry.kind === 'friend' && (
+                  <Badge variant="secondary">
+                    {selectedEntry.online ? '在线' : '离线'}
+                  </Badge>
+                )}
+                {selectedEntry.kind === 'incoming' && (
+                  <Badge variant="outline">待处理请求</Badge>
+                )}
+                {selectedEntry.kind === 'blocked' && (
+                  <Badge variant="destructive">黑名单</Badge>
+                )}
               </div>
-            </article>
+            </div>
           </div>
 
-          {props.incomingRequests.length > 0 ? (
-            <article className="friend-block">
-              <div className="friend-actions">
-                <h4>待处理申请</h4>
-                <button
-                  type="button"
-                  className="ghost-btn"
-                  disabled={isPending('bulk:reject')}
+          {/* 操作按钮 */}
+          <div className="flex gap-2 mt-6">
+            {selectedEntry.kind === 'incoming' && (
+              <>
+                <Button
+                  size="sm"
+                  disabled={isPending(`respond:${selectedEntry.userId}`)}
                   onClick={() =>
-                    void runBulk(
-                      'bulk:reject',
-                      props.incomingRequests.map((row) => row.requesterUserId),
-                      async (id) => props.onRespondFriend(id, false),
+                    void withPending(`respond:${selectedEntry.userId}`, () =>
+                      props.onRespondFriend(selectedEntry.userId, true),
                     )
                   }
                 >
-                  {isPending('bulk:reject') ? '批量处理中...' : '全部拒绝'}
-                </button>
-              </div>
-              <div className="friend-list">
-                {props.incomingRequests.map((item) => (
-                  <div key={item.requesterUserId} className="friend-row">
-                    <div>
-                      <div>{item.username}</div>
-                      <small className="subtle mono">{item.requesterUserId}</small>
-                    </div>
-                    <div className="friend-actions">
-                      <button
-                        type="button"
-                        disabled={isPending(`respond:${item.requesterUserId}`)}
-                        onClick={() =>
-                          void withPending(`respond:${item.requesterUserId}`, () => props.onRespondFriend(item.requesterUserId, true))
-                        }
-                      >
-                        {isPending(`respond:${item.requesterUserId}`) ? '处理中...' : '同意'}
-                      </button>
-                      <button
-                        type="button"
-                        className="ghost-btn"
-                        disabled={isPending(`respond:${item.requesterUserId}`)}
-                        onClick={() =>
-                          void withPending(`respond:${item.requesterUserId}`, () => props.onRespondFriend(item.requesterUserId, false))
-                        }
-                      >
-                        拒绝
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </article>
-          ) : null}
+                  {isPending(`respond:${selectedEntry.userId}`) ? '处理中...' : '同意'}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={isPending(`respond:${selectedEntry.userId}`)}
+                  onClick={() =>
+                    void withPending(`respond:${selectedEntry.userId}`, () =>
+                      props.onRespondFriend(selectedEntry.userId, false),
+                    )
+                  }
+                >
+                  拒绝
+                </Button>
+              </>
+            )}
+            {selectedEntry.kind === 'friend' && (
+              <>
+                <Button
+                  size="sm"
+                  disabled={isPending(`direct:${selectedEntry.userId}`)}
+                  onClick={() =>
+                    void withPending(`direct:${selectedEntry.userId}`, () =>
+                      props.onStartDirectConversation(selectedEntry.userId),
+                    )
+                  }
+                >
+                  {isPending(`direct:${selectedEntry.userId}`) ? '跳转中...' : '发消息'}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={isPending(`block:${selectedEntry.userId}`)}
+                  onClick={() =>
+                    void withPending(`block:${selectedEntry.userId}`, () =>
+                      props.onBlockUser(selectedEntry.userId),
+                    )
+                  }
+                >
+                  {isPending(`block:${selectedEntry.userId}`) ? '处理中...' : '拉黑'}
+                </Button>
+              </>
+            )}
+            {selectedEntry.kind === 'blocked' && (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={isPending(`unblock:${selectedEntry.userId}`)}
+                onClick={() =>
+                  void withPending(`unblock:${selectedEntry.userId}`, () =>
+                    props.onUnblockUser(selectedEntry.userId),
+                  )
+                }
+              >
+                {isPending(`unblock:${selectedEntry.userId}`) ? '处理中...' : '解除黑名单'}
+              </Button>
+            )}
+          </div>
+        </div>
 
-          {props.friendKeyword.trim() || props.friendSearchResults.length > 0 ? (
-            <article className="friend-block">
-              <h4>搜索结果</h4>
-              <div className="friend-list">
-                {props.friendSearchResults.map((item) => (
-                  <div key={item.userId} className="friend-row">
-                    <div>
-                      <div>{item.username}</div>
-                      <small className="subtle mono">{item.userId}</small>
-                    </div>
-                    <div className="friend-actions">
-                      <button
-                        type="button"
-                        disabled={item.relation !== 'none' || isPending(`request:${item.userId}`)}
-                        onClick={() =>
-                          void withPending(`request:${item.userId}`, () => props.onRequestFriend(item.userId)).catch(() => {})
-                        }
-                      >
-                        {isPending(`request:${item.userId}`) ? '处理中...' : relationActionLabel(item.relation)}
-                      </button>
-                      <button
-                        type="button"
-                        className="ghost-btn"
-                        disabled={isPending(`block:${item.userId}`)}
-                        onClick={() => void withPending(`block:${item.userId}`, () => props.onBlockUser(item.userId))}
-                      >
-                        {isPending(`block:${item.userId}`) ? '处理中...' : '拉黑'}
-                      </button>
-                    </div>
-                  </div>
-                ))}
-                {props.friendSearchResults.length === 0 ? <p className="subtle">暂无搜索结果</p> : null}
-              </div>
-            </article>
-          ) : null}
-        </section>
+        {/* 关系总览 */}
+        <div className="conversation-card p-4">
+          <h4 className="text-sm font-medium mb-3">关系总览</h4>
+          <div className="grid grid-cols-3 gap-4">
+            <div className="flex flex-col items-center">
+              <span className="text-2xl font-bold">{props.friends.length}</span>
+              <span className="text-xs text-muted-foreground">好友</span>
+            </div>
+            <div className="flex flex-col items-center">
+              <span className="text-2xl font-bold">{props.incomingRequests.length}</span>
+              <span className="text-xs text-muted-foreground">待处理</span>
+            </div>
+            <div className="flex flex-col items-center">
+              <span className="text-2xl font-bold">{props.blockedUsers.length}</span>
+              <span className="text-xs text-muted-foreground">黑名单</span>
+            </div>
+          </div>
+        </div>
       </div>
-    </section>
-    </>
+    );
+  }
+
+  return (
+    <div className="flex h-screen">
+      {/* 左侧列表区 */}
+      <aside className="flex flex-col w-[280px] min-w-[280px] h-screen bg-sidebar-background">
+        {/* 顶部导航 */}
+        <header className="h-14 px-3 flex items-center gap-3 border-b border-border">
+          <NavMenuTrigger onClick={() => props.onNavDrawerOpen?.()} />
+          <span className="font-semibold text-sm">好友中心</span>
+        </header>
+
+        {/* 搜索框 */}
+        <div className="px-3 py-2">
+          <form onSubmit={props.onSearch}>
+            <div className="search-shell flex-1 flex items-center gap-2 bg-search-bg rounded-2xl px-3 h-9">
+              <span className="material-symbols-rounded text-base text-muted-foreground shrink-0">search</span>
+              <Input
+                value={props.friendKeyword}
+                onChange={(e) => props.onKeywordChange(e.target.value)}
+                placeholder="搜索"
+                className="flex-1 bg-transparent border-none outline-none text-sm h-8"
+              />
+            </div>
+          </form>
+        </div>
+
+        {/* Tab 导航 */}
+        <div className="px-3 pb-2 flex gap-1">
+          {tabs.map((tab) => (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              className={cn(
+                'flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors',
+                activeTab === tab.key
+                  ? 'bg-primary text-primary-foreground'
+                  : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+              )}
+            >
+              <span>{tab.label}</span>
+              {tab.count > 0 && (
+                <span
+                  className={cn(
+                    'text-[10px] px-1.5 py-0.5 rounded-full',
+                    activeTab === tab.key
+                      ? 'bg-primary-foreground/20'
+                      : 'bg-muted',
+                  )}
+                >
+                  {tab.count}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+
+        {/* 联系人列表 */}
+        <div className="flex-1 overflow-y-auto px-3 pb-3">
+          {showSearchResults ? (
+            // 搜索结果模式
+            <div className="flex flex-col gap-1">
+              {props.friendSearchResults.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-32 text-muted-foreground text-sm">
+                  <span>暂无搜索结果</span>
+                </div>
+              ) : (
+                searchResultEntries.map((entry) =>
+                  renderContactCard(entry, entry.userId === selectedUserId),
+                )
+              )}
+            </div>
+          ) : displayEntries.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-32 text-muted-foreground text-sm">
+              <span>暂无{activeTab === 'friends' ? '好友' : activeTab === 'pending' ? '待处理请求' : '黑名单'}</span>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-1">
+              {displayEntries.map((entry) =>
+                renderContactCard(entry, entry.userId === selectedUserId),
+              )}
+            </div>
+          )}
+        </div>
+      </aside>
+
+      {/* 右侧详情区 */}
+      <section className="flex-1 border-l border-border overflow-y-auto">
+        <div className="p-6">{renderDetailPanel()}</div>
+      </section>
+    </div>
   );
 }
