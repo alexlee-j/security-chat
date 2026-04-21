@@ -80,8 +80,6 @@ import {
   getRememberPassword,
   getAutoLogin,
   setAutoLogin,
-  clearAutoLogin,
-  clearAllAuthData,
   getDeviceIdForAccount,
   setDeviceIdForAccount,
 } from './auth-storage';
@@ -420,15 +418,15 @@ export function useChatClient(): {
     try {
       let decrypted: string;
       const isGroupConversation = conversations.find((c) => c.conversationId === conversationId)?.type === 2;
+      const isSignalEnvelopePayload = payload.trim().startsWith('{');
 
       // 群聊：优先走 Rust Sender Key 解密路径
       if (isGroupConversation && signalState.initialized && senderId && conversationId) {
         await ensureGroupSessionSynced(conversationId);
         decrypted = await signalActions.decryptGroupMessage(conversationId, payload);
       } else if (signalState.initialized && senderId) {
-        // 尝试使用 Signal 直聊解密
-        // 如果是自己发送的消息，跳过Signal解密，使用默认解密
-        if (senderId === authRef.current?.userId) {
+        // 旧版自己发送消息仍可能是 Base64 payload；v2 self-envelope 必须走 Rust 解密。
+        if (senderId === authRef.current?.userId && !isSignalEnvelopePayload) {
           decrypted = decodePayloadApi(payload);
         } else {
           // Rust-only 模式：sourceDeviceId 是必填的，不再接受 '1' 作为回退
@@ -1334,41 +1332,16 @@ export function useChatClient(): {
     setAuthToken(null);
     setAuth(null);
     setAuthMode('login');
-    setAccount('');
     setRegisterEmail('');
     setLoginCode('');
     setCodeHint('');
     setAuthSubmitting(false);
     setSendingLoginCode(false);
     setLoginCodeCooldown(0);
-    setPassword('');
-    setRememberPasswordState(false);
-    setAutoLoginState(false);
     setError('');
     // 清除加密密钥
     clearEncryptionKey();
-    
-    // 清除认证相关的 localStorage，但保留 Signal 密钥和会话
-    const signalKeys: Record<string, string> = {};
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      // 保留所有 Signal 相关的密钥和会话
-      if (key && (
-        key.includes('security-chat-identity') || 
-        key.includes('security-chat-signed') || 
-        key.includes('security-chat-oneTime') ||
-        key.includes('security-chat-session') ||
-        key.includes('security-chat-registrationId')
-      )) {
-        signalKeys[key] = localStorage.getItem(key)!;
-      }
-    }
-    localStorage.clear();
-    // 恢复 Signal 密钥
-    Object.keys(signalKeys).forEach(key => {
-      localStorage.setItem(key, signalKeys[key]);
-    });
-    
+
     setConversations([]);
     setActiveConversationId('');
     setMessages([]);
@@ -1400,8 +1373,17 @@ export function useChatClient(): {
     setMutedConversationIds([]);
     saveConversationPrefSnapshot({ pinned: [], muted: [] });
 
-    // 清除记住密码和自动登录凭证
-    await clearAllAuthData();
+    // 退出登录只结束当前会话，不清除用户主动选择的记住密码/自动登录偏好。
+    const [rememberPref, autoLoginConfig, storedCredentials] = await Promise.all([
+      getRememberPassword().catch(() => false),
+      getAutoLogin().catch(() => null),
+      getStoredCredentials().catch(() => null),
+    ]);
+    const nextAutoLogin = Boolean(autoLoginConfig?.enabled && rememberPref);
+    setRememberPasswordState(Boolean(rememberPref));
+    setAutoLoginState(nextAutoLogin);
+    setAccount(rememberPref ? (storedCredentials?.account ?? '') : '');
+    setPassword(rememberPref ? (storedCredentials?.encryptedPassword ?? '') : '');
   }
 
   /**
