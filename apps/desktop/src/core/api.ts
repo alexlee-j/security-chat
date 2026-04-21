@@ -158,6 +158,7 @@ type EncodedPayload = {
   text?: string;
   mediaUrl?: string;
   fileName?: string;
+  media?: unknown;
   replyTo?: {
     messageId: string;
     senderId: string;
@@ -396,14 +397,18 @@ export async function sendMessageV2(input: SendMessageV2Input): Promise<{ messag
 export async function uploadMedia(
   file: File,
   mediaKind?: 2 | 3 | 4,
-): Promise<{ mediaAssetId: string; mediaKind: number; mimeType: string; fileSize: number; sha256: string; createdAt: string }> {
+  encryptionVersion?: 0 | 1,
+): Promise<{ mediaAssetId: string; mediaKind: number; mimeType: string; fileSize: number; sha256: string; encryptionVersion: number; createdAt: string }> {
   const formData = new FormData();
   formData.append('file', file);
   if (mediaKind) {
     formData.append('mediaKind', String(mediaKind));
   }
+  if (encryptionVersion !== undefined) {
+    formData.append('encryptionVersion', String(encryptionVersion));
+  }
   const res = await http.post<
-    ApiEnvelope<{ mediaAssetId: string; mediaKind: number; mimeType: string; fileSize: number; sha256: string; createdAt: string }>
+    ApiEnvelope<{ mediaAssetId: string; mediaKind: number; mimeType: string; fileSize: number; sha256: string; encryptionVersion: number; createdAt: string }>
   >('/media/upload', formData, {
     headers: { 'content-type': 'multipart/form-data' },
   });

@@ -25,9 +25,10 @@ export class MediaController {
     mimeType: string;
     fileSize: number;
     sha256: string;
+    encryptionVersion: number;
     createdAt: string;
   }> {
-    return this.mediaService.upload(user.userId, file, dto.mediaKind);
+    return this.mediaService.upload(user.userId, file, dto.mediaKind, dto.encryptionVersion);
   }
 
   @Post(':mediaAssetId/attach')
@@ -58,6 +59,7 @@ export class MediaController {
     mimeType: string;
     fileSize: number;
     sha256: string;
+    encryptionVersion: number;
     originalName: string;
     conversationId: string | null;
     createdAt: string;

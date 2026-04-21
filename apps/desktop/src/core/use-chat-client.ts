@@ -50,6 +50,15 @@ import {
   wsBaseUrl,
 } from './api';
 import { clearEncryptionKey } from './crypto';
+import {
+  EncryptedMediaPayload,
+  decryptMediaBlob,
+  encryptMediaFile,
+  isEncryptedMediaPayload,
+} from './media-crypto';
+import {
+  buildLegacyMediaFields,
+} from './media-message';
 import { LocalConversation, useLocalDb } from './use-local-db';
 import {
   AuthState,
@@ -321,6 +330,7 @@ export function useChatClient(): {
   const messageCursorRef = useRef<Record<string, number>>({});  // 消息游标引用
   const fallbackPollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);  // 轮询定时器
   const pendingMediaAssetIdRef = useRef<string | null>(null);  // 待上传媒体ID
+  const pendingEncryptedMediaRef = useRef<EncryptedMediaPayload | null>(null);
   const mediaUploadTokenRef = useRef(0);
   const messageDraftRef = useRef<Record<string, string>>({});  // 消息草稿引用
   const autoBurnPendingRef = useRef<Set<string>>(new Set());   // 待焚毁消息集合
@@ -1380,6 +1390,7 @@ export function useChatClient(): {
     setFriends([]);
     setBlockedUsers([]);
     pendingMediaAssetIdRef.current = null;
+    pendingEncryptedMediaRef.current = null;
     messageCursorRef.current = {};
     saveMessageCursorSnapshot({});
     messageDraftRef.current = {};
@@ -1496,11 +1507,18 @@ export function useChatClient(): {
       return;
     }
     if (messageType !== 1 && !pendingMediaAssetIdRef.current) {
-      setError('请先通过附件按钮上传媒体文件。');
+      setError('');
+      showToast('请先通过附件按钮上传媒体文件。', 'error');
+      return;
+    }
+    if (messageType !== 1 && !pendingEncryptedMediaRef.current) {
+      setError('');
+      showToast('媒体加密信息缺失，请重新选择附件。', 'error');
       return;
     }
     if (mediaUploading) {
-      setError('媒体上传中，请稍候再发送。');
+      setError('');
+      showToast('媒体上传中，请稍候再发送。', 'info');
       return;
     }
 
@@ -1510,6 +1528,12 @@ export function useChatClient(): {
       messagesRef.current.reduce((max, row) => Math.max(max, Number(row.messageIndex) || 0), 0) + 1,
     );
 
+    const mediaPayload = messageType === 1 ? undefined : pendingEncryptedMediaRef.current ?? undefined;
+    const legacyMediaFields = buildLegacyMediaFields(messageType, {
+      media: mediaPayload,
+      mediaUrl,
+      fileName: mediaUrl,
+    });
     setSendingMessage(true);
     setMessages((prev) => [
       ...prev,
@@ -1521,8 +1545,9 @@ export function useChatClient(): {
         encryptedPayload: btoa(unescape(encodeURIComponent(JSON.stringify({
           type: messageType,
           text: text || undefined,
-          mediaUrl: messageType === 1 ? undefined : mediaUrl.trim() || undefined,
-          fileName: messageType === 4 ? (mediaUrl.trim() || 'file') : undefined,
+          media: mediaPayload,
+          mediaUrl: legacyMediaFields.mediaUrl,
+          fileName: legacyMediaFields.fileName,
           replyTo: replyToMessage
             ? {
                 messageId: replyToMessage.id,
@@ -1565,11 +1590,17 @@ export function useChatClient(): {
         : undefined;
 
       // 构建消息内容
+      const legacyMessageFields = buildLegacyMediaFields(messageType, {
+        media: mediaPayload,
+        mediaUrl,
+        fileName: mediaUrl,
+      });
       const messageContent = {
         type: messageType,
         text: text || undefined,
-        mediaUrl: messageType === 1 ? undefined : mediaUrl.trim() || undefined,
-        fileName: messageType === 4 ? (mediaUrl.trim() || 'file') : undefined,
+        media: mediaPayload,
+        mediaUrl: legacyMessageFields.mediaUrl,
+        fileName: legacyMessageFields.fileName,
         replyTo,
       };
 
@@ -1611,8 +1642,11 @@ export function useChatClient(): {
           messageType,
           text: '',
           nonce,
-          mediaUrl: messageType === 1 ? undefined : mediaUrl.trim() || undefined,
-          fileName: messageType === 4 ? (mediaUrl.trim() || 'file') : undefined,
+          ...buildLegacyMediaFields(messageType, {
+            media: mediaPayload,
+            mediaUrl,
+            fileName: mediaUrl,
+          }),
           mediaAssetId: messageType === 1 ? undefined : pendingMediaAssetIdRef.current ?? undefined,
           isBurn: isBurnForThisMessage,
           burnDuration: isBurnForThisMessage ? burnDuration : undefined,
@@ -1682,6 +1716,11 @@ export function useChatClient(): {
           messageType,
           nonce,
           envelopes,
+          ...buildLegacyMediaFields(messageType, {
+            media: mediaPayload,
+            mediaUrl,
+            fileName: mediaUrl,
+          }),
           mediaAssetId: messageType === 1 ? undefined : pendingMediaAssetIdRef.current ?? undefined,
           isBurn: isBurnForThisMessage,
           burnDuration: isBurnForThisMessage ? burnDuration : undefined,
@@ -1707,6 +1746,7 @@ export function useChatClient(): {
       }
       setMediaUrl('');
       pendingMediaAssetIdRef.current = null;
+      pendingEncryptedMediaRef.current = null;
       handleMessageTypeChange(1);
       setTypingHint('');
       setError('');
@@ -1767,7 +1807,8 @@ export function useChatClient(): {
 
   async function onAttachMedia(file: File): Promise<void> {
     if (!activeConversationIdRef.current) {
-      setError('请先选择会话。');
+      setError('');
+      showToast('请先选择会话。', 'error');
       return;
     }
 
@@ -1783,18 +1824,25 @@ export function useChatClient(): {
     setMediaUploading(true);
     setError('');
     try {
-      const uploaded = await uploadMedia(file, nextType);
+      const encrypted = await encryptMediaFile(file);
+      const uploaded = await uploadMedia(encrypted.encryptedFile, nextType, 1);
       if (mediaUploadTokenRef.current !== uploadToken) {
         return;
       }
       pendingMediaAssetIdRef.current = uploaded.mediaAssetId;
+      pendingEncryptedMediaRef.current = {
+        ...encrypted.media,
+        assetId: uploaded.mediaAssetId,
+      };
     } catch {
       if (mediaUploadTokenRef.current !== uploadToken) {
         return;
       }
       pendingMediaAssetIdRef.current = null;
+      pendingEncryptedMediaRef.current = null;
       setMediaUrl('');
-      setError('媒体上传失败，请重试。');
+      setError('');
+      showToast('媒体上传失败，请重试。', 'error');
     } finally {
       if (mediaUploadTokenRef.current === uploadToken) {
         setMediaUploading(false);
@@ -1805,6 +1853,7 @@ export function useChatClient(): {
   function onCancelMediaAttachment(): void {
     mediaUploadTokenRef.current += 1;
     pendingMediaAssetIdRef.current = null;
+    pendingEncryptedMediaRef.current = null;
     setMediaUploading(false);
     setMediaUrl('');
     handleMessageTypeChange(1);
@@ -1829,7 +1878,22 @@ export function useChatClient(): {
       return null;
     }
     try {
-      const blob = await downloadMedia(message.mediaAssetId);
+      const downloadedBlob = await downloadMedia(message.mediaAssetId);
+      const decoded = await decodePayload(
+        message.encryptedPayload,
+        message.senderId,
+        message.sourceDeviceId,
+        message.conversationId,
+      );
+      let media: unknown;
+      try {
+        media = (JSON.parse(decoded) as { media?: unknown }).media;
+      } catch {
+        media = undefined;
+      }
+      const blob = isEncryptedMediaPayload(media)
+        ? await decryptMediaBlob(downloadedBlob, media)
+        : downloadedBlob;
       return URL.createObjectURL(blob);
     } catch {
       // 媒体下载失败，不设置全局错误状态，避免影响其他会话
@@ -2028,13 +2092,31 @@ export function useChatClient(): {
         throw new Error('文本消息缺少可转发内容');
       }
 
+      let forwardedMediaAssetId: string | undefined;
+      let forwardedMediaPayload: EncryptedMediaPayload | undefined;
+      if (messageType !== 1 && originalMessage.mediaAssetId) {
+        const { copyMediaAsset } = await import('./api');
+        const copied = await copyMediaAsset(originalMessage.mediaAssetId, targetConversationId);
+        forwardedMediaAssetId = copied.mediaAssetId;
+        if (isEncryptedMediaPayload(originalPayload.media)) {
+          forwardedMediaPayload = {
+            ...originalPayload.media,
+            assetId: copied.mediaAssetId,
+          };
+        }
+      }
+
       // 构建消息内容（保留原消息的 type 和媒体信息）
       // 注意：媒体消息不包含 mediaUrl，因为媒体已复制到新 asset，mediaAssetId 会独立传递
       const messageContent = {
         type: messageType,
         text: messageType === 1 ? normalizedText : undefined,
-        mediaUrl: messageType === 1 && typeof originalPayload.mediaUrl === 'string' ? originalPayload.mediaUrl : undefined,
-        fileName: typeof originalPayload.fileName === 'string' ? originalPayload.fileName : undefined,
+        media: forwardedMediaPayload,
+        ...buildLegacyMediaFields(messageType, {
+          media: forwardedMediaPayload,
+          mediaUrl: typeof originalPayload.mediaUrl === 'string' ? originalPayload.mediaUrl : undefined,
+          fileName: typeof originalPayload.fileName === 'string' ? originalPayload.fileName : undefined,
+        }),
         replyTo: undefined,
       };
       const messageText = JSON.stringify(messageContent);
@@ -2076,14 +2158,6 @@ export function useChatClient(): {
       // 缓存明文
       for (const envelope of envelopes) {
         payloadCacheRef.current.set(envelope.encryptedPayload, messageText);
-      }
-
-      // 对于媒体消息，需要先复制媒体资产到目标会话
-      let forwardedMediaAssetId: string | undefined;
-      if (messageType !== 1 && originalMessage.mediaAssetId) {
-        const { copyMediaAsset } = await import('./api');
-        const copied = await copyMediaAsset(originalMessage.mediaAssetId, targetConversationId);
-        forwardedMediaAssetId = copied.mediaAssetId;
       }
 
       // 调用 send-v2 接口
@@ -2251,6 +2325,7 @@ export function useChatClient(): {
     if (value === 1) {
       setMediaUrl('');
       pendingMediaAssetIdRef.current = null;
+      pendingEncryptedMediaRef.current = null;
     }
     if (value === 4 && burnEnabled) {
       setBurnEnabled(false);
@@ -2267,6 +2342,7 @@ export function useChatClient(): {
   function handleMediaUrlChange(value: string): void {
     setMediaUrl(value);
     pendingMediaAssetIdRef.current = null;
+    pendingEncryptedMediaRef.current = null;
   }
 
   /**

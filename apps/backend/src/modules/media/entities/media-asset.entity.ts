@@ -31,6 +31,9 @@ export class MediaAsset {
   @Column({ name: 'sha256', type: 'char', length: 64 })
   sha256!: string;
 
+  @Column({ name: 'encryption_version', type: 'smallint', default: 0 })
+  encryptionVersion!: number;
+
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt!: Date;
 }

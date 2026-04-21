@@ -9,6 +9,7 @@ mod signal;
 mod api;
 mod db;
 mod crypto;
+mod file_commands;
 
 use api::commands::{
     AppState,
@@ -38,6 +39,11 @@ use db::commands::{
     keychain_retrieve,
     keychain_delete,
 };
+use crypto::media::{
+    decrypt_media_command,
+    encrypt_media_command,
+};
+use file_commands::save_and_open_file_command;
 use std::path::PathBuf;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -84,6 +90,9 @@ pub fn run() {
             keychain_store,
             keychain_retrieve,
             keychain_delete,
+            encrypt_media_command,
+            decrypt_media_command,
+            save_and_open_file_command,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

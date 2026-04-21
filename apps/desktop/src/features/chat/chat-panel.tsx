@@ -11,9 +11,21 @@
 import { FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as React from 'react';
 import { ConversationListItem, MessageItem } from '../../core/types';
+import { isEncryptedMediaPayload } from '../../core/media-crypto';
+import { saveAndOpenFile } from '../../core/native-file';
+import {
+  MediaMessagePayload,
+  formatMediaSize,
+  isVideoMediaPayload,
+  resolveLegacyMediaUrl,
+  resolveMediaBubbleContent,
+  resolveMediaFileName,
+  resolveMediaMimeType,
+  resolveMediaSize,
+} from '../../core/media-message';
 import { TopBar } from './top-bar';
 import { ChatMoreMenu } from './chat-more-menu';
-import { MessageBubble } from './message-bubble';
+import { MessageBubble, MediaErrorType } from './message-bubble';
 import { MessageContextMenu } from './message-context-menu';
 import { EmojiPicker } from './emoji-picker';
 import { Button } from '@/components/ui/button';
@@ -85,20 +97,7 @@ const QUICK_EMOJIS = ['😀', '😂', '😍', '😎', '🤔', '😭', '👍', '�
 /**
  * Payload 数据结构 - 消息内容解析后的格式
  */
-type PayloadData = {
-  /** 文本内容 */
-  text?: string;
-  /** 媒体文件URL */
-  mediaUrl?: string;
-  /** 文件名 */
-  fileName?: string;
-  /** 引用的消息信息 */
-  replyTo?: {
-    messageId: string;
-    senderId: string;
-    text: string;
-  };
-};
+type PayloadData = MediaMessagePayload;
 
 /**
  * 格式化时间戳为本地时间字符串
@@ -167,8 +166,8 @@ function buildSearchText(row: MessageItem, payload: PayloadData): string {
   return [
     getTypeLabel(row.messageType),
     payload.text ?? '',
-    payload.mediaUrl ?? '',
-    payload.fileName ?? '',
+    resolveLegacyMediaUrl(payload) ?? '',
+    resolveMediaFileName(payload, ''),
     row.messageIndex,
   ]
     .join(' ')
@@ -182,7 +181,7 @@ function buildSearchText(row: MessageItem, payload: PayloadData): string {
  * @returns 截断后的摘要文本
  */
 function buildSearchSnippet(payload: PayloadData, maxLength = 36): string {
-  const source = [payload.text ?? '', payload.fileName ?? '', payload.mediaUrl ?? '']
+  const source = [payload.text ?? '', resolveMediaFileName(payload, ''), resolveLegacyMediaUrl(payload) ?? '']
     .join(' ')
     .trim();
   if (!source) {
@@ -208,7 +207,7 @@ function getCopyableText(message: MessageItem, payload: PayloadData): string {
   if (text) {
     return text;
   }
-  const fileName = payload.fileName?.trim();
+  const fileName = resolveMediaFileName(payload, '').trim();
   if (fileName) {
     return fileName;
   }
@@ -276,6 +275,8 @@ export function ChatPanel(props: Props): JSX.Element {
   const [imagePreviewOpen, setImagePreviewOpen] = useState(false);
   const [imagePreviewSrc, setImagePreviewSrc] = useState('');
   const [imageSourceMap, setImageSourceMap] = useState<Record<string, string>>({});
+  /** 媒体错误状态映射：消息ID -> 错误类型 */
+  const [mediaErrorMap, setMediaErrorMap] = useState<Record<string, MediaErrorType>>({});
   // 附件预览状态
   const [pendingAttachment, setPendingAttachment] = useState<{ file: File; previewUrl: string } | null>(null);
   // 图片懒加载 - 追踪哪些图片应该在视口内加载
@@ -300,6 +301,11 @@ export function ChatPanel(props: Props): JSX.Element {
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const composerFormRef = useRef<HTMLFormElement | null>(null);
   const stickToBottomRef = useRef(true);
+  const imagePreviewUrlRef = useRef<string | null>(null);
+  const audioElementRef = useRef<HTMLAudioElement | null>(null);
+  const audioObjectUrlRef = useRef<string | null>(null);
+  const audioSourceMapRef = useRef<Record<string, string>>({});
+  const imageSourceMapRef = useRef<Record<string, string>>({});
 
   const searchResults = useMemo(() => {
     const keyword = searchKeyword.trim().toLowerCase();
@@ -397,22 +403,44 @@ export function ChatPanel(props: Props): JSX.Element {
     props.onMessageTextChange(`${props.messageText}${emoji}`);
   }
 
-  useEffect(() => {
-    return () => {
-      for (const source of Object.values(audioSourceMap)) {
-        if (source.startsWith('blob:')) {
-          URL.revokeObjectURL(source);
-        }
+  function revokeMediaObjectUrls(): void {
+    for (const source of Object.values(audioSourceMapRef.current)) {
+      if (source.startsWith('blob:')) {
+        URL.revokeObjectURL(source);
       }
-      for (const source of Object.values(imageSourceMap)) {
-        if (source.startsWith('blob:')) {
-          URL.revokeObjectURL(source);
-        }
+    }
+    for (const source of Object.values(imageSourceMapRef.current)) {
+      if (source.startsWith('blob:')) {
+        URL.revokeObjectURL(source);
       }
-    };
-  }, [audioSourceMap, imageSourceMap]);
+    }
+    if (imagePreviewUrlRef.current?.startsWith('blob:')) {
+      URL.revokeObjectURL(imagePreviewUrlRef.current);
+      imagePreviewUrlRef.current = null;
+    }
+    if (audioObjectUrlRef.current?.startsWith('blob:')) {
+      URL.revokeObjectURL(audioObjectUrlRef.current);
+      audioObjectUrlRef.current = null;
+    }
+    audioElementRef.current?.pause();
+  }
 
   useEffect(() => {
+    audioSourceMapRef.current = audioSourceMap;
+  }, [audioSourceMap]);
+
+  useEffect(() => {
+    imageSourceMapRef.current = imageSourceMap;
+  }, [imageSourceMap]);
+
+  useEffect(() => {
+    return () => {
+      revokeMediaObjectUrls();
+    };
+  }, []);
+
+  useEffect(() => {
+    revokeMediaObjectUrls();
     setSearchKeyword('');
     setFocusedMessageId('');
     setSearchOpen(false);
@@ -422,6 +450,7 @@ export function ChatPanel(props: Props): JSX.Element {
     setImagePreviewOpen(false);
     setImagePreviewSrc('');
     setVisibleImageIds(new Set());
+    setMediaErrorMap({});
     setDisplayedMessageCount(50);
     stickToBottomRef.current = true;
     window.requestAnimationFrame(() => {
@@ -614,58 +643,187 @@ export function ChatPanel(props: Props): JSX.Element {
   }, [visibleMessages, handleBurnComplete]);
 
   async function prepareAudioSource(row: MessageItem, payload: PayloadData): Promise<void> {
-    if (audioSourceMap[row.id]) {
+    if (audioSourceMap[row.id] || mediaErrorMap[row.id]) {
       return;
     }
     const resolved = await props.onResolveMediaUrl(row);
     if (resolved) {
       setAudioSourceMap((prev) => ({ ...prev, [row.id]: resolved }));
+      // 清除之前的错误状态
+      if (mediaErrorMap[row.id]) {
+        setMediaErrorMap((prev) => {
+          const next = { ...prev };
+          delete next[row.id];
+          return next;
+        });
+      }
       return;
     }
-    const fallback = (payload.mediaUrl ?? '').trim();
+    const fallback = resolveLegacyMediaUrl(payload);
     if (fallback) {
       setAudioSourceMap((prev) => ({ ...prev, [row.id]: fallback }));
+      return;
+    }
+    // 设置媒体错误状态
+    const hasEncryptedMedia = isEncryptedMediaPayload(payload.media);
+    const hasLegacyMedia = Boolean(resolveLegacyMediaUrl(payload));
+    if (hasEncryptedMedia) {
+      // 有加密媒体元数据但解析失败，推断为解密失败
+      setMediaErrorMap((prev) => ({ ...prev, [row.id]: 'decrypt_failed' }));
+    } else if (!hasLegacyMedia && row.mediaAssetId) {
+      // 有 mediaAssetId 但没有加密媒体也没有 legacy URL，元数据可能损坏
+      setMediaErrorMap((prev) => ({ ...prev, [row.id]: 'metadata_missing' }));
+    } else if (!hasLegacyMedia) {
+      // 旧版媒体不可用（既没有加密媒体也没有 legacy URL）
+      setMediaErrorMap((prev) => ({ ...prev, [row.id]: 'legacy_unavailable' }));
     }
   }
 
   async function prepareImageSource(row: MessageItem, payload: PayloadData): Promise<void> {
-    if (imageSourceMap[row.id]) {
+    if (imageSourceMap[row.id] || mediaErrorMap[row.id]) {
       return;
     }
     const resolved = await props.onResolveMediaUrl(row);
     if (resolved) {
       setImageSourceMap((prev) => ({ ...prev, [row.id]: resolved }));
+      // 清除之前的错误状态
+      if (mediaErrorMap[row.id]) {
+        setMediaErrorMap((prev) => {
+          const next = { ...prev };
+          delete next[row.id];
+          return next;
+        });
+      }
       return;
     }
-    const fallback = (payload.mediaUrl ?? '').trim();
+    const fallback = resolveLegacyMediaUrl(payload);
     if (fallback) {
       setImageSourceMap((prev) => ({ ...prev, [row.id]: fallback }));
-    }
-  }
-
-  function openMediaMessage(row: MessageItem, payload: PayloadData): void {
-    if (row.messageType === 3) {
-      void prepareAudioSource(row, payload);
       return;
     }
-    void props.onOpenMedia(row);
-    if (row.mediaAssetId) {
-      return;
+    // 设置媒体错误状态
+    const hasEncryptedMedia = isEncryptedMediaPayload(payload.media);
+    const hasLegacyMedia = Boolean(resolveLegacyMediaUrl(payload));
+    if (hasEncryptedMedia) {
+      // 有加密媒体元数据但解析失败，推断为解密失败
+      setMediaErrorMap((prev) => ({ ...prev, [row.id]: 'decrypt_failed' }));
+    } else if (!hasLegacyMedia && row.mediaAssetId) {
+      // 有 mediaAssetId 但没有加密媒体也没有 legacy URL，元数据可能损坏
+      setMediaErrorMap((prev) => ({ ...prev, [row.id]: 'metadata_missing' }));
+    } else if (!hasLegacyMedia) {
+      // 旧版媒体不可用（既没有加密媒体也没有 legacy URL）
+      setMediaErrorMap((prev) => ({ ...prev, [row.id]: 'legacy_unavailable' }));
     }
-    const mediaUrl = (payload.mediaUrl ?? '').trim();
-    if (mediaUrl) {
-      window.open(mediaUrl, '_blank', 'noopener,noreferrer');
-    }
-  }
-
-  function openImagePreview(mediaUrl: string): void {
-    setImagePreviewSrc(mediaUrl);
-    setImagePreviewOpen(true);
   }
 
   function closeImagePreview(): void {
+    if (imagePreviewUrlRef.current?.startsWith('blob:')) {
+      URL.revokeObjectURL(imagePreviewUrlRef.current);
+    }
+    imagePreviewUrlRef.current = null;
     setImagePreviewOpen(false);
     setImagePreviewSrc('');
+  }
+
+  async function openImagePreview(row: MessageItem, payload: PayloadData): Promise<void> {
+    if (row.messageType !== 2) {
+      return;
+    }
+    await props.onReadMessageOnce(row);
+    const resolved = await props.onResolveMediaUrl(row);
+    const nextPreview = resolved || resolveLegacyMediaUrl(payload);
+    if (!nextPreview) {
+      // 设置媒体错误状态
+      const hasEncryptedMedia = isEncryptedMediaPayload(payload.media);
+      const hasLegacyMedia = Boolean(resolveLegacyMediaUrl(payload));
+      if (hasEncryptedMedia) {
+        setMediaErrorMap((prev) => ({ ...prev, [row.id]: 'decrypt_failed' }));
+        showToast('图片解密失败', 'error');
+      } else if (!hasLegacyMedia && row.mediaAssetId) {
+        setMediaErrorMap((prev) => ({ ...prev, [row.id]: 'metadata_missing' }));
+        showToast('图片元数据缺失', 'error');
+      } else {
+        setMediaErrorMap((prev) => ({ ...prev, [row.id]: 'legacy_unavailable' }));
+        showToast('图片加载失败', 'error');
+      }
+      return;
+    }
+    // 清除错误状态
+    if (mediaErrorMap[row.id]) {
+      setMediaErrorMap((prev) => {
+        const next = { ...prev };
+        delete next[row.id];
+        return next;
+      });
+    }
+    if (imagePreviewUrlRef.current && imagePreviewUrlRef.current !== nextPreview && imagePreviewUrlRef.current.startsWith('blob:')) {
+      URL.revokeObjectURL(imagePreviewUrlRef.current);
+    }
+    imagePreviewUrlRef.current = resolved ? nextPreview : null;
+    setImagePreviewSrc(nextPreview);
+    setImagePreviewOpen(true);
+  }
+
+  async function playAudioMessage(row: MessageItem, payload: PayloadData): Promise<void> {
+    if (row.messageType !== 3) {
+      return;
+    }
+    await props.onReadMessageOnce(row);
+    const resolved = await props.onResolveMediaUrl(row);
+    const audioUrl = resolved || resolveLegacyMediaUrl(payload);
+    if (!audioUrl) {
+      // 设置媒体错误状态
+      const hasEncryptedMedia = isEncryptedMediaPayload(payload.media);
+      const hasLegacyMedia = Boolean(resolveLegacyMediaUrl(payload));
+      if (hasEncryptedMedia) {
+        setMediaErrorMap((prev) => ({ ...prev, [row.id]: 'decrypt_failed' }));
+        showToast('语音解密失败', 'error');
+      } else if (!hasLegacyMedia && row.mediaAssetId) {
+        setMediaErrorMap((prev) => ({ ...prev, [row.id]: 'metadata_missing' }));
+        showToast('语音元数据缺失', 'error');
+      } else {
+        setMediaErrorMap((prev) => ({ ...prev, [row.id]: 'legacy_unavailable' }));
+        showToast('语音加载失败', 'error');
+      }
+      return;
+    }
+    // 清除错误状态
+    if (mediaErrorMap[row.id]) {
+      setMediaErrorMap((prev) => {
+        const next = { ...prev };
+        delete next[row.id];
+        return next;
+      });
+    }
+
+    if (audioElementRef.current) {
+      audioElementRef.current.pause();
+      audioElementRef.current = null;
+    }
+    if (audioObjectUrlRef.current && audioObjectUrlRef.current !== resolved && audioObjectUrlRef.current.startsWith('blob:')) {
+      URL.revokeObjectURL(audioObjectUrlRef.current);
+    }
+    audioObjectUrlRef.current = resolved || null;
+
+    const audio = new Audio(audioUrl);
+    audioElementRef.current = audio;
+    const cleanup = (): void => {
+      if (audioElementRef.current === audio) {
+        audioElementRef.current = null;
+      }
+      if (audioObjectUrlRef.current === resolved && audioObjectUrlRef.current?.startsWith('blob:')) {
+        URL.revokeObjectURL(audioObjectUrlRef.current);
+        audioObjectUrlRef.current = null;
+      }
+    };
+    audio.addEventListener('ended', cleanup, { once: true });
+    audio.addEventListener('error', cleanup, { once: true });
+    try {
+      await audio.play();
+    } catch {
+      cleanup();
+      showToast('语音播放失败', 'error');
+    }
   }
 
   async function copyMessage(messageId: string): Promise<void> {
@@ -725,36 +883,33 @@ export function ChatPanel(props: Props): JSX.Element {
         props.decodePayload(message.encryptedPayload, message.senderId, message.sourceDeviceId),
       );
       let url: string | null = null;
-      let filename = payload.fileName || 'download';
+      let filename = resolveMediaFileName(payload, 'download');
+      const mimeType = resolveMediaMimeType(payload);
       let revokeUrl = false;
 
       if (message.messageType === 2) {
         // 图片 - 使用 imageSourceMap 中的 URL 或解析新的 URL
         if (imageSourceMap[message.id]) {
           url = imageSourceMap[message.id];
-        } else if (message.mediaAssetId) {
-          const { downloadMedia } = await import('../../core/api');
-          const blob = await downloadMedia(message.mediaAssetId);
-          url = URL.createObjectURL(blob);
+        } else if (message.mediaAssetId || isEncryptedMediaPayload(payload.media)) {
+          url = await props.onResolveMediaUrl(message);
           revokeUrl = true;
-        } else if (payload.mediaUrl) {
-          url = payload.mediaUrl;
+        } else {
+          url = resolveLegacyMediaUrl(payload);
         }
         if (!filename.includes('.')) {
-          filename = payload.fileName || 'image.jpg';
+          filename = resolveMediaFileName(payload, 'image.jpg');
         }
       } else if (message.messageType === 4) {
         // 文件
-        if (message.mediaAssetId) {
-          const { downloadMedia } = await import('../../core/api');
-          const blob = await downloadMedia(message.mediaAssetId);
-          url = URL.createObjectURL(blob);
+        if (message.mediaAssetId || isEncryptedMediaPayload(payload.media)) {
+          url = await props.onResolveMediaUrl(message);
           revokeUrl = true;
-        } else if (payload.mediaUrl) {
-          url = payload.mediaUrl;
+        } else {
+          url = resolveLegacyMediaUrl(payload);
         }
         if (!filename.includes('.')) {
-          filename = payload.fileName || 'file';
+          filename = resolveMediaFileName(payload, 'file');
         }
       }
 
@@ -763,39 +918,22 @@ export function ChatPanel(props: Props): JSX.Element {
         return;
       }
 
-      // 如果是 blob URL，先获取为 blob 再下载
-      if (url.startsWith('blob:')) {
-        const response = await fetch(url);
-        const blob = await response.blob();
-        const blobUrl = URL.createObjectURL(blob);
-        
-        // 创建下载链接
-        const a = document.createElement('a');
-        a.href = blobUrl;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        
-        // 清理 blob URL
-        URL.revokeObjectURL(blobUrl);
-      } else {
-        // 直接下载
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = filename;
-        a.target = '_blank';
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-      }
+      const response = await fetch(url);
+      const sourceBlob = await response.blob();
+      const blob = new Blob([sourceBlob], { type: mimeType });
+      const result = await saveAndOpenFile(filename, blob);
 
       // 清理需要释放的 URL
       if (revokeUrl && url.startsWith('blob:')) {
         URL.revokeObjectURL(url);
       }
 
-      showToast('下载已开始', 'success');
+      showToast(
+        result.opened
+          ? `已下载到 ${result.path}，并已打开`
+          : `已下载到 ${result.path}，但系统打开失败，请手动打开`,
+        result.opened ? 'success' : 'info',
+      );
     } catch (error) {
       console.error('下载失败:', error);
       showToast('下载失败，请重试', 'error');
@@ -989,14 +1127,14 @@ export function ChatPanel(props: Props): JSX.Element {
               const showBurnTimer = row.isBurn && burnCountdown !== undefined && burnCountdown > 0 && !isBurning;
 
               // 构建 MessageBubble 所需的数据
-              const bubbleContent = row.messageType === 1
-                ? (payload.text ?? '')
-                : row.messageType === 2
-                ? (imageSourceMap[row.id] || payload.mediaUrl || '')
-                : row.messageType === 3
-                ? (audioSourceMap[row.id] || payload.mediaUrl || '')
-                : (payload.mediaUrl || '');
+              const bubbleContent = resolveMediaBubbleContent(
+                row.messageType as 1 | 2 | 3 | 4,
+                payload,
+                row.messageType === 2 ? imageSourceMap[row.id] : row.messageType === 3 ? audioSourceMap[row.id] : undefined,
+              );
               const canCopy = Boolean(getCopyableText(row, payload));
+              const isVideoMessage = row.messageType === 4 && isVideoMediaPayload(payload);
+              const fileSize = formatMediaSize(resolveMediaSize(payload));
 
               const bubbleStatus: 'sending' | 'sent' | 'delivered' | 'read' | 'failed' = isRevoked
                 ? 'sent'
@@ -1044,9 +1182,39 @@ export function ChatPanel(props: Props): JSX.Element {
                       isBurn={row.isBurn && !isRevoked}
                       burnSeconds={showBurnTimer ? burnCountdown : undefined}
                       replyTo={bubbleReplyTo}
-                      fileName={payload.fileName}
-                      fileSize={undefined}
+                      fileName={resolveMediaFileName(payload)}
+                      fileSize={fileSize}
+                      mediaVariant={isVideoMessage ? 'video' : 'file'}
                       voiceDuration={undefined}
+                      mediaError={mediaErrorMap[row.id]}
+                      role={row.messageType === 2 || row.messageType === 3 || row.messageType === 4 ? 'button' : undefined}
+                      tabIndex={row.messageType === 2 || row.messageType === 3 || row.messageType === 4 ? 0 : undefined}
+                      onClick={() => {
+                        if (row.messageType === 2) {
+                          void openImagePreview(row, payload);
+                        } else if (row.messageType === 3) {
+                          void playAudioMessage(row, payload);
+                        }
+                      }}
+                      onDoubleClick={() => {
+                        if (row.messageType === 4) {
+                          void downloadMedia(row);
+                        }
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key !== 'Enter' && event.key !== ' ') {
+                          return;
+                        }
+                        event.preventDefault();
+                        if (row.messageType === 2) {
+                          void openImagePreview(row, payload);
+                        } else if (row.messageType === 3) {
+                          void playAudioMessage(row, payload);
+                        } else if (row.messageType === 4) {
+                          void downloadMedia(row);
+                        }
+                      }}
+                      className={row.messageType === 2 || row.messageType === 3 || row.messageType === 4 ? 'message-media-interactive' : undefined}
                       onRetry={
                         row.localDeliveryState === 'failed'
                           ? () => void props.onRetryMessage(row.id)

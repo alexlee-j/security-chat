@@ -7,4 +7,10 @@ export class UploadMediaDto {
   @IsInt()
   @IsIn([2, 3, 4])
   mediaKind?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @IsIn([0, 1])
+  encryptionVersion?: number;
 }

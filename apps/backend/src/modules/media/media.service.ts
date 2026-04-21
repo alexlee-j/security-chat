@@ -6,11 +6,13 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
+  OnModuleInit,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { ConversationService } from '../conversation/conversation.service';
 import { MediaAsset } from './entities/media-asset.entity';
 
@@ -45,7 +47,8 @@ const FILE_SIGNATURES: Record<string, { magic: number[]; offset?: number; kind: 
 };
 
 @Injectable()
-export class MediaService {
+export class MediaService implements OnModuleInit {
+  private readonly logger = new Logger(MediaService.name);
   private readonly mediaRoot: string;
   private readonly maxBytes: number;
 
@@ -54,21 +57,38 @@ export class MediaService {
     private readonly mediaAssetRepository: Repository<MediaAsset>,
     private readonly configService: ConfigService,
     private readonly conversationService: ConversationService,
+    private readonly dataSource: DataSource,
   ) {
     this.mediaRoot = this.configService.get<string>('MEDIA_ROOT', '/tmp/security-chat-media');
     this.maxBytes = Number(this.configService.get<string>('MEDIA_MAX_BYTES', String(100 * 1024 * 1024)));
+  }
+
+  onModuleInit(): void {
+    void this.ensureMediaEncryptionSchemaCompatibility();
+  }
+
+  private async ensureMediaEncryptionSchemaCompatibility(): Promise<void> {
+    try {
+      await this.dataSource.query(
+        `ALTER TABLE "media_assets" ADD COLUMN IF NOT EXISTS "encryption_version" smallint NOT NULL DEFAULT 0;`,
+      );
+    } catch (error) {
+      this.logger.warn('Failed to ensure media encryption schema compatibility', error as Error);
+    }
   }
 
   async upload(
     userId: string,
     file: UploadFile | undefined,
     mediaKind?: number,
+    encryptionVersion = 0,
   ): Promise<{
     mediaAssetId: string;
     mediaKind: number;
     mimeType: string;
     fileSize: number;
     sha256: string;
+    encryptionVersion: number;
     createdAt: string;
   }> {
     if (!file) {
@@ -83,8 +103,14 @@ export class MediaService {
       throw new BadRequestException(`file size must be between 1 and ${this.maxBytes} bytes`);
     }
 
-    // 验证文件 magic bytes 确保文件类型与声明的 MIME type 一致
-    this.validateMagicBytes(file.buffer, file.mimetype);
+    if (![0, 1].includes(encryptionVersion)) {
+      throw new BadRequestException('encryptionVersion must be one of [0,1]');
+    }
+
+    // 明文 legacy 上传仍校验 magic bytes；E2EE 媒体上传的是密文，后端不能检查明文签名。
+    if (encryptionVersion === 0) {
+      this.validateMagicBytes(file.buffer, file.mimetype);
+    }
 
     const resolvedKind = mediaKind ?? this.resolveMediaKind(file.mimetype);
     if (![2, 3, 4].includes(resolvedKind)) {
@@ -113,6 +139,7 @@ export class MediaService {
         fileSize: String(file.size),
         storagePath: fullPath,
         sha256,
+        encryptionVersion,
       }),
     );
 
@@ -122,6 +149,7 @@ export class MediaService {
       mimeType: saved.mimeType,
       fileSize: Number(saved.fileSize),
       sha256: saved.sha256,
+      encryptionVersion: saved.encryptionVersion,
       createdAt: saved.createdAt.toISOString(),
     };
   }
@@ -211,6 +239,7 @@ export class MediaService {
           fileSize: asset.fileSize,
           storagePath: asset.storagePath, // 复用相同存储路径
           sha256: asset.sha256,
+          encryptionVersion: asset.encryptionVersion,
         }),
       );
     });
@@ -230,6 +259,7 @@ export class MediaService {
     mimeType: string;
     fileSize: number;
     sha256: string;
+    encryptionVersion: number;
     originalName: string;
     conversationId: string | null;
     createdAt: string;
@@ -241,6 +271,7 @@ export class MediaService {
       mimeType: asset.mimeType,
       fileSize: Number(asset.fileSize),
       sha256: asset.sha256,
+      encryptionVersion: asset.encryptionVersion,
       originalName: asset.originalName,
       conversationId: asset.conversationId,
       createdAt: asset.createdAt.toISOString(),
