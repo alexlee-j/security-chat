@@ -18,6 +18,8 @@ type Props = {
   onKeywordChange: (value: string) => void;
   onSearch: (event: FormEvent<HTMLFormElement>) => Promise<void>;
   onRequestFriend: (targetUserId: string) => Promise<void>;
+  onAddFriend?: () => void;
+  onRemoveFriend: (targetUserId: string, targetUsername: string) => void;
   onRespondFriend: (requesterUserId: string, accept: boolean) => Promise<void>;
   onBlockUser: (targetUserId: string) => Promise<void>;
   onUnblockUser: (targetUserId: string) => Promise<void>;
@@ -334,6 +336,18 @@ export function FriendPanel(props: Props): JSX.Element {
                 >
                   {isPending(`block:${selectedEntry.userId}`) ? '处理中...' : '拉黑'}
                 </Button>
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  disabled={isPending(`remove:${selectedEntry.userId}`)}
+                  onClick={() =>
+                    void withPending(`remove:${selectedEntry.userId}`, () =>
+                      props.onRemoveFriend(selectedEntry.userId, selectedEntry.username),
+                    )
+                  }
+                >
+                  {isPending(`remove:${selectedEntry.userId}`) ? '处理中...' : '解除关系'}
+                </Button>
               </>
             )}
             {selectedEntry.kind === 'blocked' && (
@@ -380,9 +394,14 @@ export function FriendPanel(props: Props): JSX.Element {
       {/* 左侧列表区 */}
       <aside className="flex flex-col w-[280px] min-w-[280px] h-screen bg-sidebar-background">
         {/* 顶部导航 */}
-        <header className="h-14 px-3 flex items-center gap-3 border-b border-border">
-          <NavMenuTrigger onClick={() => props.onNavDrawerOpen?.()} />
-          <span className="font-semibold text-sm">好友中心</span>
+        <header className="h-14 px-3 flex items-center justify-between gap-3 border-b border-border">
+          <div className="flex items-center gap-3 min-w-0">
+            <NavMenuTrigger onClick={() => props.onNavDrawerOpen?.()} />
+            <span className="font-semibold text-sm truncate">好友中心</span>
+          </div>
+          <Button size="sm" variant="outline" onClick={() => props.onAddFriend?.()}>
+            添加好友
+          </Button>
         </header>
 
         {/* 搜索框 */}

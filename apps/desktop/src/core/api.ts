@@ -438,6 +438,10 @@ export async function requestFriend(targetUserId: string): Promise<void> {
   await http.post('/friend/request', { targetUserId });
 }
 
+export async function removeFriend(targetUserId: string): Promise<void> {
+  await http.post('/friend/remove', { targetUserId });
+}
+
 export async function getIncomingRequests(): Promise<PendingFriendItem[]> {
   const res = await http.get<ApiEnvelope<PendingFriendItem[]>>('/friend/pending/incoming');
   return res.data.data;
@@ -731,8 +735,23 @@ export async function createGroup(data: {
   type: 1 | 2;
   memberUserIds: string[];
 }): Promise<{ groupId: string }> {
-  const res = await http.post<ApiEnvelope<{ groupId: string }>>('/group/create', data);
-  return res.data.data;
+  try {
+    const res = await http.post<ApiEnvelope<{ conversationId: string }>>('/conversation/group', {
+      name: data.name,
+      memberUserIds: data.memberUserIds,
+    });
+    return { groupId: res.data.data.conversationId };
+  } catch (error) {
+    if (!axios.isAxiosError(error)) {
+      throw error;
+    }
+    const status = error.response?.status;
+    if (status && status !== 404 && status < 500) {
+      throw error;
+    }
+    const fallback = await http.post<ApiEnvelope<{ groupId: string }>>('/group/create', data);
+    return fallback.data.data;
+  }
 }
 
 /**

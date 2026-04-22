@@ -882,7 +882,7 @@ button:disabled {
   overflow: hidden;
   transition: transform var(--transition-normal), width var(--transition-normal);
   position: relative;
-  z-index: 100;
+  z-index: 1;
 }
 
 .telegram-sidebar {

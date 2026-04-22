@@ -37,6 +37,7 @@ import {
   requestFriend,
   register,
   respondFriend,
+  removeFriend,
   searchUsers,
   sendMessage,
   sendMessageV2,
@@ -232,6 +233,7 @@ export type ChatClientActions = {
   onCreateDirect: (event: FormEvent<HTMLFormElement>) => Promise<void>;
   onSearchFriends: (event: FormEvent<HTMLFormElement>) => Promise<void>;
   onRequestFriend: (targetUserId: string) => Promise<void>;
+  onRemoveFriend: (targetUserId: string) => Promise<void>;
   onRespondFriend: (requesterUserId: string, accept: boolean) => Promise<void>;
   onBlockUser: (targetUserId: string) => Promise<void>;
   onUnblockUser: (targetUserId: string) => Promise<void>;
@@ -245,6 +247,7 @@ export type ChatClientActions = {
   onResolveMediaUrl: (message: MessageItem) => Promise<string | null>;
   onReadMessageOnce: (message: MessageItem) => Promise<void>;
   onStartDirectConversation: (targetUserId: string) => Promise<void>;
+  onOpenConversation: (conversationId: string) => Promise<void>;
   onForwardMessage: (originalMessageId: string, targetConversationId: string) => Promise<{ messageId: string; messageIndex: string }>;
   startTyping: () => void;
   stopTyping: () => void;
@@ -1989,6 +1992,16 @@ export function useChatClient(): {
     }
   }
 
+  async function onOpenConversation(conversationId: string): Promise<void> {
+    const targetConversationId = conversationId.trim();
+    if (!targetConversationId) {
+      return;
+    }
+    activeConversationIdRef.current = targetConversationId;
+    await loadConversations();
+    setActiveConversationId(targetConversationId);
+  }
+
   /**
    * 转发消息
    * - v2 消息（encryptedPayload 为 null）：客户端重加密流程
@@ -2203,6 +2216,17 @@ export function useChatClient(): {
     } catch {
       setError('发送好友申请失败。');
       throw new Error('send friend request failed');
+    }
+  }
+
+  async function onRemoveFriend(targetUserId: string): Promise<void> {
+    try {
+      await removeFriend(targetUserId);
+      await Promise.all([loadFriendData(), refreshSearchResult()]);
+      setError('');
+    } catch {
+      setError('解除好友关系失败。');
+      throw new Error('remove friend failed');
     }
   }
 
@@ -2805,6 +2829,7 @@ export function useChatClient(): {
       onCreateDirect,
       onSearchFriends,
       onRequestFriend,
+      onRemoveFriend,
       onRespondFriend,
       onBlockUser,
       onUnblockUser,
@@ -2818,6 +2843,7 @@ export function useChatClient(): {
       onResolveMediaUrl,
       onReadMessageOnce,
       onStartDirectConversation,
+      onOpenConversation,
       onForwardMessage,
       startTyping,
       stopTyping,

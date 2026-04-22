@@ -2,7 +2,6 @@
 
 ## Purpose
 Define desktop design-system expectations so feature work reuses shared primitives, preserves the documented visual system, and remains executable by mixed GPT/MiniMax ownership.
-
 ## Requirements
 ### Requirement: Desktop SHALL implement the documented theme modes
 The desktop app SHALL support light, dark, and automatic theme modes using the documented Security Chat design variables.
@@ -43,3 +42,17 @@ MiniMax-owned UI tasks SHALL declare planned shared component reuse, state sourc
 #### Scenario: MiniMax encounters high-risk semantics
 - **WHEN** a MiniMax-owned task requires decisions about authentication, protocol, message state, group permissions, backend contracts, or destructive actions
 - **THEN** the task SHALL pause for GPT-defined rules or GPT review before implementation continues
+
+### Requirement: Desktop dialogs SHALL satisfy structural and accessibility contracts
+Desktop dialogs implemented with shared shadcn/Radix primitives SHALL satisfy required semantic structure and valid DOM hierarchy so runtime warnings do not indicate broken interaction or accessibility contracts.
+
+#### Scenario: Dialog content rendered
+- **WHEN** a desktop feature renders a shadcn/Radix dialog content surface
+- **THEN** the dialog SHALL include a valid dialog title semantic
+- **AND** the dialog implementation SHALL avoid invalid nested form structures
+
+#### Scenario: User interacts with dialog form actions
+- **WHEN** the user submits or searches within dialog form controls
+- **THEN** the dialog implementation SHALL use valid, non-nested form boundaries
+- **AND** the interaction SHALL NOT trigger React DOM nesting warnings related to form containment
+

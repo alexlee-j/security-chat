@@ -14,7 +14,10 @@ import type { FormEvent } from 'react';
 import { LoginScreen } from './features/auth/login-screen';
 import { ChatPanel } from './features/chat/chat-panel';
 import { ConversationSidebar } from './features/chat/conversation-sidebar';
+import { GroupCreateModal } from './features/chat/group-create-modal';
 import { FriendPanel } from './features/friend/friend-panel';
+import { AddFriendDialog } from './features/friend/add-friend-dialog';
+import { RemoveFriendDialog } from './features/friend/remove-friend-dialog';
 import { ProfileSheet } from './features/navigation/profile-sheet';
 import { AboutSheet } from './features/navigation/about-sheet';
 import { LogoutConfirmDialog } from './features/navigation/logout-confirm-dialog';
@@ -50,6 +53,10 @@ export function App(): JSX.Element {
   const [notificationSettingsOpen, setNotificationSettingsOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
+  const [addFriendOpen, setAddFriendOpen] = useState(false);
+  const [removeFriendOpen, setRemoveFriendOpen] = useState(false);
+  const [removeFriendTarget, setRemoveFriendTarget] = useState<{ userId: string; username: string } | null>(null);
+  const [groupCreateOpen, setGroupCreateOpen] = useState(false);
   // 用于跟踪是否已经尝试过自动登录
   const autoLoginAttemptedRef = useRef(false);
   // 使用 ref 保存 actions 以避免闭包问题
@@ -254,6 +261,8 @@ export function App(): JSX.Element {
               onWorkspaceChange={setWorkspace}
               onLogout={() => void actions.onLogout()}
               currentUserId={state.auth.userId}
+              onNewGroup={() => setGroupCreateOpen(true)}
+              onNewChat={() => setAddFriendOpen(true)}
             />
             <ChatPanel
               currentUserId={state.auth.userId}
@@ -309,6 +318,11 @@ export function App(): JSX.Element {
             onKeywordChange={actions.setFriendKeyword}
             onSearch={actions.onSearchFriends}
             onRequestFriend={actions.onRequestFriend}
+            onAddFriend={() => setAddFriendOpen(true)}
+            onRemoveFriend={(targetUserId, targetUsername) => {
+              setRemoveFriendTarget({ userId: targetUserId, username: targetUsername });
+              setRemoveFriendOpen(true);
+            }}
             onRespondFriend={actions.onRespondFriend}
             onBlockUser={actions.onBlockUser}
             onUnblockUser={actions.onUnblockUser}
@@ -469,6 +483,36 @@ export function App(): JSX.Element {
         open={logoutConfirmOpen}
         onOpenChange={setLogoutConfirmOpen}
         onConfirm={() => void actions.onLogout()}
+      />
+      <AddFriendDialog
+        open={addFriendOpen}
+        onOpenChange={setAddFriendOpen}
+        onRequestFriend={actions.onRequestFriend}
+      />
+      <RemoveFriendDialog
+        open={removeFriendOpen}
+        onOpenChange={(open) => {
+          setRemoveFriendOpen(open);
+          if (!open) {
+            setRemoveFriendTarget(null);
+          }
+        }}
+        targetUserId={removeFriendTarget?.userId ?? ''}
+        targetUsername={removeFriendTarget?.username ?? ''}
+        onConfirm={async (targetUserId) => {
+          await actions.onRemoveFriend(targetUserId);
+          setRemoveFriendTarget(null);
+        }}
+      />
+      <GroupCreateModal
+        isOpen={groupCreateOpen}
+        onClose={() => setGroupCreateOpen(false)}
+        onGroupCreated={(groupId) => {
+          setGroupCreateOpen(false);
+          setWorkspace('chat');
+          void actions.onOpenConversation(groupId);
+        }}
+        currentUserId={state.auth.userId}
       />
     </main>
   );

@@ -11,6 +11,7 @@ import { REDIS_CLIENT } from '../../infra/redis/redis.module';
 import { User } from '../user/entities/user.entity';
 import { Friendship } from './entities/friendship.entity';
 import { BlockUserDto } from './dto/block-user.dto';
+import { RemoveFriendDto } from './dto/remove-friend.dto';
 import { RespondFriendRequestDto } from './dto/respond-friend-request.dto';
 import { SearchUsersDto } from './dto/search-users.dto';
 import { SendFriendRequestDto } from './dto/send-friend-request.dto';
@@ -152,6 +153,46 @@ export class FriendService {
     }
 
     return { accepted: true, requesterUserId: dto.requesterUserId };
+  }
+
+  async removeFriend(
+    userId: string,
+    dto: RemoveFriendDto,
+  ): Promise<{ removed: true; targetUserId: string }> {
+    if (userId === dto.targetUserId) {
+      throw new BadRequestException('Cannot remove yourself');
+    }
+
+    const [outgoingRelation, incomingRelation] = await Promise.all([
+      this.friendshipRepository.findOne({
+        where: { userId, friendId: dto.targetUserId },
+      }),
+      this.friendshipRepository.findOne({
+        where: { userId: dto.targetUserId, friendId: userId },
+      }),
+    ]);
+
+    const relations = [outgoingRelation, incomingRelation].filter(Boolean) as Friendship[];
+    if (!relations.length) {
+      throw new NotFoundException('Friend relationship not found');
+    }
+
+    if (relations.some((row) => row.status === 2)) {
+      throw new BadRequestException('Cannot remove a blocked relationship');
+    }
+
+    if (relations.some((row) => row.status === 0)) {
+      throw new BadRequestException('Cannot remove a pending friend request');
+    }
+
+    const acceptedRelations = relations.filter((row) => row.status === 1);
+    if (!acceptedRelations.length) {
+      throw new BadRequestException('Friend relationship is not accepted');
+    }
+
+    await this.friendshipRepository.remove(acceptedRelations);
+
+    return { removed: true, targetUserId: dto.targetUserId };
   }
 
   async listFriends(

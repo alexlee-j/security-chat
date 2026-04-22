@@ -1,15 +1,8 @@
-/**
- * 文件名：group-create-modal.tsx
- * 所属模块：桌面端-群聊功能
- * 核心作用：创建群组弹窗组件，支持创建群组、添加/移除群成员
- * 核心依赖：React, types, api
- * 创建时间：2026-04-03 (Week 12)
- */
-
-import { FormEvent, useState } from 'react';
-import { FriendSearchItem } from '../../core/types';
+import { FormEvent, KeyboardEvent, useEffect, useState } from 'react';
+import { FriendListItem, FriendSearchItem } from '../../core/types';
 import {
   searchUsers,
+  getFriends,
   createGroup,
   addGroupMember,
   removeGroupMember,
@@ -17,6 +10,18 @@ import {
   getGroup,
   updateGroupProfile,
 } from '../../core/api';
+import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogDescription,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { ScrollArea } from '@/components/ui/scroll-area';
 
 type Props = {
   /** 是否显示弹窗 */
@@ -40,9 +45,10 @@ export function GroupCreateModal(props: Props): JSX.Element | null {
   const [groupName, setGroupName] = useState('');
   const [groupType, setGroupType] = useState<GroupType>(1);
   const [searchKeyword, setSearchKeyword] = useState('');
-  const [searchResults, setSearchResults] = useState<FriendSearchItem[]>([]);
-  const [selectedMembers, setSelectedMembers] = useState<FriendSearchItem[]>([]);
-  const [isSearching, setIsSearching] = useState(false);
+  const [friendCandidates, setFriendCandidates] = useState<FriendListItem[]>([]);
+  const [selectedMembers, setSelectedMembers] = useState<FriendListItem[]>([]);
+  const [isLoadingFriends, setIsLoadingFriends] = useState(false);
+  const [friendHint, setFriendHint] = useState('');
   const [isCreating, setIsCreating] = useState(false);
 
   // 管理群组相关状态
@@ -62,53 +68,73 @@ export function GroupCreateModal(props: Props): JSX.Element | null {
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [manageHint, setManageHint] = useState('');
 
-  if (!isOpen) {
-    return null;
-  }
-
-  /**
-   * 搜索好友
-   */
-  async function handleSearch(event: FormEvent<HTMLFormElement>): Promise<void> {
-    event.preventDefault();
-    if (!searchKeyword.trim()) {
+  useEffect(() => {
+    if (isOpen) {
       return;
     }
+    setActiveTab('create');
+    setGroupName('');
+    setGroupType(1);
+    setSearchKeyword('');
+    setFriendCandidates([]);
+    setSelectedMembers([]);
+    setIsLoadingFriends(false);
+    setFriendHint('');
+    setIsCreating(false);
 
-    setIsSearching(true);
-    try {
-      const results = await searchUsers(searchKeyword.trim(), 20);
-      // 过滤掉自己
-      setSearchResults(results.filter((r) => r.userId !== currentUserId));
-    } catch (error) {
-      console.error('[GroupCreateModal] Search failed:', error);
-    } finally {
-      setIsSearching(false);
+    setManageGroupId('');
+    setGroupMembers([]);
+    setIsLoadingMembers(false);
+    setManageSearchKeyword('');
+    setManageSearchResults([]);
+    setIsManageSearching(false);
+    setManageName('');
+    setManageDescription('');
+    setIsSavingProfile(false);
+    setManageHint('');
+  }, [isOpen]);
+
+  function handleDialogOpenChange(open: boolean): void {
+    if (!open) {
+      onClose();
     }
   }
 
-  /**
-   * 添加成员到选列表
-   */
-  function handleAddMember(user: FriendSearchItem): void {
+  async function loadFriendCandidates(): Promise<void> {
+    setIsLoadingFriends(true);
+    setFriendHint('');
+    try {
+      const friends = await getFriends();
+      setFriendCandidates(friends.filter((friend) => friend.userId !== currentUserId));
+      if (friends.length === 0) {
+        setFriendHint('当前没有好友，请先添加好友后再创建群组。');
+      }
+    } catch (error) {
+      console.error('[GroupCreateModal] Load friends failed:', error);
+      setFriendHint('加载好友列表失败，请稍后重试。');
+    } finally {
+      setIsLoadingFriends(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+    void loadFriendCandidates();
+  }, [isOpen, currentUserId]);
+
+  function handleAddMember(user: FriendListItem): void {
     if (selectedMembers.some((m) => m.userId === user.userId)) {
       return;
     }
     setSelectedMembers([...selectedMembers, user]);
-    setSearchKeyword('');
-    setSearchResults([]);
   }
 
-  /**
-   * 从选中列表移除成员
-   */
   function handleRemoveMember(userId: string): void {
     setSelectedMembers(selectedMembers.filter((m) => m.userId !== userId));
   }
 
-  /**
-   * 创建群组
-   */
   async function handleCreateGroup(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
     if (!groupName.trim() || selectedMembers.length === 0) {
@@ -124,10 +150,6 @@ export function GroupCreateModal(props: Props): JSX.Element | null {
         memberUserIds: memberIds,
       });
       onGroupCreated(result.groupId);
-      // 重置表单
-      setGroupName('');
-      setGroupType(1);
-      setSelectedMembers([]);
       onClose();
     } catch (error) {
       console.error('[GroupCreateModal] Create group failed:', error);
@@ -136,15 +158,20 @@ export function GroupCreateModal(props: Props): JSX.Element | null {
     }
   }
 
-  /**
-   * 加载群组成员
-   */
   async function handleLoadMembers(groupId: string): Promise<void> {
-    setManageGroupId(groupId);
+    const trimmedGroupId = groupId.trim();
+    if (!trimmedGroupId) {
+      setManageHint('请输入群组 ID。');
+      return;
+    }
+    setManageGroupId(trimmedGroupId);
     setIsLoadingMembers(true);
     setManageHint('');
     try {
-      const [members, group] = await Promise.all([getGroupMembers(groupId), getGroup(groupId)]);
+      const [members, group] = await Promise.all([
+        getGroupMembers(trimmedGroupId),
+        getGroup(trimmedGroupId),
+      ]);
       setGroupMembers(members);
       setManageName(group.name);
       setManageDescription(group.description ?? '');
@@ -156,9 +183,6 @@ export function GroupCreateModal(props: Props): JSX.Element | null {
     }
   }
 
-  /**
-   * 从群组移除成员
-   */
   async function handleRemoveGroupMember(userId: string): Promise<void> {
     if (!manageGroupId) return;
 
@@ -172,9 +196,9 @@ export function GroupCreateModal(props: Props): JSX.Element | null {
     }
   }
 
-  async function handleManageSearch(event: FormEvent<HTMLFormElement>): Promise<void> {
-    event.preventDefault();
+  async function handleManageSearch(): Promise<void> {
     if (!manageSearchKeyword.trim()) {
+      setManageSearchResults([]);
       return;
     }
     setIsManageSearching(true);
@@ -225,9 +249,6 @@ export function GroupCreateModal(props: Props): JSX.Element | null {
     }
   }
 
-  /**
-   * 获取头像颜色索引
-   */
   function getAvatarColorIndex(name: string): number {
     let hash = 0;
     for (let i = 0; i < name.length; i++) {
@@ -238,242 +259,308 @@ export function GroupCreateModal(props: Props): JSX.Element | null {
 
   const avatarColors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7'];
 
+  function onManageSearchInputKeyDown(event: KeyboardEvent<HTMLInputElement>): void {
+    if (event.key !== 'Enter') {
+      return;
+    }
+    event.preventDefault();
+    void handleManageSearch();
+  }
+
+  if (!isOpen) {
+    return null;
+  }
+
+  const normalizedSearchKeyword = searchKeyword.trim().toLowerCase();
+  const filteredFriendCandidates = friendCandidates.filter((friend) => {
+    if (!normalizedSearchKeyword) {
+      return true;
+    }
+    return (
+      friend.username.toLowerCase().includes(normalizedSearchKeyword) ||
+      friend.userId.toLowerCase().includes(normalizedSearchKeyword)
+    );
+  });
+
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content group-create-modal" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header">
-          <h2>群组管理</h2>
-          <button className="modal-close" onClick={onClose}>
-            ×
-          </button>
+    <Dialog open={isOpen} onOpenChange={handleDialogOpenChange}>
+      <DialogContent className="w-[min(94vw,960px)] !max-w-none gap-0 p-0">
+        <DialogHeader className="border-b border-border px-6 py-5 text-left">
+          <DialogTitle>群组管理</DialogTitle>
+          <DialogDescription>
+            在当前页面创建群聊，或通过群组 ID 管理现有群聊。
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="border-b border-border px-6 py-4">
+          <div className="inline-flex rounded-lg border border-border bg-muted p-1">
+            <button
+              type="button"
+              className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                activeTab === 'create' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground'
+              }`}
+              onClick={() => setActiveTab('create')}
+            >
+              创建群组
+            </button>
+            <button
+              type="button"
+              className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                activeTab === 'manage' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground'
+              }`}
+              onClick={() => setActiveTab('manage')}
+            >
+              管理群组
+            </button>
+          </div>
         </div>
 
-        <div className="modal-tabs">
-          <button
-            className={`modal-tab ${activeTab === 'create' ? 'active' : ''}`}
-            onClick={() => setActiveTab('create')}
-          >
-            创建群组
-          </button>
-          <button
-            className={`modal-tab ${activeTab === 'manage' ? 'active' : ''}`}
-            onClick={() => setActiveTab('manage')}
-          >
-            管理群组
-          </button>
-        </div>
-
-        <div className="modal-body">
-          {activeTab === 'create' && (
-            <form onSubmit={handleCreateGroup} className="group-create-form">
-              <div className="form-group">
-                <label>群组名称</label>
-                <input
-                  type="text"
+        <div className="max-h-[min(72vh,640px)] overflow-y-auto px-6 py-5">
+          {activeTab === 'create' ? (
+            <form id="group-create-form" className="space-y-6" onSubmit={handleCreateGroup}>
+              <div className="space-y-2">
+                <Label htmlFor="group-name">群组名称</Label>
+                <Input
+                  id="group-name"
                   value={groupName}
                   onChange={(e) => setGroupName(e.target.value)}
                   placeholder="请输入群组名称"
                   maxLength={50}
-                  required
                 />
               </div>
 
-              <div className="form-group">
-                <label>群组类型</label>
+              <div className="space-y-2">
+                <Label htmlFor="group-type">群组类型</Label>
                 <select
+                  id="group-type"
                   value={groupType}
                   onChange={(e) => setGroupType(Number(e.target.value) as GroupType)}
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
                 >
                   <option value={1}>私密群（仅好友可加入）</option>
                   <option value={2}>公开群（任何人可加入）</option>
                 </select>
               </div>
 
-              <div className="form-group">
-                <label>添加成员</label>
-                <form onSubmit={handleSearch} className="search-form">
-                  <input
-                    type="text"
+              <div className="space-y-3">
+                <Label>添加成员（好友）</Label>
+                <div className="flex gap-2">
+                  <Input
                     value={searchKeyword}
                     onChange={(e) => setSearchKeyword(e.target.value)}
-                    placeholder="搜索好友用户名"
+                    placeholder="按用户名或用户 ID 筛选好友"
                   />
-                  <button type="submit" disabled={isSearching}>
-                    {isSearching ? '搜索中...' : '搜索'}
-                  </button>
-                </form>
+                  <Button type="button" variant="secondary" disabled={isLoadingFriends} onClick={() => void loadFriendCandidates()}>
+                    {isLoadingFriends ? '刷新中...' : '刷新'}
+                  </Button>
+                </div>
 
-                {/* 搜索结果 */}
-                {searchResults.length > 0 && (
-                  <div className="search-results">
-                    {searchResults.map((user) => (
-                      <div
-                        key={user.userId}
-                        className="search-result-item"
-                        onClick={() => handleAddMember(user)}
-                      >
+                {friendHint ? <p className="text-xs text-muted-foreground">{friendHint}</p> : null}
+
+                {filteredFriendCandidates.length > 0 ? (
+                  <ScrollArea className="h-56 rounded-lg border border-border">
+                    <div className="divide-y divide-border">
+                      {filteredFriendCandidates.map((user) => (
                         <div
-                          className="avatar"
-                          style={{ backgroundColor: avatarColors[getAvatarColorIndex(user.username)] }}
+                          key={user.userId}
+                          className="flex items-center justify-between gap-3 px-3 py-3"
                         >
-                          {user.username.slice(0, 2).toUpperCase()}
-                        </div>
-                        <div className="user-info">
-                          <span className="username">{user.username}</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {/* 已选成员 */}
-                {selectedMembers.length > 0 && (
-                  <div className="selected-members">
-                    <label>已选成员 ({selectedMembers.length})</label>
-                    <div className="member-list">
-                      {selectedMembers.map((member) => (
-                        <div key={member.userId} className="member-item">
-                          <div
-                            className="avatar small"
-                            style={{ backgroundColor: avatarColors[getAvatarColorIndex(member.username)] }}
-                          >
-                            {member.username.slice(0, 2).toUpperCase()}
+                          <div className="flex min-w-0 items-center gap-3">
+                            <div
+                              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-semibold text-white"
+                              style={{ backgroundColor: avatarColors[getAvatarColorIndex(user.username)] }}
+                            >
+                              {user.username.slice(0, 2).toUpperCase()}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-medium">{user.username}</p>
+                              <p className="truncate font-mono text-xs text-muted-foreground">{user.userId}</p>
+                            </div>
                           </div>
-                          <span className="username">{member.username}</span>
-                          <button
+                          <Button
                             type="button"
-                            className="btn-remove"
-                            onClick={() => handleRemoveMember(member.userId)}
+                            size="sm"
+                            variant={selectedMembers.some((member) => member.userId === user.userId) ? 'secondary' : 'default'}
+                            disabled={selectedMembers.some((member) => member.userId === user.userId)}
+                            onClick={() => handleAddMember(user)}
                           >
-                            ×
-                          </button>
+                            {selectedMembers.some((member) => member.userId === user.userId) ? '已选择' : '添加'}
+                          </Button>
                         </div>
                       ))}
                     </div>
-                  </div>
+                  </ScrollArea>
+                ) : (
+                  <p className="text-xs text-muted-foreground">未找到符合条件的好友。</p>
                 )}
-              </div>
 
-              <div className="form-actions">
-                <button type="button" className="btn-cancel" onClick={onClose}>
-                  取消
-                </button>
-                <button
-                  type="submit"
-                  className="btn-primary"
-                  disabled={isCreating || !groupName.trim() || selectedMembers.length === 0}
-                >
-                  {isCreating ? '创建中...' : '创建群组'}
-                </button>
+                {selectedMembers.length > 0 ? (
+                  <div className="space-y-2">
+                    <Label>已选成员 ({selectedMembers.length})</Label>
+                    <ScrollArea className="max-h-44 rounded-lg border border-border">
+                      <div className="divide-y divide-border">
+                        {selectedMembers.map((member) => (
+                          <div key={member.userId} className="flex items-center gap-3 px-3 py-3">
+                            <div
+                              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-semibold text-white"
+                              style={{ backgroundColor: avatarColors[getAvatarColorIndex(member.username)] }}
+                            >
+                              {member.username.slice(0, 2).toUpperCase()}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-sm font-medium">{member.username}</p>
+                              <p className="truncate font-mono text-xs text-muted-foreground">{member.userId}</p>
+                            </div>
+                            <Button type="button" variant="ghost" size="sm" onClick={() => handleRemoveMember(member.userId)}>
+                              移除
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    </ScrollArea>
+                  </div>
+                ) : null}
               </div>
             </form>
-          )}
-
-          {activeTab === 'manage' && (
-            <div className="group-manage-form">
-              <div className="form-group">
-                <label>群组 ID</label>
-                <div className="search-form">
-                  <input
-                    type="text"
+          ) : (
+            <div className="space-y-6">
+              <div className="space-y-2">
+                <Label htmlFor="manage-group-id">群组 ID</Label>
+                <div className="flex gap-2">
+                  <Input
+                    id="manage-group-id"
                     value={manageGroupId}
                     onChange={(e) => setManageGroupId(e.target.value)}
                     placeholder="输入要管理的群组 ID"
                   />
-                  <button
+                  <Button
                     type="button"
-                    onClick={() => void handleLoadMembers(manageGroupId.trim())}
+                    variant="secondary"
+                    onClick={() => void handleLoadMembers(manageGroupId)}
                     disabled={!manageGroupId.trim() || isLoadingMembers}
                   >
                     {isLoadingMembers ? '加载中...' : '加载'}
-                  </button>
+                  </Button>
                 </div>
               </div>
 
               {manageGroupId ? (
                 <>
-                  <form className="form-group" onSubmit={handleUpdateProfile}>
-                    <label>群资料</label>
-                    <input
-                      type="text"
-                      value={manageName}
-                      onChange={(e) => setManageName(e.target.value)}
-                      placeholder="群名称"
-                      maxLength={50}
-                    />
-                    <input
-                      type="text"
-                      value={manageDescription}
-                      onChange={(e) => setManageDescription(e.target.value)}
-                      placeholder="群描述"
-                      maxLength={200}
-                    />
-                    <div className="form-actions">
-                      <button type="submit" className="btn-primary" disabled={isSavingProfile || !manageName.trim()}>
-                        {isSavingProfile ? '保存中...' : '更新群资料'}
-                      </button>
+                  <form className="space-y-3 rounded-xl border border-border bg-card p-4" onSubmit={handleUpdateProfile}>
+                    <div className="space-y-2">
+                      <Label htmlFor="manage-group-name">群名称</Label>
+                      <Input
+                        id="manage-group-name"
+                        value={manageName}
+                        onChange={(e) => setManageName(e.target.value)}
+                        placeholder="群名称"
+                        maxLength={50}
+                      />
                     </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="manage-group-desc">群描述</Label>
+                      <Input
+                        id="manage-group-desc"
+                        value={manageDescription}
+                        onChange={(e) => setManageDescription(e.target.value)}
+                        placeholder="群描述"
+                        maxLength={200}
+                      />
+                    </div>
+                    <DialogFooter>
+                      <Button type="submit" disabled={isSavingProfile || !manageName.trim()}>
+                        {isSavingProfile ? '保存中...' : '更新群资料'}
+                      </Button>
+                    </DialogFooter>
                   </form>
 
-                  <div className="form-group">
-                    <label>添加成员</label>
-                    <form onSubmit={handleManageSearch} className="search-form">
-                      <input
-                        type="text"
+                  <div className="space-y-3">
+                    <Label>添加成员</Label>
+                    <div className="flex gap-2">
+                      <Input
                         value={manageSearchKeyword}
                         onChange={(e) => setManageSearchKeyword(e.target.value)}
+                        onKeyDown={onManageSearchInputKeyDown}
                         placeholder="搜索用户名"
                       />
-                      <button type="submit" disabled={isManageSearching}>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        disabled={isManageSearching}
+                        onClick={() => void handleManageSearch()}
+                      >
                         {isManageSearching ? '搜索中...' : '搜索'}
-                      </button>
-                    </form>
+                      </Button>
+                    </div>
                     {manageSearchResults.length > 0 ? (
-                      <div className="search-results">
-                        {manageSearchResults.map((user) => (
-                          <div key={user.userId} className="search-result-item">
-                            <div className="user-info">
-                              <span className="username">{user.username}</span>
+                      <ScrollArea className="max-h-40 rounded-lg border border-border">
+                        <div className="divide-y divide-border">
+                          {manageSearchResults.map((user) => (
+                            <div key={user.userId} className="flex items-center justify-between gap-3 px-3 py-3">
+                              <div className="min-w-0">
+                                <p className="truncate text-sm font-medium">{user.username}</p>
+                                <p className="truncate font-mono text-xs text-muted-foreground">{user.userId}</p>
+                              </div>
+                              <Button type="button" size="sm" onClick={() => void handleAddGroupMember(user.userId)}>
+                                添加
+                              </Button>
                             </div>
-                            <button type="button" className="btn-primary" onClick={() => void handleAddGroupMember(user.userId)}>
-                              添加
-                            </button>
-                          </div>
-                        ))}
-                      </div>
+                          ))}
+                        </div>
+                      </ScrollArea>
                     ) : null}
                   </div>
 
-                  <div className="form-group">
-                    <label>成员列表 ({groupMembers.length})</label>
-                    <div className="member-list">
-                      {groupMembers.map((member) => (
-                        <div key={member.userId} className="member-item">
-                          <div className="user-info">
-                            <span className="username">{member.username}</span>
-                            <small>{member.role === 1 ? '管理员' : '成员'}</small>
+                  <div className="space-y-3">
+                    <Label>成员列表 ({groupMembers.length})</Label>
+                    <ScrollArea className="max-h-52 rounded-lg border border-border">
+                      <div className="divide-y divide-border">
+                        {groupMembers.map((member) => (
+                          <div key={member.userId} className="flex items-center justify-between gap-3 px-3 py-3">
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-medium">{member.username}</p>
+                              <p className="truncate text-xs text-muted-foreground">
+                                {member.role === 1 ? '管理员' : '成员'}
+                              </p>
+                            </div>
+                            {member.userId !== currentUserId ? (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => void handleRemoveGroupMember(member.userId)}
+                              >
+                                移除
+                              </Button>
+                            ) : null}
                           </div>
-                          {member.userId !== currentUserId ? (
-                            <button
-                              type="button"
-                              className="btn-remove"
-                              onClick={() => void handleRemoveGroupMember(member.userId)}
-                            >
-                              移除
-                            </button>
-                          ) : null}
-                        </div>
-                      ))}
-                    </div>
+                        ))}
+                      </div>
+                    </ScrollArea>
                   </div>
                 </>
               ) : null}
 
-              {manageHint ? <p className="hint">{manageHint}</p> : null}
+              {manageHint ? <p className="text-sm text-muted-foreground">{manageHint}</p> : null}
             </div>
           )}
         </div>
-      </div>
-    </div>
+
+        <DialogFooter className="border-t border-border px-6 py-4">
+          <Button type="button" variant="outline" onClick={onClose}>
+            取消
+          </Button>
+          {activeTab === 'create' ? (
+            <Button
+              type="submit"
+              form="group-create-form"
+              disabled={isCreating || !groupName.trim() || selectedMembers.length === 0}
+            >
+              {isCreating ? '创建中...' : '创建群组'}
+            </Button>
+          ) : null}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

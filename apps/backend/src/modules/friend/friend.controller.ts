@@ -3,6 +3,7 @@ import { CurrentUser, RequestUser } from '../../common/decorators/current-user.d
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { BlockUserDto } from './dto/block-user.dto';
 import { RespondFriendRequestDto } from './dto/respond-friend-request.dto';
+import { RemoveFriendDto } from './dto/remove-friend.dto';
 import { SearchUsersDto } from './dto/search-users.dto';
 import { SendFriendRequestDto } from './dto/send-friend-request.dto';
 import { UnblockUserDto } from './dto/unblock-user.dto';
@@ -27,6 +28,14 @@ export class FriendController {
     @Body() dto: RespondFriendRequestDto,
   ): Promise<{ accepted: boolean; requesterUserId: string }> {
     return this.friendService.respondRequest(user.userId, dto);
+  }
+
+  @Post('remove')
+  remove(
+    @CurrentUser() user: RequestUser,
+    @Body() dto: RemoveFriendDto,
+  ): Promise<{ removed: true; targetUserId: string }> {
+    return this.friendService.removeFriend(user.userId, dto);
   }
 
   @Get('list')

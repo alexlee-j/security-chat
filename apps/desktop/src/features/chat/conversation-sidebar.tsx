@@ -47,6 +47,9 @@ type Props = {
 };
 
 function getDisplayName(row: ConversationListItem): string {
+  if (row.type === 2) {
+    return row.groupInfo?.name?.trim() || row.conversationId.slice(0, 8);
+  }
   return row.peerUser?.username ?? row.conversationId.slice(0, 8);
 }
 
@@ -341,10 +344,7 @@ export function ConversationSidebar(props: Props): JSX.Element {
       {/* FAB 菜单 */}
       <FabMenu
         onNewGroup={() => props.onNewGroup?.()}
-        onNewChat={() => {
-          props.onPeerUserIdChange('');
-          props.onWorkspaceChange?.('friend');
-        }}
+        onNewChat={() => props.onNewChat?.()}
       />
 
       {/* 删除会话确认对话框 */}

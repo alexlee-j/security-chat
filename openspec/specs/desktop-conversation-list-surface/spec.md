@@ -25,3 +25,32 @@ The desktop app SHALL provide conversation context actions for supported state c
 - **WHEN** the user selects delete conversation and confirms the dialog
 - **THEN** the desktop app SHALL remove or hide the conversation according to the supported deletion contract and SHALL not leave the deleted conversation selected
 
+### Requirement: FAB new-group action SHALL complete on-page dialog flow
+The desktop conversation list FAB SHALL open a group-creation dialog on the current page and SHALL allow users to finish create-or-cancel actions without workspace hopping, layout breakage, or dead-end UI states.
+
+#### Scenario: User opens group creation from FAB
+- **WHEN** the user selects "新建群聊" from the FAB menu in the chat workspace
+- **THEN** the desktop app SHALL open the group-creation dialog in the current page context
+- **AND** the current workspace SHALL remain chat while the dialog is open
+
+#### Scenario: User completes create flow
+- **WHEN** the user submits a valid group create action from the dialog
+- **THEN** the desktop app SHALL close the dialog and return to the chat context without requiring a manual workspace switch
+
+#### Scenario: User cancels create flow
+- **WHEN** the user dismisses the group-creation dialog
+- **THEN** the desktop app SHALL close the dialog cleanly and SHALL NOT leave the UI in a partially blocked interaction state
+
+### Requirement: Desktop conversation list SHALL expose in-place FAB quick actions
+The desktop app SHALL provide FAB quick actions for add-friend and new-group creation on the chat workspace without forcing a workspace switch before the action opens.
+
+#### Scenario: User chooses add friend from FAB
+- **WHEN** the user selects add-friend from the FAB menu while on the chat workspace
+- **THEN** the desktop app SHALL open the add-friend dialog on the current page
+- **AND** the user SHALL remain in the chat workspace
+
+#### Scenario: User chooses new group from FAB
+- **WHEN** the user selects new-group from the FAB menu while on the chat workspace
+- **THEN** the desktop app SHALL open the group creation dialog on the current page
+- **AND** the user SHALL remain in the chat workspace
+

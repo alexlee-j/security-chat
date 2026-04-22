@@ -262,7 +262,11 @@ export function ChatPanel(props: Props): JSX.Element {
   // 是否有活跃会话
   const hasActiveConversation = Boolean(props.activeConversationId);
   // 对方用户名
-  const peerName = props.activeConversation?.peerUser?.username ?? '未选择会话';
+  const peerName = props.activeConversation
+    ? props.activeConversation.type === 2
+      ? props.activeConversation.groupInfo?.name?.trim() || '未命名群聊'
+      : props.activeConversation.peerUser?.username ?? '未选择会话'
+    : '未选择会话';
   // 状态文本
   const statusText = hasActiveConversation ? '加密聊天中' : '请选择一个会话';
   
