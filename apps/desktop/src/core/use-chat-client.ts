@@ -58,7 +58,11 @@ import {
   isEncryptedMediaPayload,
 } from './media-crypto';
 import {
+  buildMediaMessagePayload,
   buildLegacyMediaFields,
+  buildSendV2TransportPayload,
+  normalizeVoiceMessageMetadata,
+  type VoiceMessageMetadata,
 } from './media-message';
 import { LocalConversation, useLocalDb } from './use-local-db';
 import {
@@ -242,6 +246,7 @@ export type ChatClientActions = {
   onRefreshActiveConversation: () => Promise<void>;
   onLoadOlderMessages: () => Promise<void>;
   onAttachMedia: (file: File) => Promise<void>;
+  onAttachVoiceMedia: (file: File, voice: VoiceMessageMetadata) => Promise<boolean>;
   onCancelMediaAttachment: () => void;
   onOpenMedia: (message: MessageItem) => Promise<void>;
   onResolveMediaUrl: (message: MessageItem) => Promise<string | null>;
@@ -332,6 +337,7 @@ export function useChatClient(): {
   const fallbackPollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);  // 轮询定时器
   const pendingMediaAssetIdRef = useRef<string | null>(null);  // 待上传媒体ID
   const pendingEncryptedMediaRef = useRef<EncryptedMediaPayload | null>(null);
+  const pendingVoiceMetadataRef = useRef<VoiceMessageMetadata | null>(null);
   const mediaUploadTokenRef = useRef(0);
   const messageDraftRef = useRef<Record<string, string>>({});  // 消息草稿引用
   const autoBurnPendingRef = useRef<Set<string>>(new Set());   // 待焚毁消息集合
@@ -1367,6 +1373,7 @@ export function useChatClient(): {
     setBlockedUsers([]);
     pendingMediaAssetIdRef.current = null;
     pendingEncryptedMediaRef.current = null;
+    pendingVoiceMetadataRef.current = null;
     messageCursorRef.current = {};
     saveMessageCursorSnapshot({});
     messageDraftRef.current = {};
@@ -1514,10 +1521,20 @@ export function useChatClient(): {
     );
 
     const mediaPayload = messageType === 1 ? undefined : pendingEncryptedMediaRef.current ?? undefined;
-    const legacyMediaFields = buildLegacyMediaFields(messageType, {
+    const voicePayload = messageType === 3 ? pendingVoiceMetadataRef.current ?? undefined : undefined;
+    const localMessagePayload = buildMediaMessagePayload(messageType, {
+      text: text || undefined,
       media: mediaPayload,
       mediaUrl,
       fileName: mediaUrl,
+      voice: voicePayload,
+      replyTo: replyToMessage
+        ? {
+            messageId: replyToMessage.id,
+            senderId: replyToMessage.senderId,
+            text: '[消息]',
+          }
+        : undefined,
     });
     setSendingMessage(true);
     setMessages((prev) => [
@@ -1527,20 +1544,7 @@ export function useChatClient(): {
         conversationId: activeConversationIdRef.current,
         senderId: authRef.current?.userId ?? 'unknown',
         messageType,
-        encryptedPayload: btoa(unescape(encodeURIComponent(JSON.stringify({
-          type: messageType,
-          text: text || undefined,
-          media: mediaPayload,
-          mediaUrl: legacyMediaFields.mediaUrl,
-          fileName: legacyMediaFields.fileName,
-          replyTo: replyToMessage
-            ? {
-                messageId: replyToMessage.id,
-                senderId: replyToMessage.senderId,
-                text: '[消息]',
-              }
-            : undefined,
-        })))),
+        encryptedPayload: btoa(unescape(encodeURIComponent(JSON.stringify(localMessagePayload)))),
         nonce: crypto.randomUUID().replace(/-/g, '').slice(0, 24),
         mediaAssetId: messageType === 1 ? null : pendingMediaAssetIdRef.current,
         messageIndex: nextLocalMessageIndex,
@@ -1574,20 +1578,15 @@ export function useChatClient(): {
           }
         : undefined;
 
-      // 构建消息内容
-      const legacyMessageFields = buildLegacyMediaFields(messageType, {
+      // 构建消息内容。Voice metadata stays inside this Signal-encrypted payload.
+      const messageContent = buildMediaMessagePayload(messageType, {
+        text: text || undefined,
         media: mediaPayload,
         mediaUrl,
         fileName: mediaUrl,
-      });
-      const messageContent = {
-        type: messageType,
-        text: text || undefined,
-        media: mediaPayload,
-        mediaUrl: legacyMessageFields.mediaUrl,
-        fileName: legacyMessageFields.fileName,
+        voice: voicePayload,
         replyTo,
-      };
+      });
 
       // 序列化消息内容
       const serializedMessage = JSON.stringify(messageContent);
@@ -1696,20 +1695,16 @@ export function useChatClient(): {
         }
 
         // 调用 send-v2 接口，提交所有设备信封
-        const directInput = {
+        const directInput = buildSendV2TransportPayload({
           conversationId: activeConversationIdRef.current,
           messageType,
           nonce,
           envelopes,
-          ...buildLegacyMediaFields(messageType, {
-            media: mediaPayload,
-            mediaUrl,
-            fileName: mediaUrl,
-          }),
           mediaAssetId: messageType === 1 ? undefined : pendingMediaAssetIdRef.current ?? undefined,
           isBurn: isBurnForThisMessage,
           burnDuration: isBurnForThisMessage ? burnDuration : undefined,
-        };
+          voice: voicePayload,
+        });
         retryRequestRef.current[tempMessageId] = { kind: 'direct_v2', input: directInput };
         sendResult = await sendMessageV2(directInput);
       }
@@ -1732,6 +1727,7 @@ export function useChatClient(): {
       setMediaUrl('');
       pendingMediaAssetIdRef.current = null;
       pendingEncryptedMediaRef.current = null;
+      pendingVoiceMetadataRef.current = null;
       handleMessageTypeChange(1);
       setTypingHint('');
       setError('');
@@ -1819,15 +1815,68 @@ export function useChatClient(): {
         ...encrypted.media,
         assetId: uploaded.mediaAssetId,
       };
+      pendingVoiceMetadataRef.current = null;
     } catch {
       if (mediaUploadTokenRef.current !== uploadToken) {
         return;
       }
       pendingMediaAssetIdRef.current = null;
       pendingEncryptedMediaRef.current = null;
+      pendingVoiceMetadataRef.current = null;
       setMediaUrl('');
       setError('');
       showToast('媒体上传失败，请重试。', 'error');
+    } finally {
+      if (mediaUploadTokenRef.current === uploadToken) {
+        setMediaUploading(false);
+      }
+    }
+  }
+
+  async function onAttachVoiceMedia(file: File, voice: VoiceMessageMetadata): Promise<boolean> {
+    if (!activeConversationIdRef.current) {
+      setError('');
+      showToast('请先选择会话。', 'error');
+      return false;
+    }
+
+    const normalizedVoice = normalizeVoiceMessageMetadata(voice);
+    if (!normalizedVoice) {
+      setError('');
+      showToast('语音元数据无效，请重新录制。', 'error');
+      return false;
+    }
+
+    const uploadToken = mediaUploadTokenRef.current + 1;
+    mediaUploadTokenRef.current = uploadToken;
+    setMessageType(3);
+    setMediaUrl(file.name || 'voice-message.webm');
+    setMediaUploading(true);
+    setError('');
+    try {
+      const encrypted = await encryptMediaFile(file);
+      const uploaded = await uploadMedia(encrypted.encryptedFile, 3, 1);
+      if (mediaUploadTokenRef.current !== uploadToken) {
+        return false;
+      }
+      pendingMediaAssetIdRef.current = uploaded.mediaAssetId;
+      pendingEncryptedMediaRef.current = {
+        ...encrypted.media,
+        assetId: uploaded.mediaAssetId,
+      };
+      pendingVoiceMetadataRef.current = normalizedVoice;
+      return true;
+    } catch {
+      if (mediaUploadTokenRef.current !== uploadToken) {
+        return false;
+      }
+      pendingMediaAssetIdRef.current = null;
+      pendingEncryptedMediaRef.current = null;
+      pendingVoiceMetadataRef.current = null;
+      setMediaUrl('');
+      setError('');
+      showToast('语音上传失败，请重试。', 'error');
+      return false;
     } finally {
       if (mediaUploadTokenRef.current === uploadToken) {
         setMediaUploading(false);
@@ -1839,6 +1888,7 @@ export function useChatClient(): {
     mediaUploadTokenRef.current += 1;
     pendingMediaAssetIdRef.current = null;
     pendingEncryptedMediaRef.current = null;
+    pendingVoiceMetadataRef.current = null;
     setMediaUploading(false);
     setMediaUrl('');
     handleMessageTypeChange(1);
@@ -2101,19 +2151,19 @@ export function useChatClient(): {
         }
       }
 
-      // 构建消息内容（保留原消息的 type 和媒体信息）
-      // 注意：媒体消息不包含 mediaUrl，因为媒体已复制到新 asset，mediaAssetId 会独立传递
-      const messageContent = {
-        type: messageType,
+      const forwardedVoicePayload = messageType === 3
+        ? normalizeVoiceMessageMetadata(originalPayload.voice)
+        : undefined;
+      // 构建消息内容（保留原消息的 type、媒体信息和 encrypted voice metadata）
+      // 注意：媒体消息不包含明文 mediaUrl，因为媒体已复制到新 asset，mediaAssetId 会独立传递
+      const messageContent = buildMediaMessagePayload(messageType, {
         text: messageType === 1 ? normalizedText : undefined,
         media: forwardedMediaPayload,
-        ...buildLegacyMediaFields(messageType, {
-          media: forwardedMediaPayload,
-          mediaUrl: typeof originalPayload.mediaUrl === 'string' ? originalPayload.mediaUrl : undefined,
-          fileName: typeof originalPayload.fileName === 'string' ? originalPayload.fileName : undefined,
-        }),
+        mediaUrl: typeof originalPayload.mediaUrl === 'string' ? originalPayload.mediaUrl : undefined,
+        fileName: typeof originalPayload.fileName === 'string' ? originalPayload.fileName : undefined,
+        voice: forwardedVoicePayload,
         replyTo: undefined,
-      };
+      });
       const messageText = JSON.stringify(messageContent);
 
       // 对目标用户所有设备进行加密
@@ -2157,7 +2207,7 @@ export function useChatClient(): {
 
       // 调用 send-v2 接口
       const { sendMessageV2 } = await import('./api');
-      const result = await sendMessageV2({
+      const result = await sendMessageV2(buildSendV2TransportPayload({
         conversationId: targetConversationId,
         messageType,
         nonce,
@@ -2165,7 +2215,8 @@ export function useChatClient(): {
         mediaAssetId: forwardedMediaAssetId,
         isBurn: originalMessage.isBurn,
         burnDuration: originalMessage.isBurn ? originalMessage.burnDuration ?? undefined : undefined,
-      });
+        voice: forwardedVoicePayload,
+      }));
 
       // 按消息ID缓存明文
       if (result?.messageId) {
@@ -2332,6 +2383,7 @@ export function useChatClient(): {
       setMediaUrl('');
       pendingMediaAssetIdRef.current = null;
       pendingEncryptedMediaRef.current = null;
+      pendingVoiceMetadataRef.current = null;
     }
     if (value === 4 && burnEnabled) {
       setBurnEnabled(false);
@@ -2349,6 +2401,7 @@ export function useChatClient(): {
     setMediaUrl(value);
     pendingMediaAssetIdRef.current = null;
     pendingEncryptedMediaRef.current = null;
+    pendingVoiceMetadataRef.current = null;
   }
 
   /**
@@ -2838,6 +2891,7 @@ export function useChatClient(): {
       onRefreshActiveConversation,
       onLoadOlderMessages,
       onAttachMedia,
+      onAttachVoiceMedia,
       onCancelMediaAttachment,
       onOpenMedia,
       onResolveMediaUrl,

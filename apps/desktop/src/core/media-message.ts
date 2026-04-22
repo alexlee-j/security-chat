@@ -5,12 +5,42 @@ export type MediaMessagePayload = {
   media?: EncryptedMediaPayload;
   mediaUrl?: string;
   fileName?: string;
+  voice?: VoiceMessageMetadata;
   replyTo?: {
     messageId: string;
     senderId: string;
     text: string;
   };
 };
+
+export type VoiceMessageMetadata = {
+  durationMs: number;
+  waveform: number[];
+  waveformVersion: 1;
+  codec: string;
+};
+
+export type BuildMediaMessagePayloadInput = Pick<
+  MediaMessagePayload,
+  'text' | 'media' | 'mediaUrl' | 'fileName' | 'voice' | 'replyTo'
+>;
+
+export type SendV2TransportPayloadInput = {
+  conversationId: string;
+  messageType: 1 | 2 | 3 | 4;
+  nonce: string;
+  envelopes: Array<{
+    targetUserId: string;
+    targetDeviceId: string;
+    encryptedPayload: string;
+  }>;
+  mediaAssetId?: string;
+  isBurn: boolean;
+  burnDuration?: number;
+  voice?: VoiceMessageMetadata;
+};
+
+export type SendV2TransportPayload = Omit<SendV2TransportPayloadInput, 'voice'>;
 
 const VIDEO_FILE_EXTENSIONS = new Set([
   'mp4',
@@ -116,5 +146,71 @@ export function buildLegacyMediaFields(
   return {
     mediaUrl: messageType === 1 ? undefined : mediaUrl ?? undefined,
     fileName: messageType === 4 ? resolveMediaFileName(payload, 'file') : undefined,
+  };
+}
+
+function normalizeWaveformValue(value: unknown): number {
+  const numeric = typeof value === 'number' && Number.isFinite(value) ? value : 0;
+  return Math.max(0, Math.min(31, Math.round(numeric)));
+}
+
+export function normalizeVoiceMessageMetadata(value: unknown): VoiceMessageMetadata | undefined {
+  const candidate = value as Partial<VoiceMessageMetadata> | null;
+  if (!candidate || typeof candidate !== 'object') {
+    return undefined;
+  }
+  if (candidate.waveformVersion !== 1) {
+    return undefined;
+  }
+  if (typeof candidate.durationMs !== 'number' || !Number.isFinite(candidate.durationMs) || candidate.durationMs <= 0) {
+    return undefined;
+  }
+  if (!Array.isArray(candidate.waveform)) {
+    return undefined;
+  }
+  const codec = typeof candidate.codec === 'string' && candidate.codec.trim()
+    ? candidate.codec.trim().slice(0, 32)
+    : 'unknown';
+  return {
+    durationMs: Math.round(candidate.durationMs),
+    waveform: candidate.waveform.slice(0, 128).map(normalizeWaveformValue),
+    waveformVersion: 1,
+    codec,
+  };
+}
+
+export function isVoiceMessageMetadata(value: unknown): value is VoiceMessageMetadata {
+  return normalizeVoiceMessageMetadata(value) !== undefined;
+}
+
+export function buildMediaMessagePayload(
+  messageType: 1 | 2 | 3 | 4,
+  input: BuildMediaMessagePayloadInput,
+): MediaMessagePayload & { type: 1 | 2 | 3 | 4 } {
+  const legacyMediaFields = buildLegacyMediaFields(messageType, input);
+  const voice = messageType === 3 ? normalizeVoiceMessageMetadata(input.voice) : undefined;
+  const payload: MediaMessagePayload & { type: 1 | 2 | 3 | 4 } = {
+    type: messageType,
+    text: input.text?.trim() || undefined,
+    media: input.media,
+    mediaUrl: legacyMediaFields.mediaUrl,
+    fileName: legacyMediaFields.fileName,
+    replyTo: input.replyTo,
+  };
+  if (voice) {
+    payload.voice = voice;
+  }
+  return payload;
+}
+
+export function buildSendV2TransportPayload(input: SendV2TransportPayloadInput): SendV2TransportPayload {
+  return {
+    conversationId: input.conversationId,
+    messageType: input.messageType,
+    nonce: input.nonce,
+    envelopes: input.envelopes,
+    mediaAssetId: input.mediaAssetId,
+    isBurn: input.isBurn,
+    burnDuration: input.isBurn ? input.burnDuration : undefined,
   };
 }

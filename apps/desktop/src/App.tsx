@@ -291,6 +291,7 @@ export function App(): JSX.Element {
               onRefreshConversation={actions.onRefreshActiveConversation}
               onLoadOlderMessages={actions.onLoadOlderMessages}
               onAttachMedia={actions.onAttachMedia}
+              onAttachVoiceMedia={actions.onAttachVoiceMedia}
               onCancelMediaAttachment={actions.onCancelMediaAttachment}
               onOpenMedia={actions.onOpenMedia}
               onResolveMediaUrl={actions.onResolveMediaUrl}

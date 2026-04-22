@@ -22,12 +22,20 @@ import {
   resolveMediaFileName,
   resolveMediaMimeType,
   resolveMediaSize,
+  normalizeVoiceMessageMetadata,
+  type VoiceMessageMetadata,
 } from '../../core/media-message';
 import { TopBar } from './top-bar';
 import { ChatMoreMenu } from './chat-more-menu';
 import { MessageBubble, MediaErrorType } from './message-bubble';
 import { MessageContextMenu } from './message-context-menu';
 import { EmojiPicker } from './emoji-picker';
+import {
+  canSendComposerMessage,
+  formatVoiceDuration,
+  useDesktopVoiceRecorder,
+  type VoiceRecorderDraft,
+} from './voice-recorder';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
@@ -76,6 +84,7 @@ type Props = {
   onRefreshConversation: () => Promise<void>;
   onLoadOlderMessages: () => Promise<void>;
   onAttachMedia: (file: File) => Promise<void>;
+  onAttachVoiceMedia: (file: File, voice: VoiceMessageMetadata) => Promise<boolean>;
   onCancelMediaAttachment: () => void;
   onOpenMedia: (message: MessageItem) => Promise<void>;
   onResolveMediaUrl: (message: MessageItem) => Promise<string | null>;
@@ -98,6 +107,10 @@ const QUICK_EMOJIS = ['😀', '😂', '😍', '😎', '🤔', '😭', '👍', '�
  * Payload 数据结构 - 消息内容解析后的格式
  */
 type PayloadData = MediaMessagePayload;
+
+type VoicePreviewState = VoiceRecorderDraft & {
+  uploadState: 'idle' | 'uploading' | 'ready' | 'failed';
+};
 
 /**
  * 格式化时间戳为本地时间字符串
@@ -281,8 +294,13 @@ export function ChatPanel(props: Props): JSX.Element {
   const [imageSourceMap, setImageSourceMap] = useState<Record<string, string>>({});
   /** 媒体错误状态映射：消息ID -> 错误类型 */
   const [mediaErrorMap, setMediaErrorMap] = useState<Record<string, MediaErrorType>>({});
+  const [audioLoadingMap, setAudioLoadingMap] = useState<Record<string, boolean>>({});
+  const [voiceProgressMap, setVoiceProgressMap] = useState<Record<string, number>>({});
+  const [playingVoiceMessageId, setPlayingVoiceMessageId] = useState<string | null>(null);
+  const [pausedVoiceMessageId, setPausedVoiceMessageId] = useState<string | null>(null);
   // 附件预览状态
   const [pendingAttachment, setPendingAttachment] = useState<{ file: File; previewUrl: string } | null>(null);
+  const [voicePreview, setVoicePreview] = useState<VoicePreviewState | null>(null);
   // 图片懒加载 - 追踪哪些图片应该在视口内加载
   const [visibleImageIds, setVisibleImageIds] = useState<Set<string>>(new Set());
   const imageObserverRef = useRef<IntersectionObserver | null>(null);
@@ -308,8 +326,36 @@ export function ChatPanel(props: Props): JSX.Element {
   const imagePreviewUrlRef = useRef<string | null>(null);
   const audioElementRef = useRef<HTMLAudioElement | null>(null);
   const audioObjectUrlRef = useRef<string | null>(null);
+  const audioMessageIdRef = useRef<string | null>(null);
   const audioSourceMapRef = useRef<Record<string, string>>({});
   const imageSourceMapRef = useRef<Record<string, string>>({});
+  const {
+    state: voiceRecorderState,
+    startRecording: startVoiceRecording,
+    stopRecording: stopVoiceRecording,
+    cancelRecording: cancelVoiceRecording,
+    reset: resetVoiceRecorder,
+  } = useDesktopVoiceRecorder({
+    onDraftReady: (draft) => {
+      const nextDraft: VoicePreviewState = {
+        ...draft,
+        uploadState: 'uploading',
+      };
+      setVoicePreview(nextDraft);
+      void (async () => {
+        const uploaded = await props.onAttachVoiceMedia(draft.file, draft.voice);
+        setVoicePreview((current) => {
+          if (!current || current.previewUrl !== draft.previewUrl) {
+            return current;
+          }
+          return {
+            ...current,
+            uploadState: uploaded ? 'ready' : 'failed',
+          };
+        });
+      })();
+    },
+  });
 
   const searchResults = useMemo(() => {
     const keyword = searchKeyword.trim().toLowerCase();
@@ -371,13 +417,6 @@ export function ChatPanel(props: Props): JSX.Element {
     return messages.slice(messages.length - displayedMessageCount);
   }, [visibleMessages, displayedMessageCount, searchKeyword]);
 
-  function clearComposer(): void {
-    props.onMessageTextChange('');
-    props.onMediaUrlChange('');
-    props.onMessageTypeChange(1);
-    props.onBurnEnabledChange(false);
-  }
-
   function scrollToBottom(): void {
     if (messageListRef.current) {
       messageListRef.current.scrollTop = messageListRef.current.scrollHeight;
@@ -407,7 +446,51 @@ export function ChatPanel(props: Props): JSX.Element {
     props.onMessageTextChange(`${props.messageText}${emoji}`);
   }
 
-  function revokeMediaObjectUrls(): void {
+  async function beginVoiceRecording(): Promise<void> {
+    if (!hasActiveConversation) {
+      showToast('请先选择会话。', 'error');
+      return;
+    }
+    if (voicePreview) {
+      discardVoicePreview();
+    }
+    props.onMessageTypeChange(3);
+    setVoicePreview(null);
+    const started = await startVoiceRecording();
+    if (!started) {
+      props.onMessageTypeChange(1);
+    }
+  }
+
+  function discardVoicePreview(): void {
+    if (voicePreview?.previewUrl.startsWith('blob:')) {
+      URL.revokeObjectURL(voicePreview.previewUrl);
+    }
+    setVoicePreview(null);
+    cancelVoiceRecording();
+    props.onCancelMediaAttachment();
+    props.onMessageTypeChange(1);
+  }
+
+  async function retryVoiceUpload(): Promise<void> {
+    if (!voicePreview) {
+      return;
+    }
+    props.onMessageTypeChange(3);
+    setVoicePreview((current) => current ? { ...current, uploadState: 'uploading' } : current);
+    const uploaded = await props.onAttachVoiceMedia(voicePreview.file, voicePreview.voice);
+    setVoicePreview((current) => {
+      if (!current || current.previewUrl !== voicePreview.previewUrl) {
+        return current;
+      }
+      return {
+        ...current,
+        uploadState: uploaded ? 'ready' : 'failed',
+      };
+    });
+  }
+
+  function revokeMediaObjectUrls(resetPlaybackState = true): void {
     for (const source of Object.values(audioSourceMapRef.current)) {
       if (source.startsWith('blob:')) {
         URL.revokeObjectURL(source);
@@ -427,6 +510,12 @@ export function ChatPanel(props: Props): JSX.Element {
       audioObjectUrlRef.current = null;
     }
     audioElementRef.current?.pause();
+    audioElementRef.current = null;
+    audioMessageIdRef.current = null;
+    if (resetPlaybackState) {
+      setPlayingVoiceMessageId(null);
+      setPausedVoiceMessageId(null);
+    }
   }
 
   useEffect(() => {
@@ -439,12 +528,15 @@ export function ChatPanel(props: Props): JSX.Element {
 
   useEffect(() => {
     return () => {
-      revokeMediaObjectUrls();
+      revokeMediaObjectUrls(false);
+      resetVoiceRecorder();
     };
   }, []);
 
   useEffect(() => {
     revokeMediaObjectUrls();
+    setVoicePreview(null);
+    resetVoiceRecorder();
     setSearchKeyword('');
     setFocusedMessageId('');
     setSearchOpen(false);
@@ -455,12 +547,36 @@ export function ChatPanel(props: Props): JSX.Element {
     setImagePreviewSrc('');
     setVisibleImageIds(new Set());
     setMediaErrorMap({});
+    setAudioLoadingMap({});
+    setVoiceProgressMap({});
     setDisplayedMessageCount(50);
     stickToBottomRef.current = true;
     window.requestAnimationFrame(() => {
       scrollToBottom();
     });
   }, [props.activeConversationId]);
+
+  useEffect(() => {
+    if (props.messageType === 3 && props.mediaUrl.trim()) {
+      return;
+    }
+    if (props.mediaUploading) {
+      return;
+    }
+    if (!voicePreview) {
+      return;
+    }
+    if (voicePreview.uploadState === 'failed') {
+      return;
+    }
+    if (props.messageType === 1 && !props.mediaUrl.trim()) {
+      if (voicePreview.previewUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(voicePreview.previewUrl);
+      }
+      setVoicePreview(null);
+      resetVoiceRecorder();
+    }
+  }, [props.messageType, props.mediaUrl, props.mediaUploading, voicePreview, resetVoiceRecorder]);
 
   useEffect(() => {
     if (!messageListRef.current) {
@@ -772,61 +888,130 @@ export function ChatPanel(props: Props): JSX.Element {
     if (row.messageType !== 3) {
       return;
     }
+    const currentAudio = audioElementRef.current;
+    if (currentAudio && audioMessageIdRef.current === row.id && !currentAudio.ended) {
+      if (currentAudio.paused) {
+        try {
+          await currentAudio.play();
+          setPlayingVoiceMessageId(row.id);
+          setPausedVoiceMessageId(null);
+        } catch {
+          setPlayingVoiceMessageId(null);
+          setPausedVoiceMessageId(row.id);
+          showToast('语音播放失败', 'error');
+        }
+      } else {
+        currentAudio.pause();
+        setPlayingVoiceMessageId(null);
+        setPausedVoiceMessageId(row.id);
+      }
+      return;
+    }
+    setAudioLoadingMap((prev) => ({ ...prev, [row.id]: true }));
     await props.onReadMessageOnce(row);
-    const resolved = await props.onResolveMediaUrl(row);
-    const audioUrl = resolved || resolveLegacyMediaUrl(payload);
-    if (!audioUrl) {
-      // 设置媒体错误状态
+    let cleanup = (): void => {};
+    try {
+      const resolved = await props.onResolveMediaUrl(row);
+      const audioUrl = resolved || resolveLegacyMediaUrl(payload);
+      if (!audioUrl) {
+        // 设置媒体错误状态
+        const hasEncryptedMedia = isEncryptedMediaPayload(payload.media);
+        const hasLegacyMedia = Boolean(resolveLegacyMediaUrl(payload));
+        if (hasEncryptedMedia) {
+          setMediaErrorMap((prev) => ({ ...prev, [row.id]: 'decrypt_failed' }));
+          showToast('语音解密失败', 'error');
+        } else if (!hasLegacyMedia && row.mediaAssetId) {
+          setMediaErrorMap((prev) => ({ ...prev, [row.id]: 'metadata_missing' }));
+          showToast('语音元数据缺失', 'error');
+        } else {
+          setMediaErrorMap((prev) => ({ ...prev, [row.id]: 'legacy_unavailable' }));
+          showToast('语音加载失败', 'error');
+        }
+        return;
+      }
+      // 清除错误状态
+      if (mediaErrorMap[row.id]) {
+        setMediaErrorMap((prev) => {
+          const next = { ...prev };
+          delete next[row.id];
+          return next;
+        });
+      }
+
+      if (audioElementRef.current) {
+        audioElementRef.current.pause();
+        audioElementRef.current = null;
+      }
+      const previousAudioMessageId = audioMessageIdRef.current;
+      audioMessageIdRef.current = null;
+      setPlayingVoiceMessageId(null);
+      setPausedVoiceMessageId(null);
+      if (previousAudioMessageId && previousAudioMessageId !== row.id) {
+        setVoiceProgressMap((prev) => {
+          const next = { ...prev };
+          delete next[previousAudioMessageId];
+          return next;
+        });
+      }
+      if (audioObjectUrlRef.current && audioObjectUrlRef.current !== resolved && audioObjectUrlRef.current.startsWith('blob:')) {
+        URL.revokeObjectURL(audioObjectUrlRef.current);
+      }
+      audioObjectUrlRef.current = resolved || null;
+
+      const audio = new Audio(audioUrl);
+      audioElementRef.current = audio;
+      audioMessageIdRef.current = row.id;
+      cleanup = (): void => {
+        if (audioElementRef.current === audio) {
+          audioElementRef.current = null;
+        }
+        if (audioMessageIdRef.current === row.id) {
+          audioMessageIdRef.current = null;
+        }
+        if (audioObjectUrlRef.current === resolved && audioObjectUrlRef.current?.startsWith('blob:')) {
+          URL.revokeObjectURL(audioObjectUrlRef.current);
+          audioObjectUrlRef.current = null;
+        }
+        setPlayingVoiceMessageId((current) => current === row.id ? null : current);
+        setPausedVoiceMessageId((current) => current === row.id ? null : current);
+      };
+      audio.addEventListener('ended', () => {
+        setVoiceProgressMap((prev) => { const n = { ...prev }; delete n[row.id]; return n; });
+        cleanup();
+      }, { once: true });
+      audio.addEventListener('error', () => {
+        setVoiceProgressMap((prev) => { const n = { ...prev }; delete n[row.id]; return n; });
+        setMediaErrorMap((prev) => ({ ...prev, [row.id]: 'download_failed' }));
+        cleanup();
+      }, { once: true });
+      audio.addEventListener('timeupdate', () => {
+        if (audio.duration > 0) {
+          setVoiceProgressMap((prev) => ({ ...prev, [row.id]: audio.currentTime / audio.duration }));
+        }
+      });
+      await audio.play();
+      setPlayingVoiceMessageId(row.id);
+      setPausedVoiceMessageId(null);
+    } catch {
+      cleanup();
       const hasEncryptedMedia = isEncryptedMediaPayload(payload.media);
       const hasLegacyMedia = Boolean(resolveLegacyMediaUrl(payload));
       if (hasEncryptedMedia) {
         setMediaErrorMap((prev) => ({ ...prev, [row.id]: 'decrypt_failed' }));
-        showToast('语音解密失败', 'error');
+        showToast('语音播放失败', 'error');
       } else if (!hasLegacyMedia && row.mediaAssetId) {
         setMediaErrorMap((prev) => ({ ...prev, [row.id]: 'metadata_missing' }));
         showToast('语音元数据缺失', 'error');
       } else {
         setMediaErrorMap((prev) => ({ ...prev, [row.id]: 'legacy_unavailable' }));
-        showToast('语音加载失败', 'error');
+        showToast('语音播放失败', 'error');
       }
-      return;
-    }
-    // 清除错误状态
-    if (mediaErrorMap[row.id]) {
-      setMediaErrorMap((prev) => {
+    } finally {
+      setAudioLoadingMap((prev) => {
         const next = { ...prev };
         delete next[row.id];
         return next;
       });
-    }
-
-    if (audioElementRef.current) {
-      audioElementRef.current.pause();
-      audioElementRef.current = null;
-    }
-    if (audioObjectUrlRef.current && audioObjectUrlRef.current !== resolved && audioObjectUrlRef.current.startsWith('blob:')) {
-      URL.revokeObjectURL(audioObjectUrlRef.current);
-    }
-    audioObjectUrlRef.current = resolved || null;
-
-    const audio = new Audio(audioUrl);
-    audioElementRef.current = audio;
-    const cleanup = (): void => {
-      if (audioElementRef.current === audio) {
-        audioElementRef.current = null;
-      }
-      if (audioObjectUrlRef.current === resolved && audioObjectUrlRef.current?.startsWith('blob:')) {
-        URL.revokeObjectURL(audioObjectUrlRef.current);
-        audioObjectUrlRef.current = null;
-      }
-    };
-    audio.addEventListener('ended', cleanup, { once: true });
-    audio.addEventListener('error', cleanup, { once: true });
-    try {
-      await audio.play();
-    } catch {
-      cleanup();
-      showToast('语音播放失败', 'error');
     }
   }
 
@@ -1158,6 +1343,17 @@ export function ChatPanel(props: Props): JSX.Element {
                     text: payload.replyTo.text || '[图片]',
                   }
                 : undefined;
+              const voiceMetadata = row.messageType === 3 ? normalizeVoiceMessageMetadata(payload.voice) : undefined;
+              const voiceDuration = voiceMetadata ? formatVoiceDuration(voiceMetadata.durationMs) : undefined;
+              const voiceState: 'idle' | 'loading' | 'ready' | 'playing' | 'paused' | 'failed' = mediaErrorMap[row.id]
+                ? 'failed'
+                : audioLoadingMap[row.id]
+                  ? 'loading'
+                  : playingVoiceMessageId === row.id
+                    ? 'playing'
+                    : pausedVoiceMessageId === row.id
+                      ? 'paused'
+                  : 'ready';
 
               return (
                 <article
@@ -1189,7 +1385,10 @@ export function ChatPanel(props: Props): JSX.Element {
                       fileName={resolveMediaFileName(payload)}
                       fileSize={fileSize}
                       mediaVariant={isVideoMessage ? 'video' : 'file'}
-                      voiceDuration={undefined}
+                      voiceDuration={voiceDuration}
+                      voiceState={voiceState}
+                      voiceWaveform={voiceMetadata?.waveform}
+                      voicePlaybackProgress={voiceProgressMap[row.id]}
                       mediaError={mediaErrorMap[row.id]}
                       role={row.messageType === 2 || row.messageType === 3 || row.messageType === 4 ? 'button' : undefined}
                       tabIndex={row.messageType === 2 || row.messageType === 3 || row.messageType === 4 ? 0 : undefined}
@@ -1259,6 +1458,91 @@ export function ChatPanel(props: Props): JSX.Element {
             e.currentTarget.value = '';
           }}
         />
+        {voiceRecorderState.error ? (
+          <div className="voice-recorder-banner voice-recorder-error" role="alert">
+            <span className="material-symbols-rounded">mic_off</span>
+            <span>{voiceRecorderState.error}</span>
+          </div>
+        ) : null}
+        {voiceRecorderState.status === 'recording' ? (
+          <div className="voice-recorder-banner voice-recorder-live">
+            <span className="voice-recorder-pulse" aria-hidden="true" />
+            <div className="voice-recorder-waveform" aria-hidden="true">
+              {voiceRecorderState.liveWaveform.length > 0
+                ? voiceRecorderState.liveWaveform.map((height, i) => (
+                    <span key={i} className="waveform-bar" style={{ '--bar-height': `${Math.max(4, (height / 31) * 28)}px` } as React.CSSProperties} />
+                  ))
+                : Array.from({ length: 24 }, (_, i) => (
+                    <span key={i} className="waveform-bar" style={{ '--bar-height': '4px' } as React.CSSProperties} />
+                  ))}
+            </div>
+            <div className="voice-recorder-meta">
+              <strong>正在录音</strong>
+              <span>{formatVoiceDuration(voiceRecorderState.durationMs)}</span>
+            </div>
+            <div className="voice-recorder-actions">
+              <button type="button" className="voice-recorder-action danger" onClick={() => void cancelVoiceRecording()} aria-label="取消录音">
+                取消
+              </button>
+              <button type="button" className="voice-recorder-action primary" onClick={() => void stopVoiceRecording()} aria-label="停止录音">
+                停止
+              </button>
+            </div>
+          </div>
+        ) : null}
+        {voicePreview ? (
+          <div className={`voice-preview-card ${voicePreview.uploadState === 'failed' ? 'voice-preview-failed' : ''}`}>
+            <div className="voice-preview-header">
+              <div className="voice-preview-meta">
+                <strong>语音消息</strong>
+                <span>{formatVoiceDuration(voicePreview.durationMs)}</span>
+              </div>
+              <span className="voice-preview-status">
+                {voicePreview.uploadState === 'uploading'
+                  ? '上传中...'
+                  : voicePreview.uploadState === 'ready'
+                    ? '可发送'
+                    : '上传失败'}
+              </span>
+            </div>
+            <audio controls src={voicePreview.previewUrl} className="voice-preview-player" />
+            {voicePreview.uploadState === 'failed' ? (
+              <p className="voice-preview-hint">语音上传失败，请重试或放弃后重新录制。</p>
+            ) : null}
+            <div className="voice-preview-actions">
+              <button type="button" className="voice-preview-btn ghost" onClick={discardVoicePreview} disabled={props.mediaUploading} aria-label="放弃语音">
+                放弃
+              </button>
+              {voicePreview.uploadState === 'failed' ? (
+                <button type="button" className="voice-preview-btn ghost" onClick={() => void retryVoiceUpload()} disabled={props.mediaUploading} aria-label="重试上传语音">
+                  重试
+                </button>
+              ) : (
+                <button type="button" className="voice-preview-btn ghost" onClick={() => void beginVoiceRecording()} disabled={props.mediaUploading} aria-label="重新录音">
+                  重录
+                </button>
+              )}
+              <button
+                type="button"
+                className="voice-preview-btn primary"
+                onClick={() => composerFormRef.current?.requestSubmit()}
+                disabled={
+                  !canSendComposerMessage({
+                    hasActiveConversation,
+                    sendingMessage: props.sendingMessage,
+                    mediaUploading: props.mediaUploading,
+                    messageText: props.messageText,
+                    messageType: props.messageType,
+                    mediaUrl: props.mediaUrl,
+                  })
+                }
+                aria-label="发送语音"
+              >
+                发送
+              </button>
+            </div>
+          </div>
+        ) : null}
         <form ref={composerFormRef} onSubmit={props.onSubmit} className="composer">
           {props.replyToMessage ? (
             <div className="reply-preview">
@@ -1337,16 +1621,20 @@ export function ChatPanel(props: Props): JSX.Element {
                 event.preventDefault();
                 composerFormRef.current?.requestSubmit();
               }}
-              disabled={!hasActiveConversation}
+              disabled={!hasActiveConversation || voiceRecorderState.status === 'recording' || Boolean(voicePreview)}
             />
             <button
               type="submit"
               className="send-btn"
               disabled={
-                !hasActiveConversation ||
-                props.sendingMessage ||
-                props.mediaUploading ||
-                !props.messageText.trim()
+                !canSendComposerMessage({
+                  hasActiveConversation,
+                  sendingMessage: props.sendingMessage,
+                  mediaUploading: props.mediaUploading,
+                  messageText: props.messageText,
+                  messageType: props.messageType,
+                  mediaUrl: props.mediaUrl,
+                })
               }
               aria-label="发送消息"
             >
@@ -1376,8 +1664,15 @@ export function ChatPanel(props: Props): JSX.Element {
           <button
             type="button"
             className="composer-tool-btn"
-            disabled={!hasActiveConversation}
+            disabled={!hasActiveConversation || props.mediaUploading || voiceRecorderState.status === 'recording'}
             aria-label="麦克风"
+            onClick={() => {
+              if (voiceRecorderState.status === 'recording') {
+                void stopVoiceRecording();
+                return;
+              }
+              void beginVoiceRecording();
+            }}
           >
             <span className="material-symbols-rounded">mic</span>
           </button>

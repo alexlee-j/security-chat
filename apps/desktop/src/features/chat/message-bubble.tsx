@@ -1,3 +1,4 @@
+import * as React from 'react';
 import { forwardRef, useEffect, useState } from 'react';
 import type { HTMLAttributes } from 'react';
 
@@ -26,6 +27,9 @@ type MessageBubbleProps = {
   fileSize?: string;
   mediaVariant?: 'file' | 'video';
   voiceDuration?: string;
+  voiceState?: 'idle' | 'loading' | 'ready' | 'playing' | 'paused' | 'failed';
+  voiceWaveform?: number[];
+  voicePlaybackProgress?: number;
   onRetry?: () => void;
   /** 媒体错误状态 */
   mediaError?: MediaErrorType;
@@ -45,6 +49,9 @@ export const MessageBubble = forwardRef<HTMLDivElement, MessageBubbleProps>(func
     fileSize,
     mediaVariant = 'file',
     voiceDuration,
+    voiceState = 'idle',
+    voiceWaveform,
+    voicePlaybackProgress,
     onRetry,
     mediaError,
     className,
@@ -134,10 +141,37 @@ export const MessageBubble = forwardRef<HTMLDivElement, MessageBubbleProps>(func
       );
     }
     if (messageType === MessageType.Voice) {
+      if (mediaError) {
+        return <div className="message-media-error voice-error"><span className="error-icon">🔒</span><span>{getMediaErrorMessage(mediaError)}</span></div>;
+      }
+      const voiceControlLabel = voiceState === 'playing' ? '暂停语音' : voiceState === 'paused' ? '继续播放语音' : '播放语音';
+      const voiceControlIcon = voiceState === 'loading' ? 'hourglass_empty' : voiceState === 'playing' ? 'pause' : 'play_arrow';
       return (
-        <div className="voice-bubble">
-          <span className="play-btn">▶</span>
+        <div className={`voice-bubble voice-state-${voiceState}`}>
+          <span className="play-btn material-symbols-rounded" aria-label={voiceControlLabel}>
+            {voiceControlIcon}
+          </span>
+          <div className="voice-waveform-container">
+            {voiceWaveform && voiceWaveform.length > 0
+              ? voiceWaveform.map((height, i) => {
+                  const progress = voicePlaybackProgress ?? 0;
+                  const totalBars = voiceWaveform.length;
+                  const barProgress = (i + 0.5) / totalBars;
+                  const isPlayed = barProgress <= progress;
+                  return (
+                    <span
+                      key={i}
+                      className={`voice-waveform-bar${isPlayed ? ' played' : ''}`}
+                      style={{ '--bar-height': `${Math.max(3, (height / 31) * 20)}px` } as React.CSSProperties}
+                    />
+                  );
+                })
+              : Array.from({ length: 16 }, (_, i) => (
+                  <span key={i} className="voice-waveform-bar" style={{ '--bar-height': '4px' } as React.CSSProperties} />
+                ))}
+          </div>
           <span className="duration">{voiceDuration}</span>
+          {voiceState === 'loading' ? <span className="voice-loading-label">加载中...</span> : null}
         </div>
       );
     }

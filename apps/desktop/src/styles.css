@@ -2430,7 +2430,56 @@ button:disabled {
 
 .voice-bubble .play-btn {
   color: var(--brand-primary);
-  font-size: 16px;
+  font-size: 20px;
+  line-height: 1;
+  width: 20px;
+  text-align: center;
+}
+
+.voice-bubble .duration {
+  font-variant-numeric: tabular-nums;
+}
+
+.voice-bubble.voice-state-loading {
+  opacity: 0.8;
+}
+
+.voice-bubble .voice-loading-label {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.voice-waveform-container {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.voice-waveform-bar {
+  display: block;
+  width: 2px;
+  min-height: 3px;
+  max-height: 20px;
+  height: var(--bar-height, 4px);
+  background: var(--text-secondary);
+  border-radius: 1px;
+  opacity: 0.4;
+  transition: opacity 0.15s ease, background 0.15s ease;
+}
+
+.voice-waveform-bar.played {
+  background: var(--brand-primary);
+  opacity: 0.9;
+}
+
+.voice-bubble.out .voice-waveform-bar.played {
+  background: var(--brand-primary);
+}
+
+.voice-bubble.in .voice-waveform-bar.played {
+  background: var(--accent);
 }
 
 /* 媒体错误状态样式 */
@@ -2665,6 +2714,7 @@ button:disabled {
   display: flex;
   align-items: stretch;
   gap: 12px;
+  flex-wrap: wrap;
 }
 
 .hidden-file-input {
@@ -2676,6 +2726,168 @@ button:disabled {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  min-width: 0;
+  flex-basis: 0;
+}
+
+.voice-recorder-banner,
+.voice-preview-card {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--card);
+  padding: 12px 14px;
+}
+
+.voice-recorder-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.voice-recorder-error {
+  color: var(--error);
+  background: rgba(229, 57, 53, 0.08);
+}
+
+.voice-recorder-live {
+  justify-content: space-between;
+}
+
+.voice-recorder-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.voice-recorder-meta strong,
+.voice-preview-meta strong {
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.voice-recorder-meta span,
+.voice-preview-meta span,
+.voice-preview-status {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.voice-recorder-pulse {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--error);
+  box-shadow: 0 0 0 0 rgba(229, 57, 53, 0.4);
+  animation: voice-pulse 1.4s infinite ease-out;
+  flex-shrink: 0;
+}
+
+.voice-recorder-waveform {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 28px;
+  flex-shrink: 0;
+}
+
+.voice-recorder-waveform .waveform-bar {
+  display: block;
+  width: 3px;
+  min-height: var(--bar-height, 4px);
+  max-height: 28px;
+  height: var(--bar-height, 4px);
+  background: var(--brand-primary);
+  border-radius: 2px;
+  transition: height 0.08s ease;
+}
+
+.voice-recorder-actions,
+.voice-preview-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.voice-recorder-action,
+.voice-preview-btn {
+  border: none;
+  border-radius: 999px;
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.voice-recorder-action.primary,
+.voice-preview-btn.primary {
+  background: var(--brand-primary);
+  color: #fff;
+}
+
+.voice-recorder-action.danger,
+.voice-preview-btn.ghost {
+  background: transparent;
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+}
+
+.voice-recorder-action:hover,
+.voice-preview-btn:hover {
+  filter: brightness(0.98);
+}
+
+.voice-preview-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.voice-preview-card.voice-preview-failed {
+  border-color: rgba(229, 57, 53, 0.35);
+  background: rgba(229, 57, 53, 0.05);
+}
+
+.voice-preview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.voice-preview-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.voice-preview-player {
+  width: 100%;
+}
+
+.voice-preview-hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--error);
+}
+
+.voice-preview-actions {
+  justify-content: flex-end;
+}
+
+@keyframes voice-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(229, 57, 53, 0.4);
+  }
+  70% {
+    box-shadow: 0 0 0 10px rgba(229, 57, 53, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(229, 57, 53, 0);
+  }
 }
 
 .composer-input-wrapper {
