@@ -7,6 +7,7 @@ import { AuthService } from '../../src/modules/auth/auth.service';
 import { JwtPayload } from '../../src/modules/auth/interfaces/jwt-payload.interface';
 import { JwtStrategy } from '../../src/modules/auth/strategies/jwt.strategy';
 import { MailService } from '../../src/modules/mail/mail.service';
+import { NotificationService } from '../../src/modules/notification/notification.service';
 import { SecurityService } from '../../src/modules/security/security.service';
 import { UserService } from '../../src/modules/user/user.service';
 
@@ -21,6 +22,7 @@ describe('AuthService device-bound auth', () => {
   let userService: jest.Mocked<UserService>;
   let securityService: jest.Mocked<SecurityService>;
   let mailService: jest.Mocked<MailService>;
+  let notificationService: jest.Mocked<NotificationService>;
   let redis: jest.Mocked<Redis>;
   let compareSpy: jest.SpyInstance;
 
@@ -71,6 +73,11 @@ describe('AuthService device-bound auth', () => {
       sendPasswordResetCode: jest.fn().mockResolvedValue(undefined),
     } as unknown as jest.Mocked<MailService>;
 
+    notificationService = {
+      isNotificationEnabled: jest.fn().mockResolvedValue(false),
+      createNotification: jest.fn().mockResolvedValue(undefined),
+    } as unknown as jest.Mocked<NotificationService>;
+
     redis = {
       get: jest.fn().mockResolvedValue(null),
       set: jest.fn().mockResolvedValue('OK'),
@@ -86,6 +93,7 @@ describe('AuthService device-bound auth', () => {
       securityService,
       jwtService,
       mailService,
+      notificationService,
       redis,
     );
   };
