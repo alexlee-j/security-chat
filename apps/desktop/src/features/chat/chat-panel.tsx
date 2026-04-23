@@ -36,6 +36,7 @@ import {
   useDesktopVoiceRecorder,
   type VoiceRecorderDraft,
 } from './voice-recorder';
+import type { VoiceCallHistoryEntry } from '../../core/voice-call-engine';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
@@ -73,6 +74,7 @@ type Props = {
   hasMoreHistory: boolean;
   /** 加载历史消息中状态 */
   loadingMoreHistory: boolean;
+  callHistory: VoiceCallHistoryEntry[];
   decodePayload: (payload: string, senderId?: string, sourceDeviceId?: string) => string;
   onMessageTextChange: (value: string) => void;
   onMessageTypeChange: (value: 1 | 2 | 3 | 4) => void;
@@ -99,6 +101,10 @@ type Props = {
   onToggleConversationPin: (conversationId: string) => void;
   onToggleConversationMute: (conversationId: string) => void;
   onDeleteConversation: (conversationId: string) => Promise<boolean>;
+  /** 是否可以发起语音通话 */
+  voiceCallEnabled?: boolean;
+  /** 发起语音通话回调 */
+  onVoiceCall?: () => void;
 };
 
 const QUICK_EMOJIS = ['😀', '😂', '😍', '😎', '🤔', '😭', '👍', '🙏', '🎉', '❤️', '🔥', '✅'];
@@ -416,6 +422,24 @@ export function ChatPanel(props: Props): JSX.Element {
     }
     return messages.slice(messages.length - displayedMessageCount);
   }, [visibleMessages, displayedMessageCount, searchKeyword]);
+
+  const timelineRows = useMemo(() => {
+    const messageRows = displayedMessages.map((row, index) => ({
+      kind: 'message' as const,
+      row,
+      sortKey: Number.isFinite(Date.parse(row.createdAt)) ? Date.parse(row.createdAt) : Number(row.messageIndex) || index,
+      tieBreaker: Number.isFinite(Number(row.messageIndex)) ? Number(row.messageIndex) : index,
+    }));
+    const callRows = props.callHistory.map((row, index) => ({
+      kind: 'call' as const,
+      row,
+      sortKey: Number.isFinite(Date.parse(row.createdAt ?? row.endedAt ?? row.startedAt ?? ''))
+        ? Date.parse(row.createdAt ?? row.endedAt ?? row.startedAt ?? '')
+        : index,
+      tieBreaker: index,
+    }));
+    return [...messageRows, ...callRows].sort((a, b) => a.sortKey - b.sortKey || a.tieBreaker - b.tieBreaker);
+  }, [displayedMessages, props.callHistory]);
 
   function scrollToBottom(): void {
     if (messageListRef.current) {
@@ -1202,6 +1226,8 @@ export function ChatPanel(props: Props): JSX.Element {
         status={statusText}
         isOnline={props.activeConversation?.peerUser?.isOnline ?? false}
         memberCount={props.activeConversation?.type === 2 ? props.activeConversation.groupInfo?.memberCount : undefined}
+        voiceCallEnabled={props.voiceCallEnabled}
+        onVoiceCall={props.onVoiceCall}
         onSearch={() => {
           setSearchOpen((v) => {
             const next = !v;
@@ -1274,9 +1300,9 @@ export function ChatPanel(props: Props): JSX.Element {
           <div className="chat-empty">
             <p>请选择一个会话开始聊天</p>
           </div>
-        ) : visibleMessages.length === 0 ? (
+        ) : timelineRows.length === 0 ? (
           <div className="chat-empty">
-            <p>暂无聊天消息</p>
+            <p>暂无聊天消息或通话记录</p>
           </div>
         ) : (
           <>
@@ -1306,7 +1332,31 @@ export function ChatPanel(props: Props): JSX.Element {
                 <span>没有更早消息了</span>
               </div>
             )}
-            {displayedMessages.map((row) => {
+            {timelineRows.map((item) => {
+              if (item.kind === 'call') {
+                const callRow = item.row;
+                const isOwnCall = callRow.callerUserId === props.currentUserId;
+                return (
+                  <article
+                    key={`call-${callRow.id}`}
+                    data-call-id={callRow.id}
+                    data-call-outcome={callRow.outcome}
+                    className={`message call-history-entry${isOwnCall ? ' self' : ''}`}
+                  >
+                    <div className="call-history-card">
+                      <span className="material-symbols-rounded call-history-icon">
+                        {callRow.outcome === 'completed' ? 'call' : 'call_end'}
+                      </span>
+                      <div className="call-history-copy">
+                        <strong>{callRow.preview}</strong>
+                        <span>{callRow.timeLabel}</span>
+                      </div>
+                    </div>
+                  </article>
+                );
+              }
+
+              const row = item.row;
               const decoded = props.decodePayload(row.encryptedPayload, row.senderId, row.sourceDeviceId);
               const payload = parsePayload(decoded);
               const isOut = row.senderId === props.currentUserId;

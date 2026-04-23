@@ -268,6 +268,7 @@ export function useChatClient(): {
   actions: ChatClientActions;
   activeConversation: ConversationListItem | null;
   decodePayload: (payload: string) => string;
+  socket: Socket | null;
 } {
   // ==================== Signal协议 ====================
   const { state: signalState, actions: signalActions } = useSignal();
@@ -2904,5 +2905,6 @@ export function useChatClient(): {
     },
     activeConversation,
     decodePayload: decodePayloadSync,
+    socket,
   };
 }

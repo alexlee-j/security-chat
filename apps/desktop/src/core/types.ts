@@ -56,6 +56,26 @@ export type MessageItem = {
   retryToken?: string;
 };
 
+export type CallOutcome = 'completed' | 'rejected' | 'missed' | 'canceled' | 'failed' | 'offline' | 'timeout' | 'answered_elsewhere';
+
+export type CallRecordItem = {
+  id: string;
+  conversationId: string;
+  callerUserId: string;
+  calleeUserId: string;
+  callerDeviceId: string | null;
+  acceptedDeviceId: string | null;
+  outcome: CallOutcome;
+  startedAt: string | null;
+  acceptedAt: string | null;
+  endedAt: string | null;
+  durationSeconds: number | null;
+  createdByUserId: string | null;
+  createdAt: string;
+};
+
+export type ConversationTimelineItem = MessageItem | (CallRecordItem & { kind: 'call' });
+
 export type WsConversationEvent = {
   conversationId?: string;
 };

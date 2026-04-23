@@ -18,6 +18,7 @@ import { MailModule } from './modules/mail/mail.module';
 import { MetricsModule } from './modules/metrics/metrics.module';
 import { IdentityModule } from './modules/identity/identity.module';
 import { GroupModule } from './modules/group/group.module';
+import { CallModule } from './modules/call/call.module';
 
 @Module({
   imports: [
@@ -41,6 +42,7 @@ import { GroupModule } from './modules/group/group.module';
     MetricsModule,
     IdentityModule,
     GroupModule,
+    CallModule,
   ],
   controllers: [AppController],
   providers: [AppService],

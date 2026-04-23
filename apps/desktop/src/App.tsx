@@ -23,6 +23,7 @@ import { AboutSheet } from './features/navigation/about-sheet';
 import { LogoutConfirmDialog } from './features/navigation/logout-confirm-dialog';
 import { NotificationSettingsSheet } from './features/settings/notification-settings-sheet';
 import { useChatClient } from './core/use-chat-client';
+import { useVoiceCallClient } from './core/use-voice-call-client';
 import { useTheme } from './core/use-theme';
 import { getStoredCredentials, getRememberPassword, canAutoLogin } from './core/auth-storage';
 import {
@@ -41,7 +42,13 @@ import { cn } from '@/lib/utils';
  */
 export function App(): JSX.Element {
   // 聊天客户端状态管理：包含用户状态、消息、会话等核心数据
-  const { state, actions, activeConversation, decodePayload } = useChatClient();
+  const { state, actions, activeConversation, decodePayload, socket } = useChatClient();
+  const voiceCall = useVoiceCallClient({
+    socket,
+    currentUserId: state.auth?.userId ?? null,
+    activeConversationId: state.activeConversationId,
+    conversations: state.conversations,
+  });
   // 主题状态管理
   const { theme, setTheme, resolvedTheme } = useTheme();
   // 当前工作区：'chat' 聊天界面 | 'friend' 好友界面
@@ -236,6 +243,80 @@ export function App(): JSX.Element {
     <main className="workspace-shell">
       {/* 全局错误提示 */}
       {state.error ? <div className="error">{state.error}</div> : null}
+      {voiceCall.state.status !== 'idle' ? (
+        <section className={`voice-call-banner voice-call-status-${voiceCall.state.status}`}>
+          <div className="voice-call-banner-main">
+            <span className="material-symbols-rounded voice-call-banner-icon">
+              {voiceCall.state.status === 'incoming'
+                ? 'call_received'
+                : voiceCall.state.status === 'connected' || voiceCall.state.status === 'muted'
+                  ? 'call'
+                  : voiceCall.state.status === 'failed'
+                    ? 'call_end'
+                    : 'ring_volume'}
+            </span>
+            <div className="voice-call-banner-copy">
+              <strong>
+                {voiceCall.state.status === 'incoming'
+                  ? '有语音通话来电'
+                  : voiceCall.state.status === 'outgoing'
+                    ? `正在呼叫 · ${voiceCall.state.elapsedSeconds > 0 ? `${Math.floor(voiceCall.state.elapsedSeconds / 60)}:${String(Math.floor(voiceCall.state.elapsedSeconds % 60)).padStart(2, '0')}` : '00:00'}`
+                    : voiceCall.state.status === 'requesting-permission'
+                      ? '正在请求麦克风权限'
+                      : voiceCall.state.status === 'connected' || voiceCall.state.status === 'muted'
+                        ? `通话中 · ${voiceCall.state.elapsedSeconds > 0 ? `${Math.floor(voiceCall.state.elapsedSeconds / 60)}:${String(Math.floor(voiceCall.state.elapsedSeconds % 60)).padStart(2, '0')}` : '00:00'}`
+                        : voiceCall.state.status === 'timeout'
+                          ? '通话超时'
+                          : voiceCall.state.status === 'answered-elsewhere'
+                            ? '已由其他设备接听'
+                            : voiceCall.state.error || '通话状态更新'}
+              </strong>
+              <span>
+                {voiceCall.state.status === 'incoming'
+                  ? '来电会在当前会话之外保持可见。'
+                  : voiceCall.state.status === 'outgoing'
+                    ? '等待对方接听。'
+                    : voiceCall.state.status === 'connected' || voiceCall.state.status === 'muted'
+                      ? voiceCall.state.isMuted
+                        ? '麦克风已静音。'
+                        : '实时音频传输中。'
+                      : voiceCall.state.autoplayBlocked
+                        ? '音频播放被浏览器策略阻止。'
+                        : voiceCall.state.error || 'WebRTC 通话状态。'}
+              </span>
+            </div>
+          </div>
+          <div className="voice-call-banner-actions">
+            {voiceCall.state.status === 'incoming' ? (
+              <>
+                <button type="button" className="voice-call-banner-btn primary" onClick={() => void voiceCall.actions.acceptIncomingCall()}>
+                  接听
+                </button>
+                <button type="button" className="voice-call-banner-btn" onClick={() => void voiceCall.actions.rejectIncomingCall()}>
+                  拒绝
+                </button>
+              </>
+            ) : voiceCall.state.status === 'outgoing' || voiceCall.state.status === 'requesting-permission' ? (
+              <button type="button" className="voice-call-banner-btn" onClick={() => void voiceCall.actions.cancelVoiceCall()}>
+                取消
+              </button>
+            ) : voiceCall.state.status === 'connected' || voiceCall.state.status === 'muted' ? (
+              <>
+                <button type="button" className="voice-call-banner-btn" onClick={voiceCall.actions.toggleMute}>
+                  {voiceCall.state.isMuted ? '取消静音' : '静音'}
+                </button>
+                <button type="button" className="voice-call-banner-btn danger" onClick={() => void voiceCall.actions.hangupVoiceCall()}>
+                  挂断
+                </button>
+              </>
+            ) : voiceCall.state.status === 'failed' || voiceCall.state.status === 'timeout' || voiceCall.state.status === 'answered-elsewhere' ? (
+              <button type="button" className="voice-call-banner-btn" onClick={voiceCall.actions.clearError}>
+                关闭
+              </button>
+            ) : null}
+          </div>
+        </section>
+      ) : null}
       <div className="workspace-stage">
         {/* 聊天工作区：包含会话侧边栏和聊天面板 */}
         {workspace === 'chat' ? (
@@ -280,6 +361,7 @@ export function App(): JSX.Element {
               typingHint={state.typingHint}
               hasMoreHistory={state.hasMoreHistory}
               loadingMoreHistory={state.loadingMoreHistory}
+              callHistory={voiceCall.history}
               decodePayload={decodePayload}
               onMessageTextChange={actions.setMessageText}
               onMessageTypeChange={actions.setMessageType}
@@ -306,6 +388,8 @@ export function App(): JSX.Element {
               onToggleConversationPin={actions.toggleConversationPin}
               onToggleConversationMute={actions.toggleConversationMute}
               onDeleteConversation={actions.deleteConversation}
+              voiceCallEnabled={voiceCall.actions.canStartCall(state.activeConversationId)}
+              onVoiceCall={() => void voiceCall.actions.startVoiceCall(state.activeConversationId)}
             />
           </div>
         ) : (

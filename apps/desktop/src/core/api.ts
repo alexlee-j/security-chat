@@ -15,6 +15,7 @@ import {
   ApiEnvelope,
   AuthResult,
   BlockedFriendItem,
+  CallRecordItem,
   ConversationListItem,
   FriendListItem,
   FriendSearchItem,
@@ -275,6 +276,38 @@ export async function getConversationBurnDefault(
   const res = await http.get<ApiEnvelope<{ conversationId: string; enabled: boolean; burnDuration: number | null }>>(
     `/conversation/${conversationId}/burn-default`,
   );
+  return res.data.data;
+}
+
+export async function getCallIceConfig(): Promise<{
+  iceServers: Array<{
+    urls: string | string[];
+    username?: string;
+    credential?: string;
+    credentialType?: string;
+  }>;
+  security: {
+    mediaEncryption: 'webrtc-dtls-srtp';
+    signalIdentityVerification: false;
+  };
+}> {
+  const res = await http.get<ApiEnvelope<{
+    iceServers: Array<{
+      urls: string | string[];
+      username?: string;
+      credential?: string;
+      credentialType?: string;
+    }>;
+    security: {
+      mediaEncryption: 'webrtc-dtls-srtp';
+      signalIdentityVerification: false;
+    };
+  }>>('/call/ice-config');
+  return res.data.data;
+}
+
+export async function getCallHistory(conversationId: string): Promise<CallRecordItem[]> {
+  const res = await http.get<ApiEnvelope<CallRecordItem[]>>(`/call/history/${conversationId}`);
   return res.data.data;
 }
 

@@ -15,6 +15,8 @@ export type TopBarProps = {
   status?: string;
   memberCount?: number;
   isOnline?: boolean;
+  voiceCallEnabled?: boolean;
+  onVoiceCall?: () => void;
   onSearch: () => void;
   moreMenu: React.ReactNode;
 };
@@ -44,19 +46,12 @@ export function TopBar(props: TopBarProps): JSX.Element {
           <>
             <button
               className="chat-action-btn"
-              aria-label="语音通话暂不可用"
-              title="音视频通话暂未开放"
-              disabled
+              aria-label={props.voiceCallEnabled ? '语音通话' : '语音通话暂不可用'}
+              title={props.voiceCallEnabled ? '发起语音通话' : '仅私聊支持语音通话'}
+              disabled={!props.voiceCallEnabled}
+              onClick={props.onVoiceCall}
             >
               <span className="material-symbols-rounded">call</span>
-            </button>
-            <button
-              className="chat-action-btn"
-              aria-label="视频通话暂不可用"
-              title="音视频通话暂未开放"
-              disabled
-            >
-              <span className="material-symbols-rounded">videocam</span>
             </button>
           </>
         )}

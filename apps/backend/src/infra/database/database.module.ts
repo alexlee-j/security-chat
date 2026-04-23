@@ -20,6 +20,7 @@ import { IdentityKey } from '../../modules/identity/identity.entity';
 import { Group } from '../../modules/group/entities/group.entity';
 import { GroupMember } from '../../modules/group/entities/group-member.entity';
 import { SenderKey } from '../../modules/group/entities/sender-key.entity';
+import { CallRecord } from '../../modules/call/entities/call-record.entity';
 
 @Module({
   imports: [
@@ -54,6 +55,7 @@ import { SenderKey } from '../../modules/group/entities/sender-key.entity';
           Group,
           GroupMember,
           SenderKey,
+          CallRecord,
         ],
         // ⚠️ 生产环境必须使用 migrations，synchronize 仅用于开发
         synchronize: configService.get<string>('NODE_ENV') !== 'production' && configService.get<string>('DB_SYNC', 'false') === 'true',
