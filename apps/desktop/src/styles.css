@@ -2969,6 +2969,203 @@ button:disabled {
   box-shadow: var(--shadow-elevated);
 }
 
+/* ==========================================================================
+   图片查看器
+   ========================================================================== */
+.image-viewer-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.94);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 3000;
+  cursor: pointer;
+  animation: fadeIn var(--transition-normal) ease;
+}
+
+.image-viewer-close {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+  padding: 0;
+}
+.image-viewer-close:hover { background: rgba(255, 255, 255, 0.22); }
+.image-viewer-close svg { width: 24px; height: 24px; }
+
+.image-viewer-nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+  padding: 0;
+}
+.image-viewer-nav:hover { background: rgba(255, 255, 255, 0.22); }
+.image-viewer-nav.prev { left: 24px; }
+.image-viewer-nav.next { right: 24px; }
+.image-viewer-nav svg { width: 28px; height: 28px; }
+
+.image-viewer-content {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  max-width: 90vw;
+  max-height: 80vh;
+  cursor: default;
+}
+
+.image-viewer-image {
+  max-width: 90vw;
+  max-height: 80vh;
+  width: auto;
+  height: auto;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-elevated);
+  transition: transform 0.2s ease;
+  transform-origin: center center;
+  user-select: none;
+}
+
+.image-viewer-loading {
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 16px;
+}
+
+.image-viewer-controls {
+  position: absolute;
+  bottom: 28px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(0, 0, 0, 0.5);
+  border-radius: 24px;
+  padding: 8px 16px;
+  cursor: default;
+}
+
+.image-viewer-controls button {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+  padding: 0;
+}
+.image-viewer-controls button:hover { background: rgba(255, 255, 255, 0.15); }
+.image-viewer-controls button svg { width: 20px; height: 20px; }
+
+.image-viewer-zoom-label {
+  min-width: 48px;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.image-viewer-counter {
+  position: absolute;
+  bottom: 28px;
+  right: 28px;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 13px;
+}
+
+/* ==========================================================================
+   视频查看器
+   ========================================================================== */
+.video-viewer-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.94);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 3000;
+  cursor: pointer;
+  animation: fadeIn var(--transition-normal) ease;
+}
+
+.video-viewer-close {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+  padding: 0;
+}
+.video-viewer-close:hover { background: rgba(255, 255, 255, 0.22); }
+.video-viewer-close svg { width: 24px; height: 24px; }
+
+.video-viewer-content {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  max-width: 90vw;
+  max-height: 90vh;
+  cursor: default;
+}
+
+.video-viewer-player {
+  max-width: 90vw;
+  max-height: 85vh;
+  width: auto;
+  height: auto;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-elevated);
+  background: #000;
+}
+
+/* ==========================================================================
+   语音波形拖动定位
+   ========================================================================== */
+.voice-waveform-container[role="slider"] {
+  cursor: pointer;
+  user-select: none;
+}
+
+.voice-waveform-container.seeking {
+  cursor: grabbing;
+}
+
 @keyframes fadeIn {
   from { opacity: 0; }
   to { opacity: 1; }

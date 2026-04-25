@@ -1,4 +1,4 @@
-import type { EncryptedMediaPayload } from './media-crypto';
+import { isEncryptedMediaPayload, type EncryptedMediaPayload } from './media-crypto';
 
 export type MediaMessagePayload = {
   text?: string;
@@ -132,6 +132,43 @@ export function resolveMediaBubbleContent(
     return resolvedSource?.trim() || resolveLegacyMediaUrl(payload) || '';
   }
   return resolveLegacyMediaUrl(payload) || resolveMediaFileName(payload, 'file');
+}
+
+export function shouldPersistMediaCache(input: {
+  messageType: number;
+  isBurn?: boolean | null;
+  isVideo?: boolean;
+}): boolean {
+  return input.messageType === 4 && !input.isBurn && !input.isVideo;
+}
+
+export function parseMediaMessagePayload(raw: string): MediaMessagePayload {
+  try {
+    const parsed = JSON.parse(raw) as MediaMessagePayload;
+    if (typeof parsed === 'object' && parsed) {
+      return parsed;
+    }
+    return {};
+  } catch {
+    return {};
+  }
+}
+
+export function resolveEncryptedMediaPayloadFromDecoded(decodedPayload: string): EncryptedMediaPayload | undefined {
+  const payload = parseMediaMessagePayload(decodedPayload);
+  return isEncryptedMediaPayload(payload.media) ? payload.media : undefined;
+}
+
+export async function resolvePreviewMediaBlob(input: {
+  downloadedBlob: Blob;
+  decodedPayload: string;
+  decryptMediaBlob: (ciphertext: Blob, media: EncryptedMediaPayload) => Promise<Blob>;
+}): Promise<Blob> {
+  const encryptedMedia = resolveEncryptedMediaPayloadFromDecoded(input.decodedPayload);
+  if (!encryptedMedia) {
+    return input.downloadedBlob;
+  }
+  return input.decryptMediaBlob(input.downloadedBlob, encryptedMedia);
 }
 
 export function buildLegacyMediaFields(

@@ -89,4 +89,20 @@ const progressHtml = renderToStaticMarkup(
 
 assert.match(progressHtml, /played/);
 
+const pendingSeekHtml = renderToStaticMarkup(
+  <MessageBubble
+    type="in"
+    messageType={3}
+    content=""
+    time="10:00"
+    voiceDuration="0:08"
+    voiceState="paused"
+    voiceWaveform={[4, 8, 16, 24]}
+    voicePendingSeekRatio={0.75}
+  />,
+);
+
+assert.match(pendingSeekHtml, /role="slider"/);
+assert.match(pendingSeekHtml, /aria-valuenow="75"/);
+
 console.log('voice message bubble ok');

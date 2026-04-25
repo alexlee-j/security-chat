@@ -60,6 +60,7 @@ import {
 import {
   buildMediaMessagePayload,
   buildLegacyMediaFields,
+  resolvePreviewMediaBlob,
   buildSendV2TransportPayload,
   normalizeVoiceMessageMetadata,
   type VoiceMessageMetadata,
@@ -1921,15 +1922,11 @@ export function useChatClient(): {
         message.sourceDeviceId,
         message.conversationId,
       );
-      let media: unknown;
-      try {
-        media = (JSON.parse(decoded) as { media?: unknown }).media;
-      } catch {
-        media = undefined;
-      }
-      const blob = isEncryptedMediaPayload(media)
-        ? await decryptMediaBlob(downloadedBlob, media)
-        : downloadedBlob;
+      const blob = await resolvePreviewMediaBlob({
+        downloadedBlob,
+        decodedPayload: decoded,
+        decryptMediaBlob,
+      });
       return URL.createObjectURL(blob);
     } catch {
       // 媒体下载失败，不设置全局错误状态，避免影响其他会话

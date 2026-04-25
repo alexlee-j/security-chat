@@ -12,7 +12,14 @@ import { FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useRef, useS
 import * as React from 'react';
 import { ConversationListItem, MessageItem } from '../../core/types';
 import { isEncryptedMediaPayload } from '../../core/media-crypto';
-import { saveAndOpenFile } from '../../core/native-file';
+import {
+  buildMediaCacheKey,
+  ensureCachedMediaFile,
+  lookupCachedMediaFile,
+  openCachedMediaFile,
+  removeCachedMediaFile,
+  saveAndOpenFile,
+} from '../../core/native-file';
 import {
   MediaMessagePayload,
   formatMediaSize,
@@ -23,6 +30,7 @@ import {
   resolveMediaMimeType,
   resolveMediaSize,
   normalizeVoiceMessageMetadata,
+  shouldPersistMediaCache,
   type VoiceMessageMetadata,
 } from '../../core/media-message';
 import { TopBar } from './top-bar';
@@ -295,15 +303,31 @@ export function ChatPanel(props: Props): JSX.Element {
   const [focusedMessageId, setFocusedMessageId] = useState(''); // 聚焦的消息ID
   const [emojiOpen, setEmojiOpen] = useState(false);            // 表情面板开关
   const [audioSourceMap, setAudioSourceMap] = useState<Record<string, string>>({});
-  const [imagePreviewOpen, setImagePreviewOpen] = useState(false);
-  const [imagePreviewSrc, setImagePreviewSrc] = useState('');
   const [imageSourceMap, setImageSourceMap] = useState<Record<string, string>>({});
+  /** 图片查看器状态 */
+  const [imageViewer, setImageViewer] = useState<{
+    open: boolean;
+    activeMessageId: string | null;
+    imageList: MessageItem[];
+    activeIndex: number;
+    zoom: number;
+    /** 消息ID -> 已加载的源URL */
+    loadedSources: Record<string, string>;
+  }>({ open: false, activeMessageId: null, imageList: [], activeIndex: 0, zoom: 1, loadedSources: {} });
+  /** 视频查看器状态 */
+  const [videoViewer, setVideoViewer] = useState<{
+    open: boolean;
+    messageId: string | null;
+    src: string | null;
+  }>({ open: false, messageId: null, src: null });
   /** 媒体错误状态映射：消息ID -> 错误类型 */
   const [mediaErrorMap, setMediaErrorMap] = useState<Record<string, MediaErrorType>>({});
   const [audioLoadingMap, setAudioLoadingMap] = useState<Record<string, boolean>>({});
   const [voiceProgressMap, setVoiceProgressMap] = useState<Record<string, number>>({});
   const [playingVoiceMessageId, setPlayingVoiceMessageId] = useState<string | null>(null);
   const [pausedVoiceMessageId, setPausedVoiceMessageId] = useState<string | null>(null);
+  /** 暂停时用户拖动待处理的定位比例（消息ID -> 比例） */
+  const [voicePendingSeekMap, setVoicePendingSeekMap] = useState<Record<string, number>>({});
   // 附件预览状态
   const [pendingAttachment, setPendingAttachment] = useState<{ file: File; previewUrl: string } | null>(null);
   const [voicePreview, setVoicePreview] = useState<VoicePreviewState | null>(null);
@@ -333,6 +357,7 @@ export function ChatPanel(props: Props): JSX.Element {
   const audioElementRef = useRef<HTMLAudioElement | null>(null);
   const audioObjectUrlRef = useRef<string | null>(null);
   const audioMessageIdRef = useRef<string | null>(null);
+  const videoElementRef = useRef<HTMLVideoElement | null>(null);
   const audioSourceMapRef = useRef<Record<string, string>>({});
   const imageSourceMapRef = useRef<Record<string, string>>({});
   const {
@@ -440,6 +465,38 @@ export function ChatPanel(props: Props): JSX.Element {
     }));
     return [...messageRows, ...callRows].sort((a, b) => a.sortKey - b.sortKey || a.tieBreaker - b.tieBreaker);
   }, [displayedMessages, props.callHistory]);
+  const imagePreviewOpen = imageViewer.open;
+  const activeImagePreview = imageViewer.activeMessageId
+    ? imageViewer.loadedSources[imageViewer.activeMessageId] ?? imageSourceMap[imageViewer.activeMessageId] ?? ''
+    : '';
+  const imagePreviewSrc = activeImagePreview;
+
+  function revokeBlobSource(source?: string | null): void {
+    if (source?.startsWith('blob:')) {
+      URL.revokeObjectURL(source);
+    }
+  }
+
+  function revokeBlobSources(sources: Iterable<string | null | undefined>): void {
+    const revoked = new Set<string>();
+    for (const source of sources) {
+      if (!source?.startsWith('blob:') || revoked.has(source)) {
+        continue;
+      }
+      URL.revokeObjectURL(source);
+      revoked.add(source);
+    }
+  }
+
+  function stopVideoPlayback(): void {
+    const video = videoElementRef.current;
+    if (!video) {
+      return;
+    }
+    video.pause();
+    video.removeAttribute('src');
+    video.load();
+  }
 
   function scrollToBottom(): void {
     if (messageListRef.current) {
@@ -515,24 +572,23 @@ export function ChatPanel(props: Props): JSX.Element {
   }
 
   function revokeMediaObjectUrls(resetPlaybackState = true): void {
-    for (const source of Object.values(audioSourceMapRef.current)) {
-      if (source.startsWith('blob:')) {
-        URL.revokeObjectURL(source);
-      }
-    }
-    for (const source of Object.values(imageSourceMapRef.current)) {
-      if (source.startsWith('blob:')) {
-        URL.revokeObjectURL(source);
-      }
-    }
-    if (imagePreviewUrlRef.current?.startsWith('blob:')) {
-      URL.revokeObjectURL(imagePreviewUrlRef.current);
-      imagePreviewUrlRef.current = null;
-    }
-    if (audioObjectUrlRef.current?.startsWith('blob:')) {
-      URL.revokeObjectURL(audioObjectUrlRef.current);
-      audioObjectUrlRef.current = null;
-    }
+    revokeBlobSources(Object.values(audioSourceMapRef.current));
+    audioSourceMapRef.current = {};
+    revokeBlobSources(Object.values(imageSourceMapRef.current));
+    imageSourceMapRef.current = {};
+    setImageViewer((prev) => {
+      revokeBlobSources(Object.values(prev.loadedSources));
+      return { ...prev, loadedSources: {} };
+    });
+    revokeBlobSource(imagePreviewUrlRef.current);
+    imagePreviewUrlRef.current = null;
+    revokeBlobSource(audioObjectUrlRef.current);
+    audioObjectUrlRef.current = null;
+    stopVideoPlayback();
+    setVideoViewer((prev) => {
+      revokeBlobSource(prev.src);
+      return { open: false, messageId: null, src: null };
+    });
     audioElementRef.current?.pause();
     audioElementRef.current = null;
     audioMessageIdRef.current = null;
@@ -567,12 +623,13 @@ export function ChatPanel(props: Props): JSX.Element {
     // 重置媒体相关状态
     setAudioSourceMap({});
     setImageSourceMap({});
-    setImagePreviewOpen(false);
-    setImagePreviewSrc('');
+    setImageViewer({ open: false, activeMessageId: null, imageList: [], activeIndex: 0, zoom: 1, loadedSources: {} });
+    setVideoViewer({ open: false, messageId: null, src: null });
     setVisibleImageIds(new Set());
     setMediaErrorMap({});
     setAudioLoadingMap({});
     setVoiceProgressMap({});
+    setVoicePendingSeekMap({});
     setDisplayedMessageCount(50);
     stickToBottomRef.current = true;
     window.requestAnimationFrame(() => {
@@ -683,17 +740,38 @@ export function ChatPanel(props: Props): JSX.Element {
       }
       if (event.key === 'Escape') {
         setEmojiOpen(false);
-        closeImagePreview();
+        closeImageViewer();
         if (searchOpen) {
           setSearchOpen(false);
           setSearchKeyword('');
           setFocusedMessageId('');
         }
       }
+      if (imageViewer.open) {
+        if (event.key === 'ArrowLeft') {
+          event.preventDefault();
+          navigateImageViewer('prev');
+        } else if (event.key === 'ArrowRight') {
+          event.preventDefault();
+          navigateImageViewer('next');
+        } else if (event.key === '+' || event.key === '=') {
+          event.preventDefault();
+          setImageZoom(0.5);
+        } else if (event.key === '-') {
+          event.preventDefault();
+          setImageZoom(-0.5);
+        } else if (event.key === '0') {
+          event.preventDefault();
+          resetImageZoom();
+        }
+      }
+      if (videoViewer.open && event.key === 'Escape') {
+        closeVideoViewer();
+      }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [hasActiveConversation, searchOpen]);
+  }, [hasActiveConversation, searchOpen, imageViewer.open, videoViewer.open]);
 
   // 搜索关闭或关键词清空时清除焦点
   useEffect(() => {
@@ -738,7 +816,7 @@ export function ChatPanel(props: Props): JSX.Element {
     // 等待动画完成
     setTimeout(async () => {
       try {
-        await props.onTriggerBurn(messageId);
+        await triggerBurnWithCacheCleanup(messageId);
       } catch (error) {
         console.error('[ChatPanel] Burn message failed:', error);
       }
@@ -753,7 +831,7 @@ export function ChatPanel(props: Props): JSX.Element {
         return next;
       });
     }, 800); // 动画时长
-  }, [props.onTriggerBurn]);
+  }, [props.onTriggerBurn, props.messages, props.decodePayload]);
 
   // 倒计时更新
   useEffect(() => {
@@ -830,6 +908,10 @@ export function ChatPanel(props: Props): JSX.Element {
     const resolved = await props.onResolveMediaUrl(row);
     if (resolved) {
       setImageSourceMap((prev) => ({ ...prev, [row.id]: resolved }));
+      setImageViewer((prev) => {
+        if (prev.loadedSources[row.id]) return prev;
+        return { ...prev, loadedSources: { ...prev.loadedSources, [row.id]: resolved } };
+      });
       // 清除之前的错误状态
       if (mediaErrorMap[row.id]) {
         setMediaErrorMap((prev) => {
@@ -843,6 +925,10 @@ export function ChatPanel(props: Props): JSX.Element {
     const fallback = resolveLegacyMediaUrl(payload);
     if (fallback) {
       setImageSourceMap((prev) => ({ ...prev, [row.id]: fallback }));
+      setImageViewer((prev) => {
+        if (prev.loadedSources[row.id]) return prev;
+        return { ...prev, loadedSources: { ...prev.loadedSources, [row.id]: fallback } };
+      });
       return;
     }
     // 设置媒体错误状态
@@ -860,30 +946,41 @@ export function ChatPanel(props: Props): JSX.Element {
     }
   }
 
-  function closeImagePreview(): void {
-    if (imagePreviewUrlRef.current?.startsWith('blob:')) {
-      URL.revokeObjectURL(imagePreviewUrlRef.current);
-    }
-    imagePreviewUrlRef.current = null;
-    setImagePreviewOpen(false);
-    setImagePreviewSrc('');
+  function closeImageViewer(): void {
+    setImageViewer((prev) => ({ ...prev, open: false, activeMessageId: null, zoom: 1 }));
   }
 
-  async function openImagePreview(row: MessageItem, payload: PayloadData): Promise<void> {
-    if (row.messageType !== 2) {
-      return;
-    }
+  function closeImagePreview(): void {
+    closeImageViewer();
+  }
+
+  async function openImagePreview(row: MessageItem, _payload: PayloadData): Promise<void> {
+    await openImageViewer(row);
+  }
+
+  async function openImageViewer(row: MessageItem): Promise<void> {
+    if (row.messageType !== 2) return;
+    const imageList = visibleMessages.filter((m) => m.messageType === 2);
+    const activeIndex = imageList.findIndex((m) => m.id === row.id);
+    if (activeIndex === -1) return;
+
     await props.onReadMessageOnce(row);
-    const resolved = await props.onResolveMediaUrl(row);
-    const nextPreview = resolved || resolveLegacyMediaUrl(payload);
-    if (!nextPreview) {
-      // 设置媒体错误状态
-      const hasEncryptedMedia = isEncryptedMediaPayload(payload.media);
-      const hasLegacyMedia = Boolean(resolveLegacyMediaUrl(payload));
-      if (hasEncryptedMedia) {
+
+    // Ensure source is loaded via lazy loading mechanism
+    const payload = parsePayload(props.decodePayload(row.encryptedPayload, row.senderId, row.sourceDeviceId));
+    if (!imageSourceMap[row.id] && !mediaErrorMap[row.id]) {
+      await prepareImageSource(row, payload);
+    }
+
+    const decoded = props.decodePayload(row.encryptedPayload, row.senderId, row.sourceDeviceId);
+    const pay = parsePayload(decoded);
+    // Use imageViewer.loadedSources since prepareImageSource updates it directly
+    const src = imageViewer.loadedSources[row.id] || imageSourceMap[row.id] || resolveLegacyMediaUrl(pay);
+    if (!src) {
+      if (isEncryptedMediaPayload(pay.media)) {
         setMediaErrorMap((prev) => ({ ...prev, [row.id]: 'decrypt_failed' }));
         showToast('图片解密失败', 'error');
-      } else if (!hasLegacyMedia && row.mediaAssetId) {
+      } else if (!resolveLegacyMediaUrl(pay) && row.mediaAssetId) {
         setMediaErrorMap((prev) => ({ ...prev, [row.id]: 'metadata_missing' }));
         showToast('图片元数据缺失', 'error');
       } else {
@@ -892,7 +989,7 @@ export function ChatPanel(props: Props): JSX.Element {
       }
       return;
     }
-    // 清除错误状态
+
     if (mediaErrorMap[row.id]) {
       setMediaErrorMap((prev) => {
         const next = { ...prev };
@@ -900,12 +997,115 @@ export function ChatPanel(props: Props): JSX.Element {
         return next;
       });
     }
-    if (imagePreviewUrlRef.current && imagePreviewUrlRef.current !== nextPreview && imagePreviewUrlRef.current.startsWith('blob:')) {
-      URL.revokeObjectURL(imagePreviewUrlRef.current);
+
+    // Prefetch adjacent images
+    prefetchAdjacentImages(imageList, activeIndex, pay);
+
+    // Include all preloaded sources from imageSourceMap for images in the list
+    const preloadedSources: Record<string, string> = {};
+    for (const img of imageList) {
+      if (imageSourceMap[img.id]) {
+        preloadedSources[img.id] = imageSourceMap[img.id];
+      }
     }
-    imagePreviewUrlRef.current = resolved ? nextPreview : null;
-    setImagePreviewSrc(nextPreview);
-    setImagePreviewOpen(true);
+
+    setImageViewer({
+      open: true,
+      activeMessageId: row.id,
+      imageList,
+      activeIndex,
+      zoom: 1,
+      loadedSources: { ...preloadedSources, [row.id]: src },
+    });
+  }
+
+  function prefetchAdjacentImages(imageList: MessageItem[], activeIndex: number, currentPayload: PayloadData): void {
+    // Prefetch previous image
+    if (activeIndex > 0) {
+      const prevMsg = imageList[activeIndex - 1];
+      if (!imageSourceMap[prevMsg.id] && !mediaErrorMap[prevMsg.id]) {
+        const prevPayload = parsePayload(props.decodePayload(prevMsg.encryptedPayload, prevMsg.senderId, prevMsg.sourceDeviceId));
+        void prepareImageSource(prevMsg, prevPayload);
+      }
+    }
+    // Prefetch next image
+    if (activeIndex < imageList.length - 1) {
+      const nextMsg = imageList[activeIndex + 1];
+      if (!imageSourceMap[nextMsg.id] && !mediaErrorMap[nextMsg.id]) {
+        const nextPayload = parsePayload(props.decodePayload(nextMsg.encryptedPayload, nextMsg.senderId, nextMsg.sourceDeviceId));
+        void prepareImageSource(nextMsg, nextPayload);
+      }
+    }
+  }
+
+  function navigateImageViewer(direction: 'prev' | 'next'): void {
+    setImageViewer((prev) => {
+      if (!prev.open || prev.imageList.length === 0) return prev;
+      const newIndex = direction === 'prev'
+        ? Math.max(0, prev.activeIndex - 1)
+        : Math.min(prev.imageList.length - 1, prev.activeIndex + 1);
+      if (newIndex === prev.activeIndex) return prev;
+      const newMsg = prev.imageList[newIndex];
+      if (!prev.loadedSources[newMsg.id] && !mediaErrorMap[newMsg.id]) {
+        const newPayload = parsePayload(props.decodePayload(newMsg.encryptedPayload, newMsg.senderId, newMsg.sourceDeviceId));
+        void prepareImageSource(newMsg, newPayload);
+      }
+      const adjPayload = parsePayload(props.decodePayload(newMsg.encryptedPayload, newMsg.senderId, newMsg.sourceDeviceId));
+      prefetchAdjacentImages(prev.imageList, newIndex, adjPayload);
+      return { ...prev, activeIndex: newIndex, activeMessageId: newMsg.id, zoom: 1 };
+    });
+  }
+
+  function setImageZoom(delta: number): void {
+    setImageViewer((prev) => ({
+      ...prev,
+      zoom: Math.max(0.5, Math.min(4, prev.zoom + delta)),
+    }));
+  }
+
+  function resetImageZoom(): void {
+    setImageViewer((prev) => ({ ...prev, zoom: 1 }));
+  }
+
+  function closeVideoViewer(): void {
+    stopVideoPlayback();
+    setVideoViewer((prev) => {
+      revokeBlobSource(prev.src);
+      return { open: false, messageId: null, src: null };
+    });
+  }
+
+  async function openVideoViewer(row: MessageItem): Promise<void> {
+    if (row.messageType !== 4) return;
+    const payload = parsePayload(props.decodePayload(row.encryptedPayload, row.senderId, row.sourceDeviceId));
+    if (!isVideoMediaPayload(payload)) return;
+    await props.onReadMessageOnce(row);
+    const resolved = await props.onResolveMediaUrl(row);
+    if (!resolved) {
+      const hasEncryptedMedia = isEncryptedMediaPayload(payload.media);
+      if (hasEncryptedMedia) {
+        setMediaErrorMap((prev) => ({ ...prev, [row.id]: 'decrypt_failed' }));
+        showToast('视频解密失败', 'error');
+      } else {
+        setMediaErrorMap((prev) => ({ ...prev, [row.id]: 'legacy_unavailable' }));
+        showToast('视频加载失败', 'error');
+      }
+      return;
+    }
+    if (mediaErrorMap[row.id]) {
+      setMediaErrorMap((prev) => {
+        const next = { ...prev };
+        delete next[row.id];
+        return next;
+      });
+    }
+    stopVideoPlayback();
+    setVideoViewer((prev) => {
+      if (prev.src !== resolved) {
+        revokeBlobSource(prev.src);
+      }
+      return { open: true, messageId: row.id, src: resolved };
+    });
   }
 
   async function playAudioMessage(row: MessageItem, payload: PayloadData): Promise<void> {
@@ -916,6 +1116,16 @@ export function ChatPanel(props: Props): JSX.Element {
     if (currentAudio && audioMessageIdRef.current === row.id && !currentAudio.ended) {
       if (currentAudio.paused) {
         try {
+          // Apply pending seek if any
+          const pendingRatio = voicePendingSeekMap[row.id];
+          if (pendingRatio != null && currentAudio.duration > 0) {
+            currentAudio.currentTime = pendingRatio * currentAudio.duration;
+            setVoicePendingSeekMap((prev) => {
+              const next = { ...prev };
+              delete next[row.id];
+              return next;
+            });
+          }
           await currentAudio.play();
           setPlayingVoiceMessageId(row.id);
           setPausedVoiceMessageId(null);
@@ -998,6 +1208,14 @@ export function ChatPanel(props: Props): JSX.Element {
         }
         setPlayingVoiceMessageId((current) => current === row.id ? null : current);
         setPausedVoiceMessageId((current) => current === row.id ? null : current);
+        setVoicePendingSeekMap((prev) => {
+          if (prev[row.id] == null) {
+            return prev;
+          }
+          const next = { ...prev };
+          delete next[row.id];
+          return next;
+        });
       };
       audio.addEventListener('ended', () => {
         setVoiceProgressMap((prev) => { const n = { ...prev }; delete n[row.id]; return n; });
@@ -1014,6 +1232,16 @@ export function ChatPanel(props: Props): JSX.Element {
         }
       });
       await audio.play();
+      // Apply pending seek if any
+      const pendingRatio = voicePendingSeekMap[row.id];
+      if (pendingRatio != null && audio.duration > 0) {
+        audio.currentTime = pendingRatio * audio.duration;
+        setVoicePendingSeekMap((prev) => {
+          const next = { ...prev };
+          delete next[row.id];
+          return next;
+        });
+      }
       setPlayingVoiceMessageId(row.id);
       setPausedVoiceMessageId(null);
     } catch {
@@ -1036,6 +1264,21 @@ export function ChatPanel(props: Props): JSX.Element {
         delete next[row.id];
         return next;
       });
+    }
+  }
+
+  function handleVoiceSeekRequest(messageId: string, ratio: number): void {
+    const currentAudio = audioElementRef.current;
+    if (currentAudio && audioMessageIdRef.current === messageId && !currentAudio.ended) {
+      if (currentAudio.duration > 0) {
+        currentAudio.currentTime = ratio * currentAudio.duration;
+        setVoiceProgressMap((prev) => ({ ...prev, [messageId]: ratio }));
+      } else {
+        setVoicePendingSeekMap((prev) => ({ ...prev, [messageId]: ratio }));
+      }
+    } else {
+      // Audio not active or ended - store pending seek
+      setVoicePendingSeekMap((prev) => ({ ...prev, [messageId]: ratio }));
     }
   }
 
@@ -1088,6 +1331,134 @@ export function ChatPanel(props: Props): JSX.Element {
     setSelectedForwardConversation('');
     void loadForwardConversations();
     setForwardDialogOpen(true);
+  }
+
+  function buildFileCacheDescriptor(message: MessageItem, payload: PayloadData): { cacheKey: string; fileName: string } | null {
+    const mediaSourceId = message.mediaAssetId ?? resolveLegacyMediaUrl(payload);
+    if (!mediaSourceId) {
+      return null;
+    }
+    return {
+      cacheKey: buildMediaCacheKey({
+        mediaAssetId: mediaSourceId,
+        plainDigest: payload.media?.plainDigest,
+      }),
+      fileName: resolveMediaFileName(payload, 'file'),
+    };
+  }
+
+  async function resolveMediaFileBlob(message: MessageItem, payload: PayloadData): Promise<Blob | null> {
+    let url: string | null = null;
+    let revokeUrl = false;
+
+    if (message.mediaAssetId || isEncryptedMediaPayload(payload.media)) {
+      url = await props.onResolveMediaUrl(message);
+      revokeUrl = Boolean(url?.startsWith('blob:'));
+    } else {
+      url = resolveLegacyMediaUrl(payload);
+    }
+
+    if (!url) {
+      return null;
+    }
+
+    try {
+      const response = await fetch(url);
+      const sourceBlob = await response.blob();
+      return new Blob([sourceBlob], { type: resolveMediaMimeType(payload) });
+    } finally {
+      if (revokeUrl && url.startsWith('blob:')) {
+        URL.revokeObjectURL(url);
+      }
+    }
+  }
+
+  async function openBurnFileWithoutPersistentCache(message: MessageItem, payload: PayloadData): Promise<void> {
+    const url = message.mediaAssetId || isEncryptedMediaPayload(payload.media)
+      ? await props.onResolveMediaUrl(message)
+      : resolveLegacyMediaUrl(payload);
+
+    if (!url) {
+      showToast('文件打开链接不可用', 'error');
+      return;
+    }
+
+    window.open(url, '_blank', 'noopener,noreferrer');
+    if (url.startsWith('blob:')) {
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    }
+    showToast('阅后即焚文件已临时打开，未写入本地缓存', 'info');
+  }
+
+  async function openFileMessage(message: MessageItem, payload: PayloadData, isVideoMessage: boolean): Promise<void> {
+    if (!shouldPersistMediaCache({ messageType: message.messageType, isBurn: message.isBurn, isVideo: isVideoMessage })) {
+      await openBurnFileWithoutPersistentCache(message, payload);
+      return;
+    }
+
+    const cacheDescriptor = buildFileCacheDescriptor(message, payload);
+    if (!cacheDescriptor) {
+      showToast('文件缓存信息不可用', 'error');
+      return;
+    }
+
+    try {
+      const cached = await lookupCachedMediaFile(cacheDescriptor.cacheKey, cacheDescriptor.fileName);
+      if (cached.exists) {
+        const opened = await openCachedMediaFile(cached.path);
+        showToast(
+          opened.opened ? '已打开缓存文件' : '缓存文件打开失败，请重试',
+          opened.opened ? 'success' : 'error',
+        );
+        return;
+      }
+
+      const blob = await resolveMediaFileBlob(message, payload);
+      if (!blob) {
+        showToast('文件下载链接不可用', 'error');
+        return;
+      }
+
+      const ensured = await ensureCachedMediaFile(cacheDescriptor.cacheKey, cacheDescriptor.fileName, blob);
+      const opened = await openCachedMediaFile(ensured.path);
+      showToast(
+        opened.opened
+          ? ensured.cache_hit
+            ? '已打开缓存文件'
+            : '已缓存并打开文件'
+          : '文件已缓存，但系统打开失败，请手动打开',
+        opened.opened ? 'success' : 'info',
+      );
+    } catch (error) {
+      console.error('缓存文件打开失败:', error);
+      showToast('文件打开失败，请重试', 'error');
+    }
+  }
+
+  async function deleteCachedMediaForMessage(messageId: string): Promise<void> {
+    const message = props.messages.find((item) => item.id === messageId);
+    if (!message || message.messageType !== 4) {
+      return;
+    }
+
+    const payload = parsePayload(
+      props.decodePayload(message.encryptedPayload, message.senderId, message.sourceDeviceId),
+    );
+    const descriptor = buildFileCacheDescriptor(message, payload);
+    if (!descriptor) {
+      return;
+    }
+
+    try {
+      await removeCachedMediaFile(descriptor.cacheKey, descriptor.fileName);
+    } catch (error) {
+      console.warn('[ChatPanel] Failed to remove cached burn media:', error);
+    }
+  }
+
+  async function triggerBurnWithCacheCleanup(messageId: string): Promise<void> {
+    await deleteCachedMediaForMessage(messageId);
+    await props.onTriggerBurn(messageId);
   }
 
   async function downloadMedia(message: MessageItem): Promise<void> {
@@ -1439,6 +1810,8 @@ export function ChatPanel(props: Props): JSX.Element {
                       voiceState={voiceState}
                       voiceWaveform={voiceMetadata?.waveform}
                       voicePlaybackProgress={voiceProgressMap[row.id]}
+                      voicePendingSeekRatio={voicePendingSeekMap[row.id]}
+                      onSeekRequest={(ratio) => handleVoiceSeekRequest(row.id, ratio)}
                       mediaError={mediaErrorMap[row.id]}
                       role={row.messageType === 2 || row.messageType === 3 || row.messageType === 4 ? 'button' : undefined}
                       tabIndex={row.messageType === 2 || row.messageType === 3 || row.messageType === 4 ? 0 : undefined}
@@ -1447,11 +1820,17 @@ export function ChatPanel(props: Props): JSX.Element {
                           void openImagePreview(row, payload);
                         } else if (row.messageType === 3) {
                           void playAudioMessage(row, payload);
+                        } else if (row.messageType === 4 && isVideoMessage) {
+                          void openVideoViewer(row);
                         }
                       }}
                       onDoubleClick={() => {
                         if (row.messageType === 4) {
-                          void downloadMedia(row);
+                          if (isVideoMessage) {
+                            void downloadMedia(row);
+                          } else {
+                            void openFileMessage(row, payload, isVideoMessage);
+                          }
                         }
                       }}
                       onKeyDown={(event) => {
@@ -1464,7 +1843,11 @@ export function ChatPanel(props: Props): JSX.Element {
                         } else if (row.messageType === 3) {
                           void playAudioMessage(row, payload);
                         } else if (row.messageType === 4) {
-                          void downloadMedia(row);
+                          if (isVideoMessage) {
+                            void openVideoViewer(row);
+                          } else {
+                            void openFileMessage(row, payload, isVideoMessage);
+                          }
                         }
                       }}
                       className={row.messageType === 2 || row.messageType === 3 || row.messageType === 4 ? 'message-media-interactive' : undefined}
@@ -1481,7 +1864,7 @@ export function ChatPanel(props: Props): JSX.Element {
                       {burnCountdown}s
                     </span>
                   ) : row.isBurn && !isRevoked && !isOut ? (
-                    <button type="button" className="message-burn-btn" onClick={() => void props.onTriggerBurn(row.id)}>
+                    <button type="button" className="message-burn-btn" onClick={() => void triggerBurnWithCacheCleanup(row.id)}>
                       焚毁
                     </button>
                   ) : null}
@@ -1745,15 +2128,98 @@ export function ChatPanel(props: Props): JSX.Element {
       </footer>
     </section>
 
-    {/* 图片预览模态框 */}
-    {imagePreviewOpen ? (
-      <div className="image-preview-overlay" onClick={closeImagePreview}>
-        <button className="image-preview-close" onClick={closeImagePreview} aria-label="关闭预览">
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" fill="currentColor"/>
-          </svg>
+    {/* 图片查看器 */}
+    {imageViewer.open && imageViewer.activeMessageId ? (
+      <div
+        className="image-viewer-overlay"
+        onClick={closeImageViewer}
+        role="dialog"
+        aria-modal="true"
+        aria-label="图片查看器"
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') { e.preventDefault(); closeImageViewer(); }
+          else if (e.key === 'ArrowLeft') { e.preventDefault(); navigateImageViewer('prev'); }
+          else if (e.key === 'ArrowRight') { e.preventDefault(); navigateImageViewer('next'); }
+          else if (e.key === '+' || e.key === '=') { e.preventDefault(); setImageZoom(0.5); }
+          else if (e.key === '-') { e.preventDefault(); setImageZoom(-0.5); }
+          else if (e.key === '0') { e.preventDefault(); resetImageZoom(); }
+        }}
+        tabIndex={0}
+      >
+        {/* 关闭按钮 */}
+        <button className="image-viewer-close" onClick={(e) => { e.stopPropagation(); closeImageViewer(); }} aria-label="关闭">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" fill="currentColor"/></svg>
         </button>
-        <img src={imagePreviewSrc} alt="预览" className="image-preview-image" onClick={(e) => e.stopPropagation()} />
+
+        {/* 导航按钮 */}
+        {imageViewer.activeIndex > 0 && (
+          <button className="image-viewer-nav prev" onClick={(e) => { e.stopPropagation(); navigateImageViewer('prev'); }} aria-label="上一张">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z" fill="currentColor"/></svg>
+          </button>
+        )}
+        {imageViewer.activeIndex < imageViewer.imageList.length - 1 && (
+          <button className="image-viewer-nav next" onClick={(e) => { e.stopPropagation(); navigateImageViewer('next'); }} aria-label="下一张">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z" fill="currentColor"/></svg>
+          </button>
+        )}
+
+        {/* 图片内容 */}
+        <div className="image-viewer-content" onClick={(e) => e.stopPropagation()}>
+          {activeImagePreview ? (
+            <img
+              src={activeImagePreview}
+              alt={`图片 ${imageViewer.activeIndex + 1}`}
+              className="image-viewer-image"
+              style={{ transform: `scale(${imageViewer.zoom})` }}
+              onDoubleClick={(e) => { e.stopPropagation(); setImageZoom(imageViewer.zoom > 1.5 ? -1 : 1); }}
+            />
+          ) : (
+            <div className="image-viewer-loading">加载中...</div>
+          )}
+        </div>
+
+        {/* 缩放控制 */}
+        <div className="image-viewer-controls" onClick={(e) => e.stopPropagation()}>
+          <button onClick={() => setImageZoom(-0.5)} aria-label="缩小" title="缩小 (-)">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 13H5v-2h14v2z" fill="currentColor"/></svg>
+          </button>
+          <span className="image-viewer-zoom-label">{Math.round(imageViewer.zoom * 100)}%</span>
+          <button onClick={() => setImageZoom(0.5)} aria-label="放大" title="放大 (+)">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" fill="currentColor"/></svg>
+          </button>
+          <button onClick={resetImageZoom} aria-label="重置缩放" title="重置 (0)">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z" fill="currentColor"/></svg>
+          </button>
+        </div>
+
+        {/* 位置指示器 */}
+        {imageViewer.imageList.length > 1 && (
+          <div className="image-viewer-counter">
+            {imageViewer.activeIndex + 1} / {imageViewer.imageList.length}
+          </div>
+        )}
+      </div>
+    ) : null}
+
+    {/* 视频查看器 */}
+    {videoViewer.open && videoViewer.src ? (
+      <div className="video-viewer-overlay" onClick={closeVideoViewer} role="dialog" aria-modal="true" aria-label="视频查看器">
+        <button className="video-viewer-close" onClick={(e) => { e.stopPropagation(); closeVideoViewer(); }} aria-label="关闭">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" fill="currentColor"/></svg>
+        </button>
+        <div className="video-viewer-content" onClick={(e) => e.stopPropagation()}>
+          <video
+            ref={videoElementRef}
+            src={videoViewer.src}
+            controls
+            autoPlay
+            className="video-viewer-player"
+            onError={() => {
+              showToast('视频播放失败', 'error');
+              closeVideoViewer();
+            }}
+          />
+        </div>
       </div>
     ) : null}
 

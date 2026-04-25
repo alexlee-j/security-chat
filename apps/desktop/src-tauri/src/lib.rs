@@ -43,7 +43,13 @@ use crypto::media::{
     decrypt_media_command,
     encrypt_media_command,
 };
-use file_commands::save_and_open_file_command;
+use file_commands::{
+    ensure_cached_media_file_command,
+    lookup_cached_media_file_command,
+    open_cached_media_file_command,
+    remove_cached_media_file_command,
+    save_and_open_file_command,
+};
 use std::path::PathBuf;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -92,6 +98,10 @@ pub fn run() {
             keychain_delete,
             encrypt_media_command,
             decrypt_media_command,
+            ensure_cached_media_file_command,
+            lookup_cached_media_file_command,
+            open_cached_media_file_command,
+            remove_cached_media_file_command,
             save_and_open_file_command,
         ])
         .run(tauri::generate_context!())

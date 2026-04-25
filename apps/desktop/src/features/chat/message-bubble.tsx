@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { forwardRef, useEffect, useState } from 'react';
+import { forwardRef, useEffect, useRef, useState } from 'react';
 import type { HTMLAttributes } from 'react';
 
 enum MessageType {
@@ -30,6 +30,9 @@ type MessageBubbleProps = {
   voiceState?: 'idle' | 'loading' | 'ready' | 'playing' | 'paused' | 'failed';
   voiceWaveform?: number[];
   voicePlaybackProgress?: number;
+  /** 暂停时用户拖动定位的比例（0-1），undefined 表示无待处理定位 */
+  voicePendingSeekRatio?: number;
+  onSeekRequest?: (ratio: number) => void;
   onRetry?: () => void;
   /** 媒体错误状态 */
   mediaError?: MediaErrorType;
@@ -52,6 +55,8 @@ export const MessageBubble = forwardRef<HTMLDivElement, MessageBubbleProps>(func
     voiceState = 'idle',
     voiceWaveform,
     voicePlaybackProgress,
+    voicePendingSeekRatio,
+    onSeekRequest,
     onRetry,
     mediaError,
     className,
@@ -59,10 +64,76 @@ export const MessageBubble = forwardRef<HTMLDivElement, MessageBubbleProps>(func
   } = props;
 
   const [imageError, setImageError] = useState(false);
+  const [seekDragging, setSeekDragging] = useState(false);
+  const [seekDragRatio, setSeekDragRatio] = useState(0);
+  const waveformRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     setImageError(false);
   }, [content, messageType]);
+
+  function isVoiceSeekDisabled(): boolean {
+    return !onSeekRequest || voiceState === 'loading' || voiceState === 'failed';
+  }
+
+  function requestVoiceSeek(ratio: number): void {
+    if (isVoiceSeekDisabled()) return;
+    const boundedRatio = Math.max(0, Math.min(1, ratio));
+    setSeekDragRatio(boundedRatio);
+    onSeekRequest?.(boundedRatio);
+  }
+
+  function handleWaveformPointerDown(e: React.PointerEvent<HTMLDivElement>): void {
+    e.stopPropagation();
+    if (isVoiceSeekDisabled()) return;
+    (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
+    setSeekDragging(true);
+    const rect = waveformRef.current?.getBoundingClientRect();
+    if (rect) {
+      const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+      setSeekDragRatio(ratio);
+    }
+  }
+
+  function handleWaveformPointerMove(e: React.PointerEvent<HTMLDivElement>): void {
+    e.stopPropagation();
+    if (!seekDragging) return;
+    const rect = waveformRef.current?.getBoundingClientRect();
+    if (rect) {
+      const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+      setSeekDragRatio(ratio);
+    }
+  }
+
+  function handleWaveformPointerUp(e: React.PointerEvent<HTMLDivElement>): void {
+    e.stopPropagation();
+    if (!seekDragging) return;
+    setSeekDragging(false);
+    const rect = waveformRef.current?.getBoundingClientRect();
+    if (rect) {
+      requestVoiceSeek((e.clientX - rect.left) / rect.width);
+    }
+  }
+
+  function handleWaveformKeyDown(e: React.KeyboardEvent<HTMLDivElement>): void {
+    if (isVoiceSeekDisabled()) return;
+    const currentRatio = seekDragging ? seekDragRatio : (voicePlaybackProgress ?? voicePendingSeekRatio ?? 0);
+    let nextRatio: number | null = null;
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') {
+      nextRatio = currentRatio - 0.05;
+    } else if (e.key === 'ArrowRight' || e.key === 'ArrowUp') {
+      nextRatio = currentRatio + 0.05;
+    } else if (e.key === 'Home') {
+      nextRatio = 0;
+    } else if (e.key === 'End') {
+      nextRatio = 1;
+    }
+    if (nextRatio != null) {
+      e.preventDefault();
+      e.stopPropagation();
+      requestVoiceSeek(nextRatio);
+    }
+  }
 
   const renderStatus = () => {
     if (type === 'in') return null;
@@ -146,18 +217,33 @@ export const MessageBubble = forwardRef<HTMLDivElement, MessageBubbleProps>(func
       }
       const voiceControlLabel = voiceState === 'playing' ? '暂停语音' : voiceState === 'paused' ? '继续播放语音' : '播放语音';
       const voiceControlIcon = voiceState === 'loading' ? 'hourglass_empty' : voiceState === 'playing' ? 'pause' : 'play_arrow';
+      const displayProgress = seekDragging ? seekDragRatio : (voicePlaybackProgress ?? voicePendingSeekRatio ?? 0);
       return (
         <div className={`voice-bubble voice-state-${voiceState}`}>
           <span className="play-btn material-symbols-rounded" aria-label={voiceControlLabel}>
             {voiceControlIcon}
           </span>
-          <div className="voice-waveform-container">
+          <div
+            ref={waveformRef}
+            className={`voice-waveform-container${seekDragging ? ' seeking' : ''}`}
+            onPointerDown={handleWaveformPointerDown}
+            onPointerMove={handleWaveformPointerMove}
+            onPointerUp={handleWaveformPointerUp}
+            onPointerCancel={handleWaveformPointerUp}
+            onKeyDown={handleWaveformKeyDown}
+            onClick={(e) => e.stopPropagation()}
+            role="slider"
+            aria-label="语音播放进度"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.round(displayProgress * 100)}
+            tabIndex={0}
+          >
             {voiceWaveform && voiceWaveform.length > 0
               ? voiceWaveform.map((height, i) => {
-                  const progress = voicePlaybackProgress ?? 0;
                   const totalBars = voiceWaveform.length;
                   const barProgress = (i + 0.5) / totalBars;
-                  const isPlayed = barProgress <= progress;
+                  const isPlayed = barProgress <= displayProgress;
                   return (
                     <span
                       key={i}
