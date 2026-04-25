@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {
   buildVoiceMessageMetadata,
   canSendComposerMessage,
+  consumeCanceledRecorderStop,
   formatVoiceDuration,
   releaseActiveRecordingResources,
   releaseVoiceRecorderResources,
@@ -128,5 +129,10 @@ releaseActiveRecordingResources({
 
 assert.equal(activeTrackStopped, true);
 assert.equal(activeAudioContextClosed, true);
+
+const cancelRef = { current: true };
+assert.equal(consumeCanceledRecorderStop(cancelRef), true);
+assert.equal(cancelRef.current, false);
+assert.equal(consumeCanceledRecorderStop(cancelRef), false);
 
 console.log('voice recorder helpers ok');

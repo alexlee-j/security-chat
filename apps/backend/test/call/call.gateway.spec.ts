@@ -32,33 +32,89 @@ describe('CallGateway', () => {
   });
 
   it('emits answered-elsewhere to losing callee devices when first accept wins', async () => {
-    const callService = {
-      accept: jest.fn()
-        .mockResolvedValueOnce({
+    jest.useFakeTimers();
+    try {
+      const callService = {
+        accept: jest.fn()
+          .mockResolvedValueOnce({
+            ok: true,
+            session: {
+              callId: 'call-1',
+              conversationId: 'conversation-1',
+              callerUserId: 'caller',
+              callerDeviceId: 'caller-device',
+              calleeUserId: 'callee',
+              acceptedDeviceId: 'callee-device-a',
+              calleeDeviceIds: ['callee-device-a', 'callee-device-b'],
+            },
+          }),
+      } as unknown as jest.Mocked<CallService>;
+
+      const configService = {
+        get: jest.fn((key: string, fallback?: string) => key === 'CALL_CONNECT_TIMEOUT_SECONDS' ? '45' : fallback),
+      } as unknown as ConfigService;
+      const gateway = new CallGateway({} as JwtService, configService, {} as Redis, callService);
+      const emit = jest.fn();
+      const to = jest.fn().mockReturnValue({ emit });
+      (gateway as any).server = { to, emit };
+      const client = { data: { userId: 'callee', deviceId: 'callee-device-a' }, emit: jest.fn() } as unknown as Socket;
+
+      await gateway.accept(client, { callId: 'call-1' });
+
+      expect(to).toHaveBeenCalledWith('call:device:caller:caller-device');
+      expect(emit).toHaveBeenCalledWith('call.accepted', expect.objectContaining({ callId: 'call-1' }));
+      expect(to).toHaveBeenCalledWith('call:device:callee:callee-device-b');
+      expect(emit).toHaveBeenCalledWith('call.answered_elsewhere', expect.objectContaining({ callId: 'call-1' }));
+    } finally {
+      jest.clearAllTimers();
+      jest.useRealTimers();
+    }
+  });
+
+  it('schedules a connection timeout after an accepted call', async () => {
+    jest.useFakeTimers();
+    try {
+      const callService = {
+        accept: jest.fn().mockResolvedValue({
           ok: true,
           session: {
             callId: 'call-1',
+            conversationId: 'conversation-1',
             callerUserId: 'caller',
             callerDeviceId: 'caller-device',
             calleeUserId: 'callee',
             acceptedDeviceId: 'callee-device-a',
-            calleeDeviceIds: ['callee-device-a', 'callee-device-b'],
+            calleeDeviceIds: ['callee-device-a'],
           },
         }),
-    } as unknown as jest.Mocked<CallService>;
+        timeout: jest.fn().mockResolvedValue({
+          callId: 'call-1',
+          conversationId: 'conversation-1',
+          callerUserId: 'caller',
+          callerDeviceId: 'caller-device',
+          calleeUserId: 'callee',
+          acceptedDeviceId: 'callee-device-a',
+          calleeDeviceIds: ['callee-device-a'],
+        }),
+      } as unknown as jest.Mocked<CallService>;
+      const configService = {
+        get: jest.fn((key: string, fallback?: string) => key === 'CALL_CONNECT_TIMEOUT_SECONDS' ? '2' : fallback),
+      } as unknown as ConfigService;
 
-    const gateway = new CallGateway({} as JwtService, {} as ConfigService, {} as Redis, callService);
-    const emit = jest.fn();
-    const to = jest.fn().mockReturnValue({ emit });
-    (gateway as any).server = { to, emit };
-    const client = { data: { userId: 'callee', deviceId: 'callee-device-a' }, emit: jest.fn() } as unknown as Socket;
+      const gateway = new CallGateway({} as JwtService, configService, {} as Redis, callService);
+      const emit = jest.fn();
+      const to = jest.fn().mockReturnValue({ emit });
+      (gateway as any).server = { to, emit };
+      const client = { data: { userId: 'callee', deviceId: 'callee-device-a' }, emit: jest.fn() } as unknown as Socket;
 
-    await gateway.accept(client, { callId: 'call-1' });
+      await gateway.accept(client, { callId: 'call-1' });
+      await jest.advanceTimersByTimeAsync(2_000);
 
-    expect(to).toHaveBeenCalledWith('call:device:caller:caller-device');
-    expect(emit).toHaveBeenCalledWith('call.accepted', expect.objectContaining({ callId: 'call-1' }));
-    expect(to).toHaveBeenCalledWith('call:device:callee:callee-device-b');
-    expect(emit).toHaveBeenCalledWith('call.answered_elsewhere', expect.objectContaining({ callId: 'call-1' }));
+      expect(callService.timeout).toHaveBeenCalledWith('call-1');
+      expect(emit).toHaveBeenCalledWith('call.timeout', expect.objectContaining({ callId: 'call-1' }));
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('relays SDP and ICE payloads only after service authorization', async () => {

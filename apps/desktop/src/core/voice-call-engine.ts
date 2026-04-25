@@ -412,6 +412,23 @@ export function releaseVoiceCallResources(resources: VoiceCallCleanupResources):
   }
 }
 
+export function addAudioTracksToPeerConnection(
+  peerConnection: Pick<RTCPeerConnection, 'addTrack' | 'getSenders'>,
+  stream: MediaStream,
+): void {
+  const existingTracks = new Set(
+    peerConnection
+      .getSenders()
+      .map((sender) => sender.track)
+      .filter(Boolean),
+  );
+  for (const track of stream.getAudioTracks()) {
+    if (!existingTracks.has(track)) {
+      peerConnection.addTrack(track, stream);
+    }
+  }
+}
+
 export function formatCallHistoryTime(value?: string | null): string {
   if (!value) {
     return '--:--';

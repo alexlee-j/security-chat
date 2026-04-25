@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import {
+  addAudioTracksToPeerConnection,
   buildCallHistoryPreview,
   createInitialVoiceCallState,
   describeWebRtcCompatibilityFailure,
@@ -156,5 +157,20 @@ assert.equal(pcClosed, true);
 assert.equal(audioPaused, true);
 assert.equal(audioLoaded, true);
 assert.equal(revoked, 'blob:voice-call-test');
+
+const audioTrack = { kind: 'audio' };
+const duplicateAudioTrack = { kind: 'audio' };
+const addedTracks: unknown[] = [];
+addAudioTracksToPeerConnection({
+  getSenders: () => [{ track: duplicateAudioTrack }],
+  addTrack: (track: unknown) => {
+    addedTracks.push(track);
+    return {} as RTCRtpSender;
+  },
+} as unknown as RTCPeerConnection, {
+  getAudioTracks: () => [duplicateAudioTrack, audioTrack],
+} as unknown as MediaStream);
+
+assert.deepEqual(addedTracks, [audioTrack]);
 
 console.log('voice call engine ok');

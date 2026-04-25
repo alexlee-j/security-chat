@@ -133,6 +133,7 @@ export class CallGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
     }
 
     this.clearTimeoutTimer(result.session.callId);
+    this.scheduleTimeout(result.session.callId, this.connectTimeoutSeconds());
     this.server.to(this.deviceRoom(result.session.callerUserId, result.session.callerDeviceId)).emit('call.accepted', this.publicSession(result.session));
     for (const deviceId of result.session.calleeDeviceIds.filter((id) => id !== result.session?.acceptedDeviceId)) {
       this.server.to(this.deviceRoom(result.session.calleeUserId, deviceId)).emit('call.answered_elsewhere', {
@@ -226,9 +227,8 @@ export class CallGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
     }
   }
 
-  private scheduleTimeout(callId: string): void {
+  private scheduleTimeout(callId: string, seconds = this.ringTimeoutSeconds()): void {
     this.clearTimeoutTimer(callId);
-    const seconds = Number(this.configService.get<string>('CALL_RING_TIMEOUT_SECONDS', '30'));
     const timer = setTimeout(async () => {
       const session = await this.callService.timeout(callId).catch(() => null);
       if (session) {
@@ -240,6 +240,14 @@ export class CallGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
       this.clearTimeoutTimer(callId);
     }, Math.max(1, seconds) * 1000);
     this.timeoutTimers.set(callId, timer);
+  }
+
+  private ringTimeoutSeconds(): number {
+    return Number(this.configService.get<string>('CALL_RING_TIMEOUT_SECONDS', '30'));
+  }
+
+  private connectTimeoutSeconds(): number {
+    return Number(this.configService.get<string>('CALL_CONNECT_TIMEOUT_SECONDS', '45'));
   }
 
   private clearTimeoutTimer(callId: string): void {

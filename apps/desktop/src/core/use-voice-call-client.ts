@@ -3,6 +3,7 @@ import type { Socket } from 'socket.io-client';
 import { getCallHistory, getCallIceConfig } from './api';
 import type { ConversationListItem } from './types';
 import {
+  addAudioTracksToPeerConnection,
   canStartDirectVoiceCall,
   createInitialVoiceCallState,
   detectWebRtcCompatibility,
@@ -404,12 +405,6 @@ export function useVoiceCallClient(input: UseVoiceCallClientInput): UseVoiceCall
       return stream;
     };
 
-    const attachTracks = (pc: RTCPeerConnection, stream: MediaStream): void => {
-      for (const track of stream.getAudioTracks()) {
-        pc.addTrack(track, stream);
-      }
-    };
-
     const startOutgoingOffer = async (session: CallSessionPayload): Promise<void> => {
       currentCallIdRef.current = session.callId;
       currentConversationRef.current = session.conversationId;
@@ -417,7 +412,7 @@ export function useVoiceCallClient(input: UseVoiceCallClientInput): UseVoiceCall
       startElapsedTimer();
       const stream = localStreamRef.current ?? await getLocalStream();
       const pc = ensurePeerConnection();
-      attachTracks(pc, stream);
+      addAudioTracksToPeerConnection(pc, stream);
       const offer = await pc.createOffer({ offerToReceiveAudio: true });
       await pc.setLocalDescription(offer);
       socketRef.current?.emit('call.offer', {
@@ -476,6 +471,8 @@ export function useVoiceCallClient(input: UseVoiceCallClientInput): UseVoiceCall
         return;
       }
       const pc = ensurePeerConnection();
+      const stream = localStreamRef.current ?? await getLocalStream();
+      addAudioTracksToPeerConnection(pc, stream);
       await pc.setRemoteDescription(makeRtcSessionDescription('offer', payload.sdp));
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);

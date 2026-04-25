@@ -223,6 +223,14 @@ export function releaseActiveRecordingResources(
   }
 }
 
+export function consumeCanceledRecorderStop(cancelRef: { current: boolean }): boolean {
+  if (!cancelRef.current) {
+    return false;
+  }
+  cancelRef.current = false;
+  return true;
+}
+
 export function normalizeWaveformValue(value: unknown): number {
   const numeric = typeof value === 'number' && Number.isFinite(value) ? value : 0;
   return Math.max(0, Math.min(31, Math.round(numeric)));
@@ -336,6 +344,7 @@ export function useDesktopVoiceRecorder(options: VoiceRecorderOptions = {}) {
   const selectedMimeTypeRef = useRef<string | null>(null);
   const analyserRef = useRef<{ analyser: AnalyserNode; audioContext: AudioContext; getWaveformData: () => number[] } | null>(null);
   const liveWaveformRef = useRef<number[]>([]);
+  const cancelStopRef = useRef(false);
 
   function clearTimers(): void {
     if (timerRef.current) {
@@ -443,6 +452,7 @@ export function useDesktopVoiceRecorder(options: VoiceRecorderOptions = {}) {
       const recorder = new MediaRecorder(stream, { mimeType });
       recorderRef.current = recorder;
       streamRef.current = stream;
+      cancelStopRef.current = false;
       chunksRef.current = [];
       selectedMimeTypeRef.current = mimeType;
       startedAtRef.current = Date.now();
@@ -462,6 +472,9 @@ export function useDesktopVoiceRecorder(options: VoiceRecorderOptions = {}) {
       };
 
       recorder.onstop = async () => {
+        if (consumeCanceledRecorderStop(cancelStopRef)) {
+          return;
+        }
         const durationMs = Date.now() - startedAtRef.current;
         clearTimers();
         releaseActiveRecordingResources({
@@ -571,6 +584,7 @@ export function useDesktopVoiceRecorder(options: VoiceRecorderOptions = {}) {
   function cancelRecording(): void {
     clearTimers();
     if (recorderRef.current && recorderRef.current.state !== 'inactive') {
+      cancelStopRef.current = true;
       try {
         recorderRef.current.stop();
       } catch {
