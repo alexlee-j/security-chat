@@ -18,22 +18,21 @@ import { GroupCreateModal } from './features/chat/group-create-modal';
 import { FriendPanel } from './features/friend/friend-panel';
 import { AddFriendDialog } from './features/friend/add-friend-dialog';
 import { RemoveFriendDialog } from './features/friend/remove-friend-dialog';
-import { ProfileSheet } from './features/navigation/profile-sheet';
-import { AboutSheet } from './features/navigation/about-sheet';
+import { AccountControlCenter, type AccountControlSection } from './features/navigation/account-control-center';
+import { NavigationDrawer, type NavigationDrawerSection } from './features/navigation/navigation-drawer';
 import { LogoutConfirmDialog } from './features/navigation/logout-confirm-dialog';
-import { NotificationSettingsSheet } from './features/settings/notification-settings-sheet';
 import { useChatClient } from './core/use-chat-client';
 import { useVoiceCallClient } from './core/use-voice-call-client';
 import { useTheme } from './core/use-theme';
 import { getStoredCredentials, getRememberPassword, canAutoLogin } from './core/auth-storage';
+import { getUserProfile } from './core/api';
 import {
   Sheet,
   SheetContent,
+  SheetDescription,
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
 
 /**
@@ -55,10 +54,8 @@ export function App(): JSX.Element {
   const [workspace, setWorkspace] = useState<'chat' | 'friend'>('chat');
   // 导航抽屉开关状态
   const [navDrawerOpen, setNavDrawerOpen] = useState(false);
-  const [profileOpen, setProfileOpen] = useState(false);
-  // 通知设置抽屉开关状态
-  const [notificationSettingsOpen, setNotificationSettingsOpen] = useState(false);
-  const [aboutOpen, setAboutOpen] = useState(false);
+  // 控制中心状态
+  const [accountControlSection, setAccountControlSection] = useState<AccountControlSection | null>(null);
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
   const [addFriendOpen, setAddFriendOpen] = useState(false);
   const [removeFriendOpen, setRemoveFriendOpen] = useState(false);
@@ -66,6 +63,8 @@ export function App(): JSX.Element {
   const [groupCreateOpen, setGroupCreateOpen] = useState(false);
   // 用于跟踪是否已经尝试过自动登录
   const autoLoginAttemptedRef = useRef(false);
+  // 用户Profile信息
+  const [navProfile, setNavProfile] = useState<{ username: string; avatarUrl: string | null } | null>(null);
   // 使用 ref 保存 actions 以避免闭包问题
   const actionsRef = useRef(actions);
   actionsRef.current = actions;
@@ -74,6 +73,35 @@ export function App(): JSX.Element {
   useEffect(() => {
     actionsRef.current = actions;
   }, [actions]);
+
+  // 控制中心相关函数
+  function openAccountControl(section: AccountControlSection): void {
+    setAccountControlSection(section);
+    setNavDrawerOpen(true);
+  }
+
+  function handleNavDrawerOpenChange(open: boolean): void {
+    setNavDrawerOpen(open);
+    if (!open) {
+      setAccountControlSection(null);
+    }
+  }
+
+  function closeAccountControl(): void {
+    setAccountControlSection(null);
+    setNavDrawerOpen(false);
+  }
+
+  function backToNormalDrawer(): void {
+    setAccountControlSection(null);
+    setNavDrawerOpen(true);
+  }
+
+  function openLogoutConfirmFromNavigation(): void {
+    setNavDrawerOpen(false);
+    setAccountControlSection(null);
+    setLogoutConfirmOpen(true);
+  }
 
   /**
    * 启动时检查自动登录和记住密码状态
@@ -155,6 +183,27 @@ export function App(): JSX.Element {
       abortController.abort();
     };
   }, [state.auth]);
+
+  // 登录成功后获取用户Profile信息
+  useEffect(() => {
+    if (!state.auth?.userId) {
+      setNavProfile(null);
+      return;
+    }
+    let active = true;
+    void getUserProfile(state.auth.userId)
+      .then((data) => {
+        if (active) {
+          setNavProfile({ username: data.username, avatarUrl: data.avatarUrl });
+        }
+      })
+      .catch((error) => {
+        console.error('[App] Failed to load profile:', error);
+      });
+    return () => {
+      active = false;
+    };
+  }, [state.auth?.userId]);
 
   /**
    * 全局快捷键监听：Cmd/Ctrl + K 快速聚焦搜索框
@@ -421,149 +470,51 @@ export function App(): JSX.Element {
       </div>
 
       {/* 导航抽屉 - 使用 shadcn/ui Sheet 组件 */}
-      <Sheet open={navDrawerOpen} onOpenChange={setNavDrawerOpen}>
-        <SheetContent side="left" className="nav-drawer-sheet w-[280px] p-0 flex flex-col">
-          <SheetHeader className="nav-drawer-header px-4 py-5 border-b border-border">
-            {/* 用户区 - 包含头像、用户名、在线状态 */}
-            <div className="flex items-center gap-3">
-              <Avatar className="h-12 w-12 shrink-0">
-                <AvatarFallback className="bg-primary text-primary-foreground text-lg font-semibold">
-                  {state.auth?.userId?.slice(0, 2).toUpperCase() || 'U'}
-                </AvatarFallback>
-              </Avatar>
-              <div className="flex-1 min-w-0">
-                <SheetTitle className="nav-drawer-username truncate">
-                  {state.auth?.userId || '用户'}
-                </SheetTitle>
-                <p className="nav-drawer-status text-xs text-success flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-success inline-block" />
-                  在线
-                </p>
-              </div>
-            </div>
-          </SheetHeader>
-
-          {/* 导航区 */}
-          <div className="px-3 py-3">
-            <nav className="nav-drawer-nav px-3 py-3 flex flex-row gap-2" >
-              <button
-                type="button"
-                className={cn(
-                  "nav-drawer-nav-item flex-1",
-                  workspace === 'chat' && "active"
-                )}
-                onClick={() => {
-                  setWorkspace('chat');
-                  setNavDrawerOpen(false);
-                }}
-              >
-                <span className="material-symbols-rounded nav-drawer-nav-icon">chat</span>
-                <span>聊天</span>
-              </button>
-
-              <button
-                type="button"
-                className={cn(
-                  "nav-drawer-nav-item flex-1",
-                  workspace === 'friend' && "active"
-                )}
-                onClick={() => {
-                  setWorkspace('friend');
-                  setNavDrawerOpen(false);
-                }}
-              >
-                <span className="material-symbols-rounded nav-drawer-nav-icon">group</span>
-                <span>好友</span>
-              </button>
-            </nav>
-          </div>
-
-
-          {/* 快捷设置区 - 主题切换 */}
-          <div className="px-4 border-b border-border">
-            <div className="flex items-center justify-between py-3">
-              <span className="nav-drawer-theme-label">显示模式</span>
-              <button
-                type="button"
-                className="nav-drawer-theme-btn"
-                aria-label="切换主题"
-                onClick={() => {
-                  const themes: ('light' | 'dark' | 'auto')[] = ['light', 'dark', 'auto'];
-                  const currentIndex = themes.indexOf(theme);
-                  setTheme(themes[(currentIndex + 1) % themes.length]);
-                }}
-              >
-                <span className="material-symbols-rounded">
-                  {theme === 'light' ? 'wb_sunny' : theme === 'dark' ? 'dark_mode' : 'desktop_windows'}
-                </span>
-              </button>
-            </div>
-          </div>
-
-          {/* 底部功能区 */}
-          <div className="mt-auto px-3 py-3">
-            <button
-              type="button"
-              className="nav-drawer-item w-full"
-              onClick={() => {
-                setNavDrawerOpen(false);
-                setProfileOpen(true);
+      <Sheet open={navDrawerOpen} onOpenChange={handleNavDrawerOpenChange}>
+        <SheetContent
+          side="left"
+          className={cn(
+            "nav-drawer-sheet p-0 flex flex-col",
+            accountControlSection ? "account-full-sheet" : "nav-drawer-compact-sheet",
+          )}
+        >
+          {accountControlSection ? (
+            <AccountControlCenter
+              section={accountControlSection}
+              userId={state.auth.userId}
+              username={navProfile?.username ?? null}
+              avatarUrl={navProfile?.avatarUrl ?? null}
+              workspace={workspace}
+              theme={theme}
+              onThemeChange={setTheme}
+              onSectionChange={setAccountControlSection}
+              onWorkspaceChange={(nextWorkspace) => {
+                setWorkspace(nextWorkspace);
+                closeAccountControl();
               }}
-            >
-              <span className="material-symbols-rounded nav-drawer-icon">person</span>
-              <span>个人中心</span>
-            </button>
-            <button
-              type="button"
-              className="nav-drawer-item w-full"
-              onClick={() => {
+              onBackToDrawer={backToNormalDrawer}
+              onClose={closeAccountControl}
+              onLogout={openLogoutConfirmFromNavigation}
+            />
+          ) : (
+            <NavigationDrawer
+              userId={state.auth.userId}
+              username={navProfile?.username ?? null}
+              avatarUrl={navProfile?.avatarUrl ?? null}
+              workspace={workspace}
+              theme={theme}
+              onWorkspaceChange={(ws) => {
+                setWorkspace(ws);
                 setNavDrawerOpen(false);
-                setNotificationSettingsOpen(true);
               }}
-            >
-              <span className="material-symbols-rounded nav-drawer-icon">settings</span>
-              <span>设置</span>
-            </button>
-            <button
-              type="button"
-              className="nav-drawer-item w-full"
-              onClick={() => {
-                setNavDrawerOpen(false);
-                setAboutOpen(true);
-              }}
-            >
-              <span className="material-symbols-rounded nav-drawer-icon">info</span>
-              <span>关于</span>
-            </button>
-            <button
-              type="button"
-              className="nav-drawer-item nav-drawer-logout w-full"
-              onClick={() => {
-                setNavDrawerOpen(false);
-                setLogoutConfirmOpen(true);
-              }}
-            >
-              <span className="material-symbols-rounded nav-drawer-icon">logout</span>
-              <span>退出登录</span>
-            </button>
-          </div>
+              onSectionChange={(section) => openAccountControl(section)}
+              onLogout={openLogoutConfirmFromNavigation}
+              onThemeChange={setTheme}
+            />
+          )}
         </SheetContent>
       </Sheet>
 
-      {/* 通知设置抽屉 */}
-      <NotificationSettingsSheet
-        open={notificationSettingsOpen}
-        onOpenChange={setNotificationSettingsOpen}
-      />
-      <ProfileSheet
-        open={profileOpen}
-        onOpenChange={setProfileOpen}
-        userId={state.auth.userId}
-      />
-      <AboutSheet
-        open={aboutOpen}
-        onOpenChange={setAboutOpen}
-      />
       <LogoutConfirmDialog
         open={logoutConfirmOpen}
         onOpenChange={setLogoutConfirmOpen}

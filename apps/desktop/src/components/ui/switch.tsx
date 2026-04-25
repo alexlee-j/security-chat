@@ -6,29 +6,30 @@ export interface SwitchProps extends React.InputHTMLAttributes<HTMLInputElement>
 }
 
 const Switch = React.forwardRef<HTMLInputElement, SwitchProps>(
-  ({ className, onCheckedChange, ...props }, ref) => {
+  ({ className, onCheckedChange, checked, disabled, ...props }, ref) => {
     return (
-      <label className="relative inline-flex items-center cursor-pointer">
+      <label className={cn("relative inline-flex items-center cursor-pointer", disabled && "opacity-50 cursor-not-allowed")}>
         <input
           type="checkbox"
           role="switch"
           className="sr-only peer"
           ref={ref}
+          disabled={disabled}
+          checked={checked}
           onChange={(e) => onCheckedChange?.(e.target.checked)}
           {...props}
         />
         <div
           className={cn(
-            "w-9 h-5 bg-input peer-focus:outline-none peer-focus-visible:ring-2 peer-focus-visible:ring-ring peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-background rounded-full peer",
-            "peer-checked:bg-primary transition-colors duration-200 ease-in-out",
+            "peer inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50",
+            checked ? "bg-primary" : "bg-input",
             className
           )}
         >
           <div
             className={cn(
-              "h-4 w-4 mt-0.5 bg-background rounded-full shadow-sm transition-transform duration-200 ease-in-out",
-              "translate-x-0.5",
-              "peer-checked:translate-x-4"
+              "pointer-events-none block h-4 w-4 rounded-full bg-background shadow-lg ring-0 transition-transform translate-x-0",
+              checked && "translate-x-4"
             )}
           />
         </div>

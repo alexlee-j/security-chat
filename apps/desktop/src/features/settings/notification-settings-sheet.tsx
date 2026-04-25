@@ -13,10 +13,19 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 
 interface NotificationSettingsSheetProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+}
+
+type ThemeMode = 'light' | 'dark' | 'auto';
+
+interface SettingsPanelProps {
+  active?: boolean;
+  theme?: ThemeMode;
+  onThemeChange?: (theme: ThemeMode) => void;
 }
 
 export function NotificationSettingsSheet({ open, onOpenChange }: NotificationSettingsSheetProps): JSX.Element {
@@ -267,5 +276,194 @@ export function NotificationSettingsSheet({ open, onOpenChange }: NotificationSe
         </div>
       </SheetContent>
     </Sheet>
+  );
+}
+
+export function SettingsPanel({ active = true, theme = 'auto', onThemeChange }: SettingsPanelProps): JSX.Element {
+  const [settings, setSettings] = useState<NotificationSettings | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (active) {
+      void loadSettings();
+    }
+  }, [active]);
+
+  async function loadSettings(): Promise<void> {
+    setLoading(true);
+    try {
+      const data = await getNotificationSettings();
+      setSettings(data);
+    } catch (error) {
+      console.error('Failed to load notification settings:', error);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleToggle(key: keyof NotificationSettings, value: boolean): Promise<void> {
+    if (!settings) return;
+
+    setSaving(true);
+    try {
+      const updated = await updateNotificationSettings({ [key]: value });
+      setSettings(updated);
+    } catch (error) {
+      console.error('Failed to update notification settings:', error);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const themeOptions: { value: ThemeMode; label: string; icon: string; desc: string }[] = [
+    { value: 'light', label: '浅色', icon: 'wb_sunny', desc: '明亮的视觉风格' },
+    { value: 'dark', label: '深色', icon: 'dark_mode', desc: '降低眼睛疲劳' },
+    { value: 'auto', label: '跟随系统', icon: 'desktop_windows', desc: '自动匹配设备设置' },
+  ];
+
+  if (loading) {
+    return (
+      <div className="settings-panel settings-panel-loading">
+        <div className="settings-panel-skeleton" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="settings-panel">
+      {/* 显示模式卡片 */}
+      <Card className="settings-panel-card">
+        <CardHeader>
+          <CardTitle>显示模式</CardTitle>
+        </CardHeader>
+        <CardContent className="settings-panel-card-content">
+          <div className="settings-panel-theme-grid">
+            {themeOptions.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                className={cn('settings-panel-theme-card', theme === option.value && 'active')}
+                onClick={() => onThemeChange?.(option.value)}
+              >
+                <span className="material-symbols-rounded settings-panel-theme-icon">{option.icon}</span>
+                <span className="settings-panel-theme-label">{option.label}</span>
+                <span className="settings-panel-theme-desc">{option.desc}</span>
+              </button>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* 通知设置卡片 */}
+      <Card className="settings-panel-card">
+        <CardHeader>
+          <CardTitle>通知设置</CardTitle>
+        </CardHeader>
+        <CardContent className="settings-panel-card-content">
+          {settings ? (
+            <div className="settings-panel-notification-list">
+              <NotificationToggle
+                id="messageEnabled"
+                icon="chat"
+                label="新消息通知"
+                desc="接收聊天消息提醒"
+                checked={settings.messageEnabled}
+                onChange={(checked) => void handleToggle('messageEnabled', checked)}
+                disabled={saving}
+              />
+              <NotificationToggle
+                id="friendRequestEnabled"
+                icon="person_add"
+                label="好友请求"
+                desc="好友申请与响应通知"
+                checked={settings.friendRequestEnabled}
+                onChange={(checked) => void handleToggle('friendRequestEnabled', checked)}
+                disabled={saving}
+              />
+              <NotificationToggle
+                id="groupEnabled"
+                icon="group"
+                label="群聊消息"
+                desc="群组会话通知"
+                checked={settings.groupEnabled}
+                onChange={(checked) => void handleToggle('groupEnabled', checked)}
+                disabled={saving}
+              />
+              <NotificationToggle
+                id="burnEnabled"
+                icon="local_fire_department"
+                label="阅后即焚"
+                desc="消息焚毁提醒"
+                checked={settings.burnEnabled}
+                onChange={(checked) => void handleToggle('burnEnabled', checked)}
+                disabled={saving}
+              />
+              <NotificationToggle
+                id="securityEventEnabled"
+                icon="security"
+                label="安全事件"
+                desc="异常登录与风险告警"
+                checked={settings.securityEventEnabled}
+                onChange={(checked) => void handleToggle('securityEventEnabled', checked)}
+                disabled={saving}
+              />
+              <NotificationToggle
+                id="accountRecoveryEnabled"
+                icon="key"
+                label="账号安全"
+                desc="密码恢复与重置通知"
+                checked={settings.accountRecoveryEnabled}
+                onChange={(checked) => void handleToggle('accountRecoveryEnabled', checked)}
+                disabled={saving}
+              />
+              <NotificationToggle
+                id="groupLifecycleEnabled"
+                icon="admin_panel_settings"
+                label="群治理事件"
+                desc="成员变更与群管理通知"
+                checked={settings.groupLifecycleEnabled}
+                onChange={(checked) => void handleToggle('groupLifecycleEnabled', checked)}
+                disabled={saving}
+              />
+            </div>
+          ) : (
+            <div className="text-center text-muted-foreground py-6">
+              加载失败，请重试
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+interface NotificationToggleProps {
+  id: string;
+  icon: string;
+  label: string;
+  desc: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  disabled: boolean;
+}
+
+function NotificationToggle({ id, icon, label, desc, checked, onChange, disabled }: NotificationToggleProps): JSX.Element {
+  return (
+    <div className="settings-panel-notification-item">
+      <div className="settings-panel-notification-icon">
+        <span className="material-symbols-rounded">{icon}</span>
+      </div>
+      <div className="settings-panel-notification-info">
+        <Label htmlFor={id} className="settings-panel-notification-label">{label}</Label>
+        <span className="settings-panel-notification-desc">{desc}</span>
+      </div>
+      <Switch
+        id={id}
+        checked={checked}
+        onCheckedChange={onChange}
+        disabled={disabled}
+      />
+    </div>
   );
 }

@@ -941,14 +941,26 @@ button:disabled {
 
 /* 导航抽屉 - 使用 shadcn/ui Sheet */
 .nav-drawer-sheet {
-  background: var(--sidebar-background) !important;
-  border-right: 1px solid var(--border);
+  background: hsl(var(--secondary)) !important;
+  border-right: 1px solid hsl(var(--border));
+}
+
+.nav-drawer-compact-sheet {
+  width: 292px !important;
+  max-width: 292px !important;
+}
+
+.account-full-sheet {
+  width: 100vw !important;
+  max-width: 100vw !important;
+  height: 100vh !important;
+  border-radius: 0 !important;
 }
 
 .nav-drawer-sheet .nav-drawer-header {
-  border-bottom: 1px solid var(--border);
-  padding-bottom: 16px;
-  margin-bottom: 8px;
+  border-bottom: 1px solid hsl(var(--border));
+  padding: 18px 18px 16px !important;
+  margin-bottom: 0;
 }
 
 .nav-drawer-logo {
@@ -986,7 +998,6 @@ button:disabled {
 
 .nav-drawer-nav {
   display: flex;
-  flex-direction: column;
   gap: 4px;
   padding: 8px 0;
 }
@@ -1014,8 +1025,7 @@ button:disabled {
 }
 
 .nav-drawer-item.active {
-  background: var(--primary);
-  color: var(--primary-foreground);
+  background: hsl(var(--primary) / 0.2);
 }
 
 .nav-drawer-icon {
@@ -1100,10 +1110,20 @@ button:disabled {
 
 /* 导航抽屉 - 新设计样式 */
 .nav-drawer-username {
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 15px;
+  font-weight: 700;
   color: var(--foreground);
   margin: 0;
+}
+
+.nav-drawer-account-id {
+  margin: 3px 0 0;
+  max-width: 190px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: hsl(var(--muted-foreground));
 }
 
 .nav-drawer-status {
@@ -1202,6 +1222,567 @@ button:disabled {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+}
+
+/* Account Control Center */
+.account-control-center {
+  display: flex;
+  width: 100%;
+  height: 100%;
+}
+
+.account-control-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.account-control-content-header {
+  height: 83px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid hsl(var(--border));
+  box-sizing: border-box;
+}
+
+.account-control-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.account-control-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+}
+
+/* Profile Panel */
+.profile-panel {
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 32px 24px;
+}
+
+.profile-panel-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 400px;
+}
+
+.profile-panel-skeleton {
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  background: hsl(var(--muted) / 0.5);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.profile-panel-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 24px 0 32px;
+}
+
+.profile-panel-avatar-wrapper {
+  position: relative;
+  margin-bottom: 16px;
+}
+
+.profile-panel-avatar {
+  width: 100px !important;
+  height: 100px !important;
+}
+
+.profile-panel-avatar-fallback {
+  font-size: 36px !important;
+  font-weight: 600 !important;
+}
+
+.profile-panel-avatar-upload-btn {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 3px solid hsl(var(--background));
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  padding: 0;
+}
+
+.profile-panel-avatar-upload-btn:hover {
+  background: hsl(var(--primary) / 0.9);
+  transform: scale(1.05);
+}
+
+.profile-panel-avatar-upload-btn .material-symbols-rounded {
+  font-size: 18px;
+}
+
+.profile-panel-username {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--foreground);
+  margin: 0 0 8px;
+}
+
+.profile-panel-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  color: hsl(var(--muted-foreground));
+}
+
+.profile-panel-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: hsl(var(--success));
+}
+
+.profile-panel-card {
+  margin-bottom: 20px;
+}
+
+.profile-panel-card .card-header {
+  padding-bottom: 12px;
+}
+
+.profile-panel-card .card-content {
+  padding-top: 0;
+}
+
+.profile-panel-card-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.profile-panel-info-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 0;
+  border-bottom: 1px solid hsl(var(--border) / 0.5);
+}
+
+.profile-panel-info-row:last-child {
+  border-bottom: none;
+}
+
+.profile-panel-info-label {
+  font-size: 14px;
+  color: hsl(var(--muted-foreground));
+}
+
+.profile-panel-info-value-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.profile-panel-info-value {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--foreground);
+}
+
+.profile-panel-copy-btn {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  color: hsl(var(--muted-foreground));
+}
+
+.profile-panel-copy-btn:hover {
+  color: hsl(var(--primary));
+}
+
+.profile-panel-copy-btn .material-symbols-rounded {
+  font-size: 18px;
+}
+
+.profile-panel-security-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+}
+
+.profile-panel-security-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px;
+  background: hsl(var(--muted) / 0.3);
+  border-radius: 12px;
+}
+
+.profile-panel-security-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: hsl(var(--muted));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.profile-panel-security-icon.success {
+  background: hsl(var(--success) / 0.15);
+  color: hsl(var(--success));
+}
+
+.profile-panel-security-icon .material-symbols-rounded {
+  font-size: 20px;
+  color: hsl(var(--muted-foreground));
+}
+
+.profile-panel-security-icon.success .material-symbols-rounded {
+  color: hsl(var(--success));
+}
+
+.profile-panel-security-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.profile-panel-security-label {
+  font-size: 12px;
+  color: hsl(var(--muted-foreground));
+}
+
+.profile-panel-security-value {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+/* Settings Panel */
+.settings-panel {
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 32px 24px;
+}
+
+.settings-panel-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 400px;
+}
+
+.settings-panel-skeleton {
+  width: 100%;
+  height: 200px;
+  border-radius: 12px;
+  background: hsl(var(--muted) / 0.5);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.settings-panel-card {
+  margin-bottom: 24px;
+}
+
+.settings-panel-card .card-header {
+  padding-bottom: 12px;
+}
+
+.settings-panel-card .card-content {
+  padding-top: 0;
+}
+
+.settings-panel-card-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.settings-panel-theme-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+.settings-panel-theme-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 20px 12px;
+  border: 2px solid hsl(var(--border));
+  background: hsl(var(--card));
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  text-align: center;
+}
+
+.settings-panel-theme-card:hover {
+  border-color: hsl(var(--primary) / 0.5);
+  background: hsl(var(--primary) / 0.05);
+}
+
+.settings-panel-theme-card.active {
+  border-color: hsl(var(--primary));
+  background: hsl(var(--primary) / 0.1);
+}
+
+.settings-panel-theme-icon {
+  font-size: 32px;
+  color: hsl(var(--muted-foreground));
+  transition: color var(--transition-fast);
+}
+
+.settings-panel-theme-card:hover .settings-panel-theme-icon,
+.settings-panel-theme-card.active .settings-panel-theme-icon {
+  color: hsl(var(--primary));
+}
+
+.settings-panel-theme-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+.settings-panel-theme-desc {
+  font-size: 11px;
+  color: hsl(var(--muted-foreground));
+}
+
+.settings-panel-notification-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.settings-panel-notification-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 12px;
+  background: hsl(var(--muted) / 0.3);
+  border-radius: 10px;
+  transition: background var(--transition-fast);
+}
+
+.settings-panel-notification-item:hover {
+  background: hsl(var(--muted) / 0.5);
+}
+
+.settings-panel-notification-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: hsl(var(--primary) / 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.settings-panel-notification-icon .material-symbols-rounded {
+  font-size: 20px;
+  color: hsl(var(--primary));
+}
+
+.settings-panel-notification-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.settings-panel-notification-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--foreground);
+  cursor: pointer;
+}
+
+.settings-panel-notification-desc {
+  font-size: 12px;
+  color: hsl(var(--muted-foreground));
+}
+
+/* About Panel */
+.about-panel {
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 32px 24px;
+}
+
+.about-panel-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 24px 0 32px;
+}
+
+.about-panel-logo {
+  width: 80px;
+  height: 80px;
+  border-radius: 20px;
+  background: linear-gradient(135deg, hsl(var(--primary) / 0.15) 0%, hsl(var(--primary) / 0.05) 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 20px;
+}
+
+.about-panel-logo .material-symbols-rounded {
+  font-size: 40px;
+  color: hsl(var(--primary));
+}
+
+.about-panel-product-name {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--foreground);
+  margin: 0;
+}
+
+.about-panel-product-tagline {
+  font-size: 15px;
+  color: hsl(var(--muted-foreground));
+  margin: 8px 0 16px;
+}
+
+.about-panel-version {
+  font-size: 13px;
+  font-weight: 600;
+  padding: 6px 14px;
+  border-radius: 20px;
+}
+
+.about-panel-card {
+  margin-bottom: 20px;
+}
+
+.about-panel-card .card-header {
+  padding-bottom: 12px;
+}
+
+.about-panel-card .card-content {
+  padding-top: 0;
+}
+
+.about-panel-card-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.about-panel-info-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.about-panel-info-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 0;
+  border-bottom: 1px solid hsl(var(--border) / 0.5);
+}
+
+.about-panel-info-row:last-child {
+  border-bottom: none;
+}
+
+.about-panel-info-label {
+  font-size: 14px;
+  color: hsl(var(--muted-foreground));
+}
+
+.about-panel-info-value {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+.about-panel-security-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+
+.about-panel-security-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px;
+  background: hsl(var(--muted) / 0.3);
+  border-radius: 12px;
+}
+
+.about-panel-security-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: hsl(var(--primary) / 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.about-panel-security-icon .material-symbols-rounded {
+  font-size: 20px;
+  color: hsl(var(--primary));
+}
+
+.about-panel-security-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.about-panel-security-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+.about-panel-security-desc {
+  font-size: 11px;
+  color: hsl(var(--muted-foreground));
+  line-height: 1.4;
+}
+
+.about-panel-footer {
+  text-align: center;
+  padding: 24px 0;
+}
+
+.about-panel-copyright {
+  font-size: 12px;
+  color: hsl(var(--muted-foreground));
 }
 
 /* Material Symbols Rounded 字体图标 */

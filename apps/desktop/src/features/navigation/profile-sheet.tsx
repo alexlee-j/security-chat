@@ -11,6 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
+import { cn } from '@/lib/utils';
 
 type ProfileSheetProps = {
   open: boolean;
@@ -149,5 +150,175 @@ export function ProfileSheet({ open, onOpenChange, userId }: ProfileSheetProps):
         </div>
       </SheetContent>
     </Sheet>
+  );
+}
+
+type ProfilePanelProps = {
+  userId: string;
+  onLogout: () => void;
+};
+
+export function ProfilePanel({ userId, onLogout }: ProfilePanelProps): JSX.Element {
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!userId) {
+      return;
+    }
+    let active = true;
+    setLoading(true);
+    void getUserProfile(userId)
+      .then((data) => {
+        if (active) {
+          setProfile(data);
+        }
+      })
+      .catch((error) => {
+        console.error('[ProfilePanel] Failed to load profile:', error);
+      })
+      .finally(() => {
+        if (active) {
+          setLoading(false);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [userId]);
+
+  async function copyUserId(): Promise<void> {
+    if (!profile) {
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(profile.id);
+    } catch (error) {
+      console.error('[ProfilePanel] Failed to copy user id:', error);
+    }
+  }
+
+  function handleAvatarClick(): void {
+    // TODO: 头像上传功能待后端支持后实现
+    console.log('[ProfilePanel] Avatar upload - 待后端支持');
+  }
+
+  if (loading) {
+    return (
+      <div className="profile-panel profile-panel-loading">
+        <div className="profile-panel-skeleton" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="profile-panel">
+      {/* 头部区域 */}
+      <div className="profile-panel-hero">
+        <div className="profile-panel-avatar-wrapper">
+          <Avatar className="profile-panel-avatar">
+            <AvatarImage src={profile?.avatarUrl ?? undefined} alt={profile?.username ?? '用户头像'} />
+            <AvatarFallback className="profile-panel-avatar-fallback">
+              {(profile?.username ?? userId).slice(0, 2).toUpperCase()}
+            </AvatarFallback>
+          </Avatar>
+          <button
+            type="button"
+            className="profile-panel-avatar-upload-btn"
+            onClick={handleAvatarClick}
+            aria-label="上传头像"
+          >
+            <span className="material-symbols-rounded">photo_camera</span>
+          </button>
+        </div>
+        <h1 className="profile-panel-username">
+          {profile?.username ?? '未命名用户'}
+        </h1>
+        <div className="profile-panel-status">
+          <span className="profile-panel-status-dot" />
+          <span>在线</span>
+        </div>
+      </div>
+
+      {/* 账户信息卡片 */}
+      <Card className="profile-panel-card">
+        <CardHeader>
+          <CardTitle>账户信息</CardTitle>
+        </CardHeader>
+        <CardContent className="profile-panel-card-content">
+          <div className="profile-panel-info-row">
+            <span className="profile-panel-info-label">用户 ID</span>
+            <div className="profile-panel-info-value-wrapper">
+              <span className="profile-panel-info-value font-mono">{profile?.id ?? userId}</span>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="profile-panel-copy-btn"
+                onClick={copyUserId}
+                aria-label="复制用户 ID"
+              >
+                <span className="material-symbols-rounded">content_copy</span>
+              </Button>
+            </div>
+          </div>
+          <div className="profile-panel-info-row">
+            <span className="profile-panel-info-label">用户名</span>
+            <span className="profile-panel-info-value">{profile?.username ?? '加载后显示'}</span>
+          </div>
+          <div className="profile-panel-info-row">
+            <span className="profile-panel-info-label">头像状态</span>
+            <span className="profile-panel-info-value">{profile?.avatarUrl ? '已配置' : '未配置'}</span>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* 安全状态卡片 */}
+      <Card className="profile-panel-card">
+        <CardHeader>
+          <CardTitle>安全状态</CardTitle>
+        </CardHeader>
+        <CardContent className="profile-panel-card-content">
+          <div className="profile-panel-security-grid">
+            <div className="profile-panel-security-item">
+              <div className="profile-panel-security-icon">
+                <span className="material-symbols-rounded">device_hub</span>
+              </div>
+              <div className="profile-panel-security-info">
+                <span className="profile-panel-security-label">当前设备</span>
+                <span className="profile-panel-security-value">桌面端</span>
+              </div>
+            </div>
+            <div className="profile-panel-security-item">
+              <div className="profile-panel-security-icon success">
+                <span className="material-symbols-rounded">lock</span>
+              </div>
+              <div className="profile-panel-security-info">
+                <span className="profile-panel-security-label">消息加密</span>
+                <span className="profile-panel-security-value">Signal 端到端</span>
+              </div>
+            </div>
+            <div className="profile-panel-security-item">
+              <div className="profile-panel-security-icon success">
+                <span className="material-symbols-rounded">photo_library</span>
+              </div>
+              <div className="profile-panel-security-info">
+                <span className="profile-panel-security-label">媒体加密</span>
+                <span className="profile-panel-security-value">端到端加密</span>
+              </div>
+            </div>
+            <div className="profile-panel-security-item">
+              <div className="profile-panel-security-icon success">
+                <span className="material-symbols-rounded"> vpn_key</span>
+              </div>
+              <div className="profile-panel-security-info">
+                <span className="profile-panel-security-label">密钥交换</span>
+                <span className="profile-panel-security-value">X3DH 协议</span>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
   );
 }
