@@ -39,6 +39,8 @@ services:
       - MINIO_ACCESS_KEY=${MINIO_ROOT_USER:-minioadmin}
       - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD:-minioadmin}
       # TURN Server 配置（用于语音/视频通话）
+      - CALL_TURN_API_URL=${CALL_TURN_API_URL:-}
+      - CALL_TURN_API_KEY=${CALL_TURN_API_KEY:-}
       - CALL_TURN_URL=${CALL_TURN_URL:-}
       - CALL_TURN_USERNAME=${CALL_TURN_USERNAME:-}
       - CALL_TURN_CREDENTIAL=${CALL_TURN_CREDENTIAL:-}
