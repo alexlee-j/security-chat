@@ -38,7 +38,7 @@ const options: DataSourceOptions = {
     Notification,
     NotificationSettings,
   ],
-  migrations: ['src/migrations/*.ts'],
+  migrations: ['dist/src/migrations/*.ts'],
   synchronize: false,
   logging: process.env.NODE_ENV !== 'production',
 };

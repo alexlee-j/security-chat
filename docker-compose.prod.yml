@@ -7,7 +7,7 @@ services:
   api:
     build:
       context: ./apps/backend
-      dockerfile: Dockerfile.prod
+      dockerfile: Dockerfile.local
     platform: linux/amd64
     container_name: security-chat-api
     environment:
@@ -20,7 +20,8 @@ services:
       - DB_PASSWORD=${DB_PASSWORD:-security_chat_pass}
       - DB_NAME=${DB_NAME:-security_chat}
       - DB_SYNC=false
-      - DB_RUN_MIGRATIONS=true
+      - DB_SSL=false
+      - DB_RUN_MIGRATIONS=false
       # Redis 配置
       - REDIS_HOST=redis
       - REDIS_PORT=6379
@@ -37,6 +38,10 @@ services:
       - MINIO_ENDPOINT=minio:9000
       - MINIO_ACCESS_KEY=${MINIO_ROOT_USER:-minioadmin}
       - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD:-minioadmin}
+      # TURN Server 配置（用于语音/视频通话）
+      - CALL_TURN_URL=${CALL_TURN_URL:-}
+      - CALL_TURN_USERNAME=${CALL_TURN_USERNAME:-}
+      - CALL_TURN_CREDENTIAL=${CALL_TURN_CREDENTIAL:-}
     depends_on:
       postgres:
         condition: service_healthy
@@ -44,6 +49,8 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+    ports:
+      - "127.0.0.1:3000:3000"
     networks:
       - security_chat_net
     restart: unless-stopped

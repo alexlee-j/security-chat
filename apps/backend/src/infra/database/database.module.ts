@@ -60,7 +60,7 @@ import { CallRecord } from '../../modules/call/entities/call-record.entity';
         // ⚠️ 生产环境必须使用 migrations，synchronize 仅用于开发
         synchronize: configService.get<string>('NODE_ENV') !== 'production' && configService.get<string>('DB_SYNC', 'false') === 'true',
         // 开发模式不使用 migrations，避免 ESM/TS 加载问题
-        migrations: configService.get<string>('NODE_ENV') === 'production' ? ['src/migrations/*.ts'] : [],
+        migrations: configService.get<string>('NODE_ENV') === 'production' ? ['dist/src/migrations/*.ts'] : [],
         migrationsRun: configService.get<string>('DB_RUN_MIGRATIONS', 'false') === 'true',
         // 数据库连接池配置
         poolSize: Number(configService.get<string>('DB_POOL_SIZE', '20')),
@@ -69,7 +69,7 @@ import { CallRecord } from '../../modules/call/entities/call-record.entity';
         // 生产环境优化
         idleTimeoutMillis: Number(configService.get<string>('DB_IDLE_TIMEOUT', '30000')),
         statementTimeout: Number(configService.get<string>('DB_STATEMENT_TIMEOUT', '30000')),
-        ssl: configService.get<string>('NODE_ENV') === 'production' ? { rejectUnauthorized: false } : false,
+        ssl: configService.get<string>('NODE_ENV') === 'production' && configService.get<string>('DB_SSL', 'true') === 'true' ? { rejectUnauthorized: false } : false,
       }),
     }),
   ],
