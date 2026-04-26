@@ -49,14 +49,12 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new UnauthorizedException('Invalid token payload');
     }
 
-    const key = `token:blacklist:${payload.jti}`;
-    const isBlacklisted = await this.redis.get(key).catch(() => null);
+    const [isBlacklisted, logoutAfterRaw] = await this.redis
+      .mget(`token:blacklist:${payload.jti}`, `token:logout-after:${payload.sub}`)
+      .catch(() => [null, null] as Array<string | null>);
     if (isBlacklisted) {
       throw new UnauthorizedException('Token is revoked');
     }
-    const logoutAfterRaw = await this.redis
-      .get(`token:logout-after:${payload.sub}`)
-      .catch(() => null);
     const logoutAfter = Number(logoutAfterRaw ?? '0');
     if (Number.isFinite(logoutAfter) && logoutAfter > 0 && payload.iat <= logoutAfter) {
       throw new UnauthorizedException('Token is revoked');

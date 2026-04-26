@@ -8,14 +8,12 @@ import {
   WebSocketGateway,
   WebSocketServer,
 } from '@nestjs/websockets';
-import { ConfigService } from '@nestjs/config';
-import { JwtService } from '@nestjs/jwt';
-import { Inject, UnauthorizedException } from '@nestjs/common';
+import { Inject } from '@nestjs/common';
 import Redis from 'ioredis';
 import { Server, Socket } from 'socket.io';
 import { REDIS_CLIENT } from '../../../infra/redis/redis.module';
 import { ConversationService } from '../../conversation/conversation.service';
-import { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
+import { WsAuthService } from '../../auth/ws-auth.service';
 
 @WebSocketGateway({ namespace: '/ws', cors: true })
 export class MessageGateway implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect {
@@ -23,46 +21,13 @@ export class MessageGateway implements OnGatewayInit, OnGatewayConnection, OnGat
   private server!: Server;
 
   constructor(
-    private readonly jwtService: JwtService,
-    private readonly configService: ConfigService,
     private readonly conversationService: ConversationService,
+    private readonly wsAuthService: WsAuthService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {}
 
   afterInit(): void {
-    this.server.use(async (socket, next) => {
-      try {
-        const token = this.extractToken(socket);
-        if (!token) {
-          return next(new UnauthorizedException('Missing token'));
-        }
-
-        const payload = await this.jwtService.verifyAsync<JwtPayload>(token, {
-          secret: this.configService.get<string>('JWT_SECRET', 'dev_secret_change_me'),
-        });
-
-        if (payload.type !== 'access') {
-          return next(new UnauthorizedException('Invalid token type'));
-        }
-
-        const blacklisted = await this.redis.get(`token:blacklist:${payload.jti}`).catch(() => null);
-        if (blacklisted) {
-          return next(new UnauthorizedException('Token is revoked'));
-        }
-        const logoutAfterRaw = await this.redis
-          .get(`token:logout-after:${payload.sub}`)
-          .catch(() => null);
-        const logoutAfter = Number(logoutAfterRaw ?? '0');
-        if (Number.isFinite(logoutAfter) && logoutAfter > 0 && payload.iat <= logoutAfter) {
-          return next(new UnauthorizedException('Token is revoked'));
-        }
-
-        socket.data.userId = payload.sub;
-        return next();
-      } catch {
-        return next(new UnauthorizedException('Unauthorized'));
-      }
-    });
+    this.wsAuthService.attachNamespaceAuth(this.server);
   }
 
   handleConnection(client: Socket): void {
@@ -124,28 +89,12 @@ export class MessageGateway implements OnGatewayInit, OnGatewayConnection, OnGat
   }
 
   private async getRelatedUserIds(userId: string): Promise<string[]> {
-    // 从数据库获取用户的好友和会话成员
-    // 这里简化实现，实际应该调用相应的服务获取
-    // 例如：从好友服务获取好友列表，从会话服务获取会话成员
-    const relatedUserIds = new Set<string>();
-    
     try {
-      // 获取用户参与的所有会话
-      const conversations = await this.conversationService.findUserConversations(userId);
-      for (const conversation of conversations) {
-        // 获取会话成员
-        const members = await this.conversationService.listMembers(conversation.id);
-        for (const member of members) {
-          if (member.userId !== userId) {
-            relatedUserIds.add(member.userId);
-          }
-        }
-      }
+      return await this.conversationService.listRelatedUserIds(userId);
     } catch (error) {
       console.error('Failed to get related user ids:', error);
+      return [];
     }
-    
-    return Array.from(relatedUserIds);
   }
 
   async isUserOnline(userId: string): Promise<boolean> {
@@ -373,21 +322,5 @@ export class MessageGateway implements OnGatewayInit, OnGatewayConnection, OnGat
     } catch {
       client.emit('conversation.typing.ack', { ok: false, reason: 'forbidden' });
     }
-  }
-
-  private extractToken(socket: Socket): string | null {
-    const authToken =
-      typeof socket.handshake.auth?.token === 'string'
-        ? socket.handshake.auth.token
-        : null;
-    if (authToken) {
-      return authToken.startsWith('Bearer ') ? authToken.slice(7) : authToken;
-    }
-
-    const header = socket.handshake.headers.authorization;
-    if (typeof header === 'string' && header.startsWith('Bearer ')) {
-      return header.slice(7);
-    }
-    return null;
   }
 }

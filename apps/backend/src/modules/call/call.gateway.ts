@@ -9,13 +9,9 @@ import {
   WebSocketServer,
 } from '@nestjs/websockets';
 import { ConfigService } from '@nestjs/config';
-import { JwtService } from '@nestjs/jwt';
-import { Inject, UnauthorizedException } from '@nestjs/common';
-import Redis from 'ioredis';
 import { Server, Socket } from 'socket.io';
-import { REDIS_CLIENT } from '../../infra/redis/redis.module';
-import { JwtPayload } from '../auth/interfaces/jwt-payload.interface';
 import { CallService } from './call.service';
+import { WsAuthService } from '../auth/ws-auth.service';
 
 type CallSocket = Socket & {
   data: {
@@ -31,41 +27,13 @@ export class CallGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
   private readonly timeoutTimers = new Map<string, NodeJS.Timeout>();
 
   constructor(
-    private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
-    @Inject(REDIS_CLIENT) private readonly redis: Redis,
+    private readonly wsAuthService: WsAuthService,
     private readonly callService: CallService,
   ) {}
 
   afterInit(): void {
-    this.server.use(async (socket, next) => {
-      try {
-        const token = this.extractToken(socket);
-        if (!token) {
-          return next(new UnauthorizedException('Missing token'));
-        }
-        const payload = await this.jwtService.verifyAsync<JwtPayload>(token, {
-          secret: this.configService.get<string>('JWT_SECRET', 'dev_secret_change_me'),
-        });
-        if (payload.type !== 'access') {
-          return next(new UnauthorizedException('Invalid token type'));
-        }
-        const blacklisted = await this.redis.get(`token:blacklist:${payload.jti}`).catch(() => null);
-        if (blacklisted) {
-          return next(new UnauthorizedException('Token is revoked'));
-        }
-        const logoutAfterRaw = await this.redis.get(`token:logout-after:${payload.sub}`).catch(() => null);
-        const logoutAfter = Number(logoutAfterRaw ?? '0');
-        if (Number.isFinite(logoutAfter) && logoutAfter > 0 && payload.iat <= logoutAfter) {
-          return next(new UnauthorizedException('Token is revoked'));
-        }
-        socket.data.userId = payload.sub;
-        socket.data.deviceId = payload.deviceId ?? socket.id;
-        return next();
-      } catch {
-        return next(new UnauthorizedException('Unauthorized'));
-      }
-    });
+    this.wsAuthService.attachNamespaceAuth(this.server);
   }
 
   handleConnection(client: CallSocket): void {
@@ -290,14 +258,5 @@ export class CallGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
 
   private deviceRoom(userId: string, deviceId: string): string {
     return `call:device:${userId}:${deviceId}`;
-  }
-
-  private extractToken(socket: Socket): string | null {
-    const authToken = typeof socket.handshake.auth?.token === 'string' ? socket.handshake.auth.token : null;
-    if (authToken) {
-      return authToken.startsWith('Bearer ') ? authToken.slice(7) : authToken;
-    }
-    const header = socket.handshake.headers.authorization;
-    return typeof header === 'string' && header.startsWith('Bearer ') ? header.slice(7) : null;
   }
 }

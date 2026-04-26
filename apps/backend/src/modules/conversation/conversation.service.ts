@@ -294,6 +294,23 @@ export class ConversationService {
     return members;
   }
 
+  async listRelatedUserIds(userId: string): Promise<string[]> {
+    const rows = await this.dataSource.query(
+      `
+      SELECT DISTINCT cm2.user_id::text AS user_id
+      FROM conversation_members cm1
+      INNER JOIN conversation_members cm2
+        ON cm1.conversation_id = cm2.conversation_id
+      WHERE cm1.user_id = $1
+        AND cm2.user_id <> $1;
+      `,
+      [userId],
+    );
+    return (rows as Array<{ user_id?: string }>)
+      .map((row) => row.user_id ?? '')
+      .filter(Boolean);
+  }
+
   async getBurnDefault(
     userId: string,
     conversationId: string,

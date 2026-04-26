@@ -1,144 +1,168 @@
 /**
- * WebSocket 并发基准测试
- * 测量 WebSocket 服务器在高并发场景下的性能
+ * WebSocket 并发握手基准测试
+ * 测量高并发下的连接成功率与握手耗时分布
  */
 
 interface ConcurrencyResult {
   totalClients: number;
-  messagesPerClient: number;
-  totalMessages: number;
-  successCount: number;
+  connectedCount: number;
   failedCount: number;
-  totalTime: number;
-  messagesPerSecond: number;
   successRate: number;
+  connectMinMs: number;
+  connectAvgMs: number;
+  connectP50Ms: number;
+  connectP90Ms: number;
+  connectP99Ms: number;
+  connectMaxMs: number;
+  totalDurationMs: number;
 }
 
-/**
- * 测量 WebSocket 并发性能
- */
+function percentile(sorted: number[], ratio: number): number {
+  if (sorted.length === 0) {
+    return 0;
+  }
+  const index = Math.min(sorted.length - 1, Math.floor(sorted.length * ratio));
+  return sorted[index];
+}
+
+function getAuthTokens(): string[] {
+  const multi = process.env.BENCH_TOKENS
+    ?.split(',')
+    .map((token) => token.trim())
+    .filter(Boolean);
+  if (multi && multi.length > 0) {
+    return multi;
+  }
+  const single = process.env.BENCH_TOKEN?.trim();
+  if (single) {
+    return [single];
+  }
+  throw new Error('Missing BENCH_TOKEN or BENCH_TOKENS for authenticated /ws benchmark');
+}
+
 async function measureWebSocketConcurrency(
-  concurrentClients: number = 100,
-  messagesPerClient: number = 10,
-  serverUrl: string = 'http://localhost:3000',
+  concurrentClients = 1000,
+  serverUrl = 'http://localhost:3000',
 ): Promise<ConcurrencyResult> {
   const { io } = await import('socket.io-client');
+  const authTokens = getAuthTokens();
+  const connectTimeoutMs = Number(process.env.BENCH_CONNECT_TIMEOUT_MS ?? '15000');
+  const connectLatencies: number[] = [];
 
-  const clients: Array<{ socket: ReturnType<typeof io>; userId: string }> = [];
-  let successCount = 0;
+  let connectedCount = 0;
   let failedCount = 0;
 
-  // 创建客户端并连接
-  console.log(`Connecting ${concurrentClients} clients...`);
-  const connectPromises = [];
+  const clients: Array<ReturnType<typeof io>> = [];
+  const startAt = Date.now();
+  const connectPromises: Promise<void>[] = [];
 
   for (let i = 0; i < concurrentClients; i++) {
-    const userId = `bench_user_${i}`;
+    const token = authTokens[i % authTokens.length];
+    const begin = Date.now();
     const socket = io(`${serverUrl}/ws`, {
-      auth: { token: process.env.BENCH_TOKEN || 'mock_token' },
       transports: ['websocket'],
+      auth: { token },
+      reconnection: false,
+      timeout: connectTimeoutMs,
     });
+    clients.push(socket);
 
-    clients.push({ socket, userId });
+    connectPromises.push(
+      new Promise<void>((resolve) => {
+        let settled = false;
+        let fallbackTimer: ReturnType<typeof setTimeout> | undefined;
 
-    const connectPromise = new Promise<void>((resolve) => {
-      socket.on('connect', () => resolve());
-      socket.on('connect_error', () => resolve()); // 继续测试即使认证失败
-    });
+        const done = () => {
+          if (settled) {
+            return;
+          }
+          settled = true;
+          if (fallbackTimer) {
+            clearTimeout(fallbackTimer);
+          }
+          resolve();
+        };
 
-    connectPromises.push(connectPromise);
+        fallbackTimer = setTimeout(() => {
+          if (!settled) {
+            failedCount++;
+            done();
+          }
+        }, connectTimeoutMs + 200);
+
+        socket.on('connect', () => {
+          connectedCount++;
+          connectLatencies.push(Date.now() - begin);
+          done();
+        });
+
+        socket.on('connect_error', () => {
+          failedCount++;
+          done();
+        });
+      }),
+    );
   }
 
   await Promise.all(connectPromises);
-  console.log('All clients connected.\n');
+  const totalDurationMs = Date.now() - startAt;
+  clients.forEach((socket) => socket.disconnect());
 
-  const startTime = Date.now();
-
-  // 并发发送消息
-  console.log(`Sending ${concurrentClients * messagesPerClient} messages...`);
-  const sendPromises = clients.map(async ({ socket, userId }, index) => {
-    for (let j = 0; j < messagesPerClient; j++) {
-      try {
-        const targetIndex = (index + 1) % concurrentClients;
-        socket.emit('message.send', {
-          recipientId: `bench_user_${targetIndex}`,
-          encryptedMessage: {
-            messageType: 2,
-            body: Buffer.from(`Concurrent message ${index}-${j}`).toString('base64'),
-          },
-        });
-        successCount++;
-      } catch (error) {
-        failedCount++;
-      }
-
-      // 小延迟避免过载
-      if (j % 10 === 0) {
-        await new Promise(resolve => setTimeout(resolve, 1));
-      }
-    }
-  });
-
-  await Promise.all(sendPromises);
-
-  const totalTime = Date.now() - startTime;
-
-  // 断开连接
-  clients.forEach(({ socket }) => socket.disconnect());
-
-  const totalMessages = concurrentClients * messagesPerClient;
-  const messagesPerSecond = successCount / (totalTime / 1000);
-  const successRate = (successCount / totalMessages) * 100;
+  connectLatencies.sort((a, b) => a - b);
+  const connectMinMs = connectLatencies[0] ?? 0;
+  const connectMaxMs = connectLatencies[connectLatencies.length - 1] ?? 0;
+  const connectAvgMs =
+    connectLatencies.length > 0
+      ? connectLatencies.reduce((sum, current) => sum + current, 0) / connectLatencies.length
+      : 0;
 
   return {
     totalClients: concurrentClients,
-    messagesPerClient,
-    totalMessages,
-    successCount,
+    connectedCount,
     failedCount,
-    totalTime,
-    messagesPerSecond,
-    successRate,
+    successRate: concurrentClients > 0 ? (connectedCount / concurrentClients) * 100 : 0,
+    connectMinMs,
+    connectAvgMs,
+    connectP50Ms: percentile(connectLatencies, 0.5),
+    connectP90Ms: percentile(connectLatencies, 0.9),
+    connectP99Ms: percentile(connectLatencies, 0.99),
+    connectMaxMs,
+    totalDurationMs,
   };
 }
 
-// 运行基准测试
 async function runBenchmark(): Promise<void> {
-  console.log('🚀 WebSocket Concurrency Benchmark');
-  console.log('==================================\n');
+  console.log('WebSocket Concurrency Handshake Benchmark');
+  console.log('========================================\n');
 
   const serverUrl = process.env.SERVER_URL || 'http://localhost:3000';
-  const concurrentClients = parseInt(process.env.BENCH_CLIENTS || '100', 10);
-  const messagesPerClient = parseInt(process.env.BENCH_MESSAGES || '10', 10);
+  const concurrentClients = parseInt(process.env.BENCH_CLIENTS || '1000', 10);
 
   console.log(`Server: ${serverUrl}`);
   console.log(`Concurrent Clients: ${concurrentClients}`);
-  console.log(`Messages per Client: ${messagesPerClient}\n`);
+  console.log(`Transport: websocket-only`);
+  console.log(`Auth: BENCH_TOKEN/BENCH_TOKENS`);
+  console.log('');
 
-  try {
-    const result = await measureWebSocketConcurrency(concurrentClients, messagesPerClient, serverUrl);
+  const result = await measureWebSocketConcurrency(concurrentClients, serverUrl);
 
-    console.log('\n📊 Results:');
-    console.log(`  Total Clients:      ${result.totalClients}`);
-    console.log(`  Messages/Client:    ${result.messagesPerClient}`);
-    console.log(`  Total Messages:     ${result.totalMessages}`);
-    console.log(`  Success:            ${result.successCount}`);
-    console.log(`  Failed:             ${result.failedCount}`);
-    console.log(`  Total Time:         ${result.totalTime}ms`);
-    console.log(`  Messages/Second:    ${result.messagesPerSecond.toFixed(2)}`);
-    console.log(`  Success Rate:       ${result.successRate.toFixed(2)}%`);
-
-    // 性能目标检查
-    console.log('\n🎯 Performance Targets:');
-    const successRateTarget = 99;
-    const mpsTarget = 1000;
-
-    console.log(`  Success Rate > ${successRateTarget}%:  ${result.successRate > successRateTarget ? '✅ PASS' : '❌ FAIL'}`);
-    console.log(`  Msg/Sec > ${mpsTarget}:               ${result.messagesPerSecond > mpsTarget ? '✅ PASS' : '❌ FAIL'}`);
-  } catch (error) {
-    console.error('❌ Benchmark failed:', error);
-    process.exit(1);
-  }
+  console.log('Results:');
+  console.log(`  Total clients:      ${result.totalClients}`);
+  console.log(`  Connected:          ${result.connectedCount}`);
+  console.log(`  Failed:             ${result.failedCount}`);
+  console.log(`  Success rate:       ${result.successRate.toFixed(2)}%`);
+  console.log(`  Total duration:     ${result.totalDurationMs}ms`);
+  console.log('');
+  console.log('Connect latency:');
+  console.log(`  Min:                ${result.connectMinMs}ms`);
+  console.log(`  Avg:                ${result.connectAvgMs.toFixed(2)}ms`);
+  console.log(`  P50:                ${result.connectP50Ms}ms`);
+  console.log(`  P90:                ${result.connectP90Ms}ms`);
+  console.log(`  P99:                ${result.connectP99Ms}ms`);
+  console.log(`  Max:                ${result.connectMaxMs}ms`);
 }
 
-runBenchmark();
+void runBenchmark().catch((error) => {
+  console.error('Benchmark failed:', error);
+  process.exit(1);
+});

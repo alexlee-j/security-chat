@@ -1,21 +1,18 @@
 import Redis from 'ioredis';
-import { ConfigService } from '@nestjs/config';
-import { JwtService } from '@nestjs/jwt';
-import { Server, Socket } from 'socket.io';
+import { Socket } from 'socket.io';
 import { ConversationService } from '../../src/modules/conversation/conversation.service';
 import { MessageGateway } from '../../src/modules/message/gateways/message.gateway';
+import { WsAuthService } from '../../src/modules/auth/ws-auth.service';
 
 describe('MessageGateway legacy send path', () => {
   it('rejects legacy websocket message.send and returns deprecation error', async () => {
-    const jwtService = {} as JwtService;
-    const configService = {} as ConfigService;
     const conversationService = {} as ConversationService;
     const redis = {} as Redis;
+    const wsAuthService = {} as WsAuthService;
 
     const gateway = new MessageGateway(
-      jwtService,
-      configService,
       conversationService,
+      wsAuthService,
       redis,
     );
 

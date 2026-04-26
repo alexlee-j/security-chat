@@ -1,34 +1,21 @@
 import { ConfigService } from '@nestjs/config';
-import { JwtService } from '@nestjs/jwt';
-import Redis from 'ioredis';
 import { Socket } from 'socket.io';
 import { CallGateway } from '../../src/modules/call/call.gateway';
 import { CallService } from '../../src/modules/call/call.service';
+import { WsAuthService } from '../../src/modules/auth/ws-auth.service';
 
 describe('CallGateway', () => {
-  it('rejects unauthorized call namespace sockets before call events are handled', async () => {
-    let middleware: ((socket: Socket, next: (error?: unknown) => void) => Promise<void>) | undefined;
-    const gateway = new CallGateway({} as JwtService, {} as ConfigService, {} as Redis, {} as CallService);
-    (gateway as any).server = {
-      use: jest.fn((handler) => {
-        middleware = handler;
-      }),
-    };
+  it('attaches namespace auth middleware during initialization', () => {
+    const wsAuthService = {
+      attachNamespaceAuth: jest.fn(),
+    } as unknown as WsAuthService;
+    const gateway = new CallGateway({} as ConfigService, wsAuthService, {} as CallService);
+    const server = {} as any;
+    (gateway as any).server = server;
 
     gateway.afterInit();
 
-    const next = jest.fn();
-    await middleware?.({
-      handshake: {
-        auth: {},
-        headers: {},
-      },
-      data: {},
-    } as unknown as Socket, next);
-
-    expect(next).toHaveBeenCalledWith(expect.objectContaining({
-      message: 'Missing token',
-    }));
+    expect(wsAuthService.attachNamespaceAuth).toHaveBeenCalledWith(server);
   });
 
   it('emits answered-elsewhere to losing callee devices when first accept wins', async () => {
@@ -53,7 +40,7 @@ describe('CallGateway', () => {
       const configService = {
         get: jest.fn((key: string, fallback?: string) => key === 'CALL_CONNECT_TIMEOUT_SECONDS' ? '45' : fallback),
       } as unknown as ConfigService;
-      const gateway = new CallGateway({} as JwtService, configService, {} as Redis, callService);
+      const gateway = new CallGateway(configService, {} as WsAuthService, callService);
       const emit = jest.fn();
       const to = jest.fn().mockReturnValue({ emit });
       (gateway as any).server = { to, emit };
@@ -101,7 +88,7 @@ describe('CallGateway', () => {
         get: jest.fn((key: string, fallback?: string) => key === 'CALL_CONNECT_TIMEOUT_SECONDS' ? '2' : fallback),
       } as unknown as ConfigService;
 
-      const gateway = new CallGateway({} as JwtService, configService, {} as Redis, callService);
+      const gateway = new CallGateway(configService, {} as WsAuthService, callService);
       const emit = jest.fn();
       const to = jest.fn().mockReturnValue({ emit });
       (gateway as any).server = { to, emit };
@@ -128,7 +115,7 @@ describe('CallGateway', () => {
       }),
     } as unknown as jest.Mocked<CallService>;
 
-    const gateway = new CallGateway({} as JwtService, {} as ConfigService, {} as Redis, callService);
+    const gateway = new CallGateway({} as ConfigService, {} as WsAuthService, callService);
     const emit = jest.fn();
     const to = jest.fn().mockReturnValue({ emit });
     (gateway as any).server = { to, emit };

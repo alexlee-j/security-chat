@@ -9,6 +9,7 @@ import { UserModule } from '../user/user.module';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { MailModule } from '../mail/mail.module';
 import { NotificationModule } from '../notification/notification.module';
+import { WsAuthService } from './ws-auth.service';
 
 @Module({
   imports: [
@@ -49,7 +50,7 @@ import { NotificationModule } from '../notification/notification.module';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy],
-  exports: [AuthService, PassportModule, JwtModule, JwtStrategy],
+  providers: [AuthService, JwtStrategy, WsAuthService],
+  exports: [AuthService, PassportModule, JwtModule, JwtStrategy, WsAuthService],
 })
 export class AuthModule {}
