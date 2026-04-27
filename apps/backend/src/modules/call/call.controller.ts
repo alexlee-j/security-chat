@@ -14,7 +14,7 @@ export class CallController {
   ) {}
 
   @Get('ice-config')
-  getIceConfig(): CallIceConfigResponse {
+  async getIceConfig(): Promise<CallIceConfigResponse> {
     this.callConfigService.validateProductionIceConfig();
     return this.callConfigService.getIceConfig();
   }
