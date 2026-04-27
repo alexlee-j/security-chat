@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { UserController } from './user.controller';
+import { UserAvatarController, UserController } from './user.controller';
 import { UserService } from './user.service';
 import { Device } from './entities/device.entity';
 import { OneTimePrekey } from './entities/one-time-prekey.entity';
@@ -11,7 +11,7 @@ import { KyberPreKey } from '../prekey/entities/prekey.entity';
 
 @Module({
   imports: [TypeOrmModule.forFeature([User, Device, OneTimePrekey, KeyVerification, KyberPreKey]), FriendModule],
-  controllers: [UserController],
+  controllers: [UserAvatarController, UserController],
   providers: [UserService],
   exports: [UserService],
 })

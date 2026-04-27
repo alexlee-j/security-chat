@@ -22,6 +22,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { AppAvatar, getAvatarColorIndex } from '@/components/app-avatar';
 
 type Props = {
   /** 是否显示弹窗 */
@@ -249,14 +250,6 @@ export function GroupCreateModal(props: Props): JSX.Element | null {
     }
   }
 
-  function getAvatarColorIndex(name: string): number {
-    let hash = 0;
-    for (let i = 0; i < name.length; i++) {
-      hash = name.charCodeAt(i) + ((hash << 5) - hash);
-    }
-    return Math.abs(hash) % 5;
-  }
-
   const avatarColors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7'];
 
   function onManageSearchInputKeyDown(event: KeyboardEvent<HTMLInputElement>): void {
@@ -366,12 +359,13 @@ export function GroupCreateModal(props: Props): JSX.Element | null {
                           className="flex items-center justify-between gap-3 px-3 py-3"
                         >
                           <div className="flex min-w-0 items-center gap-3">
-                            <div
-                              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-semibold text-white"
-                              style={{ backgroundColor: avatarColors[getAvatarColorIndex(user.username)] }}
-                            >
-                              {user.username.slice(0, 2).toUpperCase()}
-                            </div>
+                            <AppAvatar
+                              avatarUrl={user.avatarUrl}
+                              name={user.username}
+                              className="h-9 w-9"
+                              fallbackClassName="text-xs text-white"
+                              fallbackStyle={{ backgroundColor: avatarColors[getAvatarColorIndex(user.username)] }}
+                            />
                             <div className="min-w-0">
                               <p className="truncate text-sm font-medium">{user.username}</p>
                               <p className="truncate font-mono text-xs text-muted-foreground">{user.userId}</p>
@@ -401,12 +395,13 @@ export function GroupCreateModal(props: Props): JSX.Element | null {
                       <div className="divide-y divide-border">
                         {selectedMembers.map((member) => (
                           <div key={member.userId} className="flex items-center gap-3 px-3 py-3">
-                            <div
-                              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-semibold text-white"
-                              style={{ backgroundColor: avatarColors[getAvatarColorIndex(member.username)] }}
-                            >
-                              {member.username.slice(0, 2).toUpperCase()}
-                            </div>
+                            <AppAvatar
+                              avatarUrl={member.avatarUrl}
+                              name={member.username}
+                              className="h-9 w-9"
+                              fallbackClassName="text-xs text-white"
+                              fallbackStyle={{ backgroundColor: avatarColors[getAvatarColorIndex(member.username)] }}
+                            />
                             <div className="min-w-0 flex-1">
                               <p className="truncate text-sm font-medium">{member.username}</p>
                               <p className="truncate font-mono text-xs text-muted-foreground">{member.userId}</p>
@@ -497,9 +492,18 @@ export function GroupCreateModal(props: Props): JSX.Element | null {
                         <div className="divide-y divide-border">
                           {manageSearchResults.map((user) => (
                             <div key={user.userId} className="flex items-center justify-between gap-3 px-3 py-3">
-                              <div className="min-w-0">
-                                <p className="truncate text-sm font-medium">{user.username}</p>
-                                <p className="truncate font-mono text-xs text-muted-foreground">{user.userId}</p>
+                              <div className="flex min-w-0 items-center gap-3">
+                                <AppAvatar
+                                  avatarUrl={user.avatarUrl}
+                                  name={user.username}
+                                  className="h-9 w-9"
+                                  fallbackClassName="text-xs text-white"
+                                  fallbackStyle={{ backgroundColor: avatarColors[getAvatarColorIndex(user.username)] }}
+                                />
+                                <div className="min-w-0">
+                                  <p className="truncate text-sm font-medium">{user.username}</p>
+                                  <p className="truncate font-mono text-xs text-muted-foreground">{user.userId}</p>
+                                </div>
                               </div>
                               <Button type="button" size="sm" onClick={() => void handleAddGroupMember(user.userId)}>
                                 添加
@@ -517,11 +521,20 @@ export function GroupCreateModal(props: Props): JSX.Element | null {
                       <div className="divide-y divide-border">
                         {groupMembers.map((member) => (
                           <div key={member.userId} className="flex items-center justify-between gap-3 px-3 py-3">
-                            <div className="min-w-0">
-                              <p className="truncate text-sm font-medium">{member.username}</p>
-                              <p className="truncate text-xs text-muted-foreground">
-                                {member.role === 1 ? '管理员' : '成员'}
-                              </p>
+                            <div className="flex min-w-0 items-center gap-3">
+                              <AppAvatar
+                                avatarUrl={member.avatarUrl}
+                                name={member.username}
+                                className="h-9 w-9"
+                                fallbackClassName="text-xs text-white"
+                                fallbackStyle={{ backgroundColor: avatarColors[getAvatarColorIndex(member.username)] }}
+                              />
+                              <div className="min-w-0">
+                                <p className="truncate text-sm font-medium">{member.username}</p>
+                                <p className="truncate text-xs text-muted-foreground">
+                                  {member.role === 1 ? '管理员' : '成员'}
+                                </p>
+                              </div>
                             </div>
                             {member.userId !== currentUserId ? (
                               <Button

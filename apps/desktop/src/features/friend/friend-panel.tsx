@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useMemo, useState } from 'react';
 import * as React from 'react';
 import { BlockedFriendItem, FriendListItem, FriendSearchItem, PendingFriendItem } from '../../core/types';
 import { NavMenuTrigger } from '../navigation/nav-menu-trigger';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { AppAvatar, getAvatarColorIndex } from '@/components/app-avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -19,7 +19,7 @@ type Props = {
   onSearch: (event: FormEvent<HTMLFormElement>) => Promise<void>;
   onRequestFriend: (targetUserId: string) => Promise<void>;
   onAddFriend?: () => void;
-  onRemoveFriend: (targetUserId: string, targetUsername: string) => void;
+  onRemoveFriend: (targetUserId: string, targetUsername: string, targetAvatarUrl: string | null) => void;
   onRespondFriend: (requesterUserId: string, accept: boolean) => Promise<void>;
   onBlockUser: (targetUserId: string) => Promise<void>;
   onUnblockUser: (targetUserId: string) => Promise<void>;
@@ -30,9 +30,9 @@ type Props = {
 type TabType = 'friends' | 'pending' | 'blocked';
 
 type FriendEntry =
-  | { kind: 'friend'; userId: string; username: string; online?: boolean }
-  | { kind: 'incoming'; userId: string; username: string }
-  | { kind: 'blocked'; userId: string; username: string };
+  | { kind: 'friend'; userId: string; username: string; avatarUrl: string | null; online?: boolean }
+  | { kind: 'incoming'; userId: string; username: string; avatarUrl: string | null }
+  | { kind: 'blocked'; userId: string; username: string; avatarUrl: string | null };
 
 function relationActionLabel(relation: FriendSearchItem['relation']): string {
   switch (relation) {
@@ -47,18 +47,6 @@ function relationActionLabel(relation: FriendSearchItem['relation']): string {
     default:
       return '加好友';
   }
-}
-
-function getInitials(value: string): string {
-  return value.trim().slice(0, 2).toUpperCase();
-}
-
-function getAvatarColorIndex(name: string): number {
-  let hash = 0;
-  for (let i = 0; i < name.length; i++) {
-    hash = name.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  return Math.abs(hash) % 5;
 }
 
 export function FriendPanel(props: Props): JSX.Element {
@@ -93,19 +81,22 @@ export function FriendPanel(props: Props): JSX.Element {
       ...props.friends.map((row) => ({
         kind: 'friend' as const,
         userId: row.userId,
-        username: row.username,
-        online: row.online,
-      })),
+	        username: row.username,
+	        avatarUrl: row.avatarUrl,
+	        online: row.online,
+	      })),
       ...props.incomingRequests.map((row) => ({
         kind: 'incoming' as const,
-        userId: row.requesterUserId,
-        username: row.username,
-      })),
+	        userId: row.requesterUserId,
+	        username: row.username,
+	        avatarUrl: row.avatarUrl,
+	      })),
       ...props.blockedUsers.map((row) => ({
         kind: 'blocked' as const,
-        userId: row.userId,
-        username: row.username,
-      })),
+	        userId: row.userId,
+	        username: row.username,
+	        avatarUrl: row.avatarUrl,
+	      })),
     ],
     [props.friends, props.incomingRequests, props.blockedUsers],
   );
@@ -150,10 +141,11 @@ export function FriendPanel(props: Props): JSX.Element {
     () =>
       props.friendSearchResults.map((row) => ({
         kind: 'friend' as const,
-        userId: row.userId,
-        username: row.username,
-        online: false,
-      })),
+	        userId: row.userId,
+	        username: row.username,
+	        avatarUrl: row.avatarUrl,
+	        online: false,
+	      })),
     [props.friendSearchResults],
   );
 
@@ -178,24 +170,17 @@ export function FriendPanel(props: Props): JSX.Element {
         tabIndex={0}
       >
         {/* 头像 */}
-        <div className="relative shrink-0">
-          <Avatar className="h-10 w-10">
-            <AvatarFallback
-              className="text-sm font-semibold"
-              style={
-                isActive
-                  ? { background: 'white', color: 'var(--primary)' }
-                  : { background: `var(--avatar-gradient-${(getAvatarColorIndex(entry.username) % 5) + 1})` }
-              }
-            >
-              {getInitials(entry.username)}
-            </AvatarFallback>
-          </Avatar>
-          {/* 在线状态点 */}
-          {isOnline && !isActive && (
-            <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-success rounded-full border-2 border-card" />
-          )}
-        </div>
+        <AppAvatar
+          avatarUrl={entry.avatarUrl}
+          name={entry.username}
+          className="h-10 w-10"
+          fallbackStyle={
+            isActive
+              ? { background: 'white', color: 'var(--primary)' }
+              : { background: `var(--avatar-gradient-${(getAvatarColorIndex(entry.username) % 5) + 1})` }
+          }
+          showOnline={Boolean(isOnline && !isActive)}
+        />
 
         {/* 中间内容 */}
         <div className="flex-1 min-w-0">
@@ -249,16 +234,15 @@ export function FriendPanel(props: Props): JSX.Element {
         <div className="conversation-card p-6">
           <div className="flex items-start gap-4">
             {/* 大头像 */}
-            <Avatar className="h-14 w-14">
-              <AvatarFallback
-                className="text-lg font-semibold"
-                style={{
-                  background: `var(--avatar-gradient-${(getAvatarColorIndex(selectedEntry.username) % 5) + 1})`,
-                }}
-              >
-                {getInitials(selectedEntry.username)}
-              </AvatarFallback>
-            </Avatar>
+            <AppAvatar
+              avatarUrl={selectedEntry.avatarUrl}
+              name={selectedEntry.username}
+              className="h-14 w-14"
+              fallbackClassName="text-lg font-semibold"
+              fallbackStyle={{
+                background: `var(--avatar-gradient-${(getAvatarColorIndex(selectedEntry.username) % 5) + 1})`,
+              }}
+            />
 
             {/* 用户信息 */}
             <div className="flex-1 min-w-0">
@@ -342,7 +326,7 @@ export function FriendPanel(props: Props): JSX.Element {
                   disabled={isPending(`remove:${selectedEntry.userId}`)}
                   onClick={() =>
                     void withPending(`remove:${selectedEntry.userId}`, () =>
-                      props.onRemoveFriend(selectedEntry.userId, selectedEntry.username),
+                      props.onRemoveFriend(selectedEntry.userId, selectedEntry.username, selectedEntry.avatarUrl),
                     )
                   }
                 >

@@ -18,6 +18,7 @@ type AccountControlCenterProps = {
   onThemeChange: (theme: ThemeMode) => void;
   onSectionChange: (section: AccountControlSection) => void;
   onWorkspaceChange: (workspace: 'chat' | 'friend') => void;
+  onProfileUpdated?: (profile: { username: string; avatarUrl: string | null }) => void;
   onBackToDrawer: () => void;
   onClose: () => void;
   onLogout: () => void;
@@ -34,7 +35,7 @@ export function AccountControlCenter(props: AccountControlCenterProps): JSX.Elem
 
   function renderPanel(): JSX.Element {
     if (props.section === 'profile') {
-      return <ProfilePanel userId={props.userId} onLogout={props.onLogout} />;
+      return <ProfilePanel userId={props.userId} onLogout={props.onLogout} onProfileUpdated={props.onProfileUpdated} />;
     }
     if (props.section === 'settings') {
       return <SettingsPanel active theme={props.theme} onThemeChange={props.onThemeChange} />;

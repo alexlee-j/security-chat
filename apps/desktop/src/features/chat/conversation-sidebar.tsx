@@ -8,7 +8,7 @@ import { ConversationListItem } from '../../core/types';
 import { NavMenuTrigger } from '../navigation/nav-menu-trigger';
 import { ConversationContextMenu } from './conversation-context-menu';
 import { FabMenu } from './fab-menu';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { AppAvatar, getAvatarColorIndex } from '@/components/app-avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -53,17 +53,11 @@ function getDisplayName(row: ConversationListItem): string {
   return row.peerUser?.username ?? row.conversationId.slice(0, 8);
 }
 
-function getInitials(name: string): string {
-  return name.trim().slice(0, 2).toUpperCase();
-}
-
-// 根据用户名生成头像渐变色索引
-function getAvatarColorIndex(name: string): number {
-  let hash = 0;
-  for (let i = 0; i < name.length; i++) {
-    hash = name.charCodeAt(i) + ((hash << 5) - hash);
+function getAvatarUrl(row: ConversationListItem): string | null {
+  if (row.type === 2) {
+    return row.groupInfo?.avatarUrl ?? null;
   }
-  return Math.abs(hash) % 5;
+  return row.peerUser?.avatarUrl ?? null;
 }
 
 function formatTime(value?: string | null): string {
@@ -211,23 +205,17 @@ export function ConversationSidebar(props: Props): JSX.Element {
           tabIndex={0}
         >
         {/* 头像 */}
-        <div className="relative shrink-0">
-          <Avatar className="h-10 w-10">
-            <AvatarFallback
-              className="text-sm font-semibold"
-              style={isActive
-                ? { background: 'white', color: 'var(--primary)' }
-                : { background: `var(--avatar-gradient-${(getAvatarColorIndex(displayName) % 5) + 1}` }
-              }
-            >
-              {getInitials(displayName)}
-            </AvatarFallback>
-          </Avatar>
-          {/* 在线状态点 */}
-          {row.peerUser?.isOnline && !isActive && (
-            <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-success rounded-full border-2 border-card" />
-          )}
-        </div>
+        <AppAvatar
+          avatarUrl={getAvatarUrl(row)}
+          name={displayName}
+          className="h-10 w-10"
+          fallbackStyle={
+            isActive
+              ? { background: 'white', color: 'var(--primary)' }
+              : { background: `var(--avatar-gradient-${(getAvatarColorIndex(displayName) % 5) + 1})` }
+          }
+          showOnline={Boolean(row.peerUser?.isOnline && !isActive)}
+        />
 
         {/* 中间内容 */}
         <div className="flex-1 min-w-0">

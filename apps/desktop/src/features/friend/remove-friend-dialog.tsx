@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { AppAvatar } from '@/components/app-avatar';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -15,18 +15,16 @@ type Props = {
   onOpenChange: (open: boolean) => void;
   targetUserId: string;
   targetUsername: string;
+  targetAvatarUrl?: string | null;
   onConfirm: (targetUserId: string) => Promise<void>;
 };
-
-function getInitials(value: string): string {
-  return value.trim().slice(0, 2).toUpperCase();
-}
 
 export function RemoveFriendDialog({
   open,
   onOpenChange,
   targetUserId,
   targetUsername,
+  targetAvatarUrl,
   onConfirm,
 }: Props): JSX.Element {
   const [removing, setRemoving] = useState(false);
@@ -55,9 +53,7 @@ export function RemoveFriendDialog({
         </DialogHeader>
 
         <div className="flex items-center gap-3 rounded-xl border border-border bg-card px-3 py-3">
-          <Avatar className="h-10 w-10">
-            <AvatarFallback className="text-sm font-semibold">{getInitials(targetUsername || '用户')}</AvatarFallback>
-          </Avatar>
+          <AppAvatar avatarUrl={targetAvatarUrl} name={targetUsername || '用户'} className="h-10 w-10" />
           <div className="min-w-0">
             <p className="truncate text-sm font-medium">{targetUsername || '未命名用户'}</p>
             <p className="truncate text-xs font-mono text-muted-foreground">{targetUserId}</p>

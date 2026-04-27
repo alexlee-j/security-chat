@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
-import { getUserProfile } from '@/core/api';
+import { useEffect, useRef, useState, type ChangeEvent } from 'react';
+import { getUserProfile, updateUserAvatar } from '@/core/api';
+import { compressAvatarImage } from '@/core/avatar';
 import {
   Sheet,
   SheetContent,
@@ -7,6 +8,7 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { AppAvatar } from '@/components/app-avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -156,11 +158,15 @@ export function ProfileSheet({ open, onOpenChange, userId }: ProfileSheetProps):
 type ProfilePanelProps = {
   userId: string;
   onLogout: () => void;
+  onProfileUpdated?: (profile: { username: string; avatarUrl: string | null }) => void;
 };
 
-export function ProfilePanel({ userId, onLogout }: ProfilePanelProps): JSX.Element {
+export function ProfilePanel({ userId, onLogout, onProfileUpdated }: ProfilePanelProps): JSX.Element {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(false);
+  const [avatarUploading, setAvatarUploading] = useState(false);
+  const [avatarMessage, setAvatarMessage] = useState('');
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (!userId) {
@@ -199,8 +205,34 @@ export function ProfilePanel({ userId, onLogout }: ProfilePanelProps): JSX.Eleme
   }
 
   function handleAvatarClick(): void {
-    // TODO: 头像上传功能待后端支持后实现
-    console.log('[ProfilePanel] Avatar upload - 待后端支持');
+    if (avatarUploading) {
+      return;
+    }
+    fileInputRef.current?.click();
+  }
+
+  async function handleAvatarFileChange(event: ChangeEvent<HTMLInputElement>): Promise<void> {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file || avatarUploading) {
+      return;
+    }
+
+    setAvatarUploading(true);
+    setAvatarMessage('正在压缩头像...');
+    try {
+      const compressed = await compressAvatarImage(file);
+      setAvatarMessage('正在上传头像...');
+      const updated = await updateUserAvatar(compressed);
+      setProfile(updated);
+      onProfileUpdated?.({ username: updated.username, avatarUrl: updated.avatarUrl });
+      setAvatarMessage('头像已更新');
+    } catch (error) {
+      console.error('[ProfilePanel] Avatar update failed:', error);
+      setAvatarMessage(error instanceof Error ? error.message : '头像更新失败，请重试');
+    } finally {
+      setAvatarUploading(false);
+    }
   }
 
   if (loading) {
@@ -216,16 +248,24 @@ export function ProfilePanel({ userId, onLogout }: ProfilePanelProps): JSX.Eleme
       {/* 头部区域 */}
       <div className="profile-panel-hero">
         <div className="profile-panel-avatar-wrapper">
-          <Avatar className="profile-panel-avatar">
-            <AvatarImage src={profile?.avatarUrl ?? undefined} alt={profile?.username ?? '用户头像'} />
-            <AvatarFallback className="profile-panel-avatar-fallback">
-              {(profile?.username ?? userId).slice(0, 2).toUpperCase()}
-            </AvatarFallback>
-          </Avatar>
+          <AppAvatar
+            avatarUrl={profile?.avatarUrl}
+            name={profile?.username ?? userId}
+            className="profile-panel-avatar"
+            fallbackClassName="profile-panel-avatar-fallback"
+          />
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            className="sr-only"
+            onChange={(event) => void handleAvatarFileChange(event)}
+          />
           <button
             type="button"
             className="profile-panel-avatar-upload-btn"
             onClick={handleAvatarClick}
+            disabled={avatarUploading}
             aria-label="上传头像"
           >
             <span className="material-symbols-rounded">photo_camera</span>
@@ -238,6 +278,7 @@ export function ProfilePanel({ userId, onLogout }: ProfilePanelProps): JSX.Eleme
           <span className="profile-panel-status-dot" />
           <span>在线</span>
         </div>
+        {avatarMessage ? <p className="profile-panel-avatar-message">{avatarMessage}</p> : null}
       </div>
 
       {/* 账户信息卡片 */}

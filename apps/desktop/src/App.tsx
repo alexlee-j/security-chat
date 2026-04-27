@@ -59,7 +59,7 @@ export function App(): JSX.Element {
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
   const [addFriendOpen, setAddFriendOpen] = useState(false);
   const [removeFriendOpen, setRemoveFriendOpen] = useState(false);
-  const [removeFriendTarget, setRemoveFriendTarget] = useState<{ userId: string; username: string } | null>(null);
+  const [removeFriendTarget, setRemoveFriendTarget] = useState<{ userId: string; username: string; avatarUrl: string | null } | null>(null);
   const [groupCreateOpen, setGroupCreateOpen] = useState(false);
   // 用于跟踪是否已经尝试过自动登录
   const autoLoginAttemptedRef = useRef(false);
@@ -101,6 +101,14 @@ export function App(): JSX.Element {
     setNavDrawerOpen(false);
     setAccountControlSection(null);
     setLogoutConfirmOpen(true);
+  }
+
+  function handleProfileUpdated(profile: { username: string; avatarUrl: string | null }): void {
+    setNavProfile(profile);
+    void Promise.all([
+      actions.onRefreshFriendData(),
+      actions.onRefreshConversations(),
+    ]);
   }
 
   /**
@@ -453,8 +461,8 @@ export function App(): JSX.Element {
             onSearch={actions.onSearchFriends}
             onRequestFriend={actions.onRequestFriend}
             onAddFriend={() => setAddFriendOpen(true)}
-            onRemoveFriend={(targetUserId, targetUsername) => {
-              setRemoveFriendTarget({ userId: targetUserId, username: targetUsername });
+            onRemoveFriend={(targetUserId, targetUsername, targetAvatarUrl) => {
+              setRemoveFriendTarget({ userId: targetUserId, username: targetUsername, avatarUrl: targetAvatarUrl });
               setRemoveFriendOpen(true);
             }}
             onRespondFriend={actions.onRespondFriend}
@@ -492,6 +500,7 @@ export function App(): JSX.Element {
                 setWorkspace(nextWorkspace);
                 closeAccountControl();
               }}
+              onProfileUpdated={handleProfileUpdated}
               onBackToDrawer={backToNormalDrawer}
               onClose={closeAccountControl}
               onLogout={openLogoutConfirmFromNavigation}
@@ -535,6 +544,7 @@ export function App(): JSX.Element {
         }}
         targetUserId={removeFriendTarget?.userId ?? ''}
         targetUsername={removeFriendTarget?.username ?? ''}
+        targetAvatarUrl={removeFriendTarget?.avatarUrl ?? null}
         onConfirm={async (targetUserId) => {
           await actions.onRemoveFriend(targetUserId);
           setRemoveFriendTarget(null);

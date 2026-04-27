@@ -1,5 +1,5 @@
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { SheetTitle } from '@/components/ui/sheet';
+import { AppAvatar } from '@/components/app-avatar';
 
 export type NavigationDrawerSection = 'profile' | 'settings' | 'about';
 
@@ -38,12 +38,12 @@ export function NavigationDrawer({
     <div className="flex flex-col h-full">
       <header className="nav-drawer-header px-4 py-5 border-b border-border">
         <div className="flex items-center gap-3">
-          <Avatar className="h-12 w-12 shrink-0">
-            <AvatarImage src={avatarUrl ?? undefined} alt={username ?? '用户头像'} />
-            <AvatarFallback className="bg-primary text-primary-foreground text-lg font-semibold">
-              {username?.slice(0, 2).toUpperCase() || userId.slice(0, 2).toUpperCase() || 'U'}
-            </AvatarFallback>
-          </Avatar>
+          <AppAvatar
+            avatarUrl={avatarUrl}
+            name={username || userId || '用户'}
+            className="h-12 w-12 shrink-0"
+            fallbackClassName="bg-primary text-primary-foreground text-lg font-semibold"
+          />
           <div className="flex-1 min-w-0">
             <SheetTitle className="nav-drawer-username truncate">
               {username || '用户'}

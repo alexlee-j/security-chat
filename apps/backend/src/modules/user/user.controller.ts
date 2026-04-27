@@ -8,10 +8,16 @@ import {
   ParseUUIDPipe,
   Post,
   Put,
+  Res,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
   BadRequestException,
   ForbiddenException,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
+import { Response } from 'express';
 import { CurrentUser, RequestUser } from '../../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { FriendService } from '../friend/friend.service';
@@ -45,6 +51,19 @@ export class UserController {
       username: user.username,
       avatarUrl: user.avatarUrl,
     };
+  }
+
+  @Post('me/avatar')
+  @UseInterceptors(FileInterceptor('file', { storage: memoryStorage() }))
+  updateAvatar(
+    @CurrentUser() user: RequestUser,
+    @UploadedFile() file: { originalname: string; mimetype: string; size: number; buffer: Buffer } | undefined,
+  ): Promise<{
+    id: string;
+    username: string;
+    avatarUrl: string | null;
+  }> {
+    return this.userService.updateAvatar(user.userId, file);
   }
 
   @Post('keys/upload')
@@ -350,5 +369,21 @@ export class UserController {
     if (!areFriends) {
       throw new ForbiddenException('You can only access prekey bundles of your friends');
     }
+  }
+}
+
+@Controller('user/avatar')
+export class UserAvatarController {
+  constructor(private readonly userService: UserService) {}
+
+  @Get(':fileName')
+  async getAvatar(
+    @Param('fileName') fileName: string,
+    @Res() res: Response,
+  ): Promise<void> {
+    const source = await this.userService.getAvatarFileSource(fileName);
+    res.setHeader('content-type', source.mimeType);
+    res.setHeader('cache-control', 'public, max-age=31536000, immutable');
+    source.stream.pipe(res);
   }
 }

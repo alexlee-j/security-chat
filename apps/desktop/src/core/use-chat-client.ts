@@ -244,6 +244,7 @@ export type ChatClientActions = {
   onUnblockUser: (targetUserId: string) => Promise<void>;
   onTriggerBurn: (messageId: string) => Promise<void>;
   onRefreshFriendData: () => Promise<void>;
+  onRefreshConversations: () => Promise<ConversationListItem[]>;
   onRefreshActiveConversation: () => Promise<void>;
   onLoadOlderMessages: () => Promise<void>;
   onAttachMedia: (file: File) => Promise<void>;
@@ -608,7 +609,7 @@ export function useChatClient(): {
       id: conversationId,
       type: row?.type ?? 1,
       name: displayName,
-      avatarUrl: row?.peerUser?.avatarUrl ?? null,
+      avatarUrl: row?.peerUser?.avatarUrl ?? row?.groupInfo?.avatarUrl ?? null,
       createdAt: effectiveTimestamp,
       updatedAt: effectiveTimestamp,
       lastMessageAt: Number.isFinite(lastMessageAt ?? NaN) ? (lastMessageAt as number) : null,
@@ -2886,6 +2887,7 @@ export function useChatClient(): {
       onUnblockUser,
       onTriggerBurn,
       onRefreshFriendData: loadFriendData,
+      onRefreshConversations: loadConversations,
       onRefreshActiveConversation,
       onLoadOlderMessages,
       onAttachMedia,
