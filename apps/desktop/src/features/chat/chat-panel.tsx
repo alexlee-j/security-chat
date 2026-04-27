@@ -47,6 +47,7 @@ import {
 import type { VoiceCallHistoryEntry } from '../../core/voice-call-engine';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { AppAvatar } from '@/components/app-avatar';
 
 /**
  * Props 类型定义 - 聊天面板组件属性
@@ -1593,6 +1594,7 @@ export function ChatPanel(props: Props): JSX.Element {
       <TopBar
         type={props.activeConversation?.type === 2 ? 'group' : 'chat'}
         avatar={getInitial(peerName)}
+        avatarUrl={props.activeConversation?.type === 2 ? props.activeConversation.groupInfo?.avatarUrl : props.activeConversation?.peerUser?.avatarUrl}
         name={peerName}
         status={statusText}
         isOnline={props.activeConversation?.peerUser?.isOnline ?? false}
@@ -2264,9 +2266,12 @@ export function ChatPanel(props: Props): JSX.Element {
                       onChange={(e) => setSelectedForwardConversation(e.target.value)}
                       disabled={forwardLoading}
                     />
-                    <span className="avatar" style={{ background: `var(--avatar-gradient-${(getAvatarColorIndex(conv.peerUser?.username || '') % 5) + 1})` }}>
-                      {getInitial(conv.peerUser?.username)}
-                    </span>
+                    <AppAvatar
+                      avatarUrl={conv.type === 2 ? conv.groupInfo?.avatarUrl : conv.peerUser?.avatarUrl}
+                      name={conv.type === 2 ? conv.groupInfo?.name ?? '群聊' : conv.peerUser?.username ?? '未知用户'}
+                      className="avatar"
+                      fallbackStyle={{ background: `var(--avatar-gradient-${(getAvatarColorIndex(conv.peerUser?.username || conv.groupInfo?.name || '') % 5) + 1})` }}
+                    />
                     <span className="forward-dialog-item-name">
                       {conv.peerUser?.username || '未知用户'}
                     </span>

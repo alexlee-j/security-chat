@@ -7,10 +7,12 @@
  */
 
 import * as React from 'react';
+import { AppAvatar } from '@/components/app-avatar';
 
 export type TopBarProps = {
   type: 'chat' | 'group';
   avatar: string;
+  avatarUrl?: string | null;
   name: string;
   status?: string;
   memberCount?: number;
@@ -25,10 +27,14 @@ export function TopBar(props: TopBarProps): JSX.Element {
   return (
     <header className="chat-header">
       <div className="chat-header-left">
-        <div className="chat-avatar">
-          <span className="chat-avatar-text">{props.avatar}</span>
-          {props.type === 'chat' && props.isOnline && <span className="chat-avatar-status" />}
-        </div>
+        <AppAvatar
+          avatarUrl={props.avatarUrl}
+          name={props.name || props.avatar}
+          className="chat-avatar"
+          fallbackClassName="chat-avatar-text"
+          showOnline={Boolean(props.type === 'chat' && props.isOnline)}
+          onlineClassName="chat-avatar-status"
+        />
         <div className="chat-info">
           <h3 className="chat-name">{props.name}</h3>
           <p className={props.type === 'chat' && !props.isOnline ? 'chat-status-text offline' : 'chat-status-text'}>

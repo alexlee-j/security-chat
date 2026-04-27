@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import { FriendSearchItem } from '../../core/types';
 import { searchUsers } from '../../core/api';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { AppAvatar } from '@/components/app-avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -39,10 +39,6 @@ function relationLabel(relation: FriendSearchItem['relation']): string {
 
 function isRequestable(relation: FriendSearchItem['relation']): boolean {
   return relation === 'none';
-}
-
-function getInitials(value: string): string {
-  return value.trim().slice(0, 2).toUpperCase();
 }
 
 export function AddFriendDialog({ open, onOpenChange, onRequestFriend }: Props): JSX.Element {
@@ -132,11 +128,7 @@ export function AddFriendDialog({ open, onOpenChange, onRequestFriend }: Props):
                 key={user.userId}
                 className="flex items-center gap-3 rounded-xl border border-border bg-card px-3 py-3"
               >
-                <Avatar className="h-10 w-10">
-                  <AvatarFallback className="text-sm font-semibold">
-                    {getInitials(user.username)}
-                  </AvatarFallback>
-                </Avatar>
+                <AppAvatar avatarUrl={user.avatarUrl} name={user.username} className="h-10 w-10" />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <span className="truncate text-sm font-medium">{user.username}</span>

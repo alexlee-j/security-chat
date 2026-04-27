@@ -1333,6 +1333,11 @@ button:disabled {
   transform: scale(1.05);
 }
 
+.profile-panel-avatar-upload-btn:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
 .profile-panel-avatar-upload-btn .material-symbols-rounded {
   font-size: 18px;
 }
@@ -1357,6 +1362,12 @@ button:disabled {
   height: 8px;
   border-radius: 50%;
   background: hsl(var(--success));
+}
+
+.profile-panel-avatar-message {
+  margin: 8px 0 0;
+  color: hsl(var(--muted-foreground));
+  font-size: 12px;
 }
 
 .profile-panel-card {

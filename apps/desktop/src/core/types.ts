@@ -22,7 +22,7 @@ export type ConversationListItem = {
   defaultBurnDuration: number | null;
   unreadCount: number;
   peerUser: { userId: string; username: string; avatarUrl: string | null; isOnline?: boolean } | null;
-  groupInfo: { name: string; memberCount: number } | null;
+  groupInfo: { name: string; memberCount: number; avatarUrl?: string | null } | null;
   lastMessage: {
     messageId: string;
     messageIndex: string;

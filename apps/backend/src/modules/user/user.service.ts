@@ -1,10 +1,14 @@
 import { createHash, randomInt, randomUUID } from 'node:crypto';
+import { createReadStream } from 'node:fs';
+import { mkdir, writeFile, access } from 'node:fs/promises';
+import { extname, join } from 'node:path';
 import {
   ForbiddenException,
   Injectable,
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Inject } from '@nestjs/common';
 import { In, Not, Repository } from 'typeorm';
@@ -15,6 +19,29 @@ import { OneTimePrekey } from './entities/one-time-prekey.entity';
 import { User } from './entities/user.entity';
 import { KeyVerification } from './entities/key-verification.entity';
 import { KyberPreKey } from '../prekey/entities/prekey.entity';
+
+type AvatarUploadFile = {
+  originalname: string;
+  mimetype: string;
+  size: number;
+  buffer: Buffer;
+};
+
+const AVATAR_SIGNATURES: Record<string, { magic: number[]; offset?: number; extension: string }> = {
+  'image/png': {
+    magic: [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a],
+    extension: '.png',
+  },
+  'image/jpeg': {
+    magic: [0xff, 0xd8, 0xff],
+    extension: '.jpg',
+  },
+  'image/webp': {
+    magic: [0x57, 0x45, 0x42, 0x50],
+    offset: 8,
+    extension: '.webp',
+  },
+};
 
 interface CreateUserInput {
   username: string;
@@ -60,6 +87,7 @@ export class UserService {
     private readonly kyberPrekeyRepository: Repository<KyberPreKey>,
     @Inject(REDIS_CLIENT)
     private readonly redis: Redis,
+    private readonly configService?: ConfigService,
   ) {}
 
   /**
@@ -124,8 +152,127 @@ export class UserService {
     return this.userRepository.findOne({ where: { id } });
   }
 
+  async updateAvatar(userId: string, file: AvatarUploadFile | undefined): Promise<{
+    id: string;
+    username: string;
+    avatarUrl: string | null;
+  }> {
+    if (!file) {
+      throw new BadRequestException('avatar file is required');
+    }
+
+    this.validateAvatarFile(file);
+
+    const user = await this.userRepository.findOne({ where: { id: userId } });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    const avatarRoot = this.configService?.get<string>('AVATAR_ROOT', '/tmp/security-chat-avatars') ?? '/tmp/security-chat-avatars';
+    const urlPrefix = this.normalizeAvatarUrlPrefix(
+      this.configService?.get<string>('AVATAR_URL_PREFIX', '/api/v1/user/avatar') ?? '/api/v1/user/avatar',
+    );
+    const extension = this.avatarExtension(file.mimetype);
+    const fileName = `${userId}-${randomUUID()}${extension}`;
+    const fullPath = join(avatarRoot, fileName);
+
+    await mkdir(avatarRoot, { recursive: true });
+    await writeFile(fullPath, file.buffer);
+
+    user.avatarUrl = `${urlPrefix}/${fileName}`;
+    const saved = await this.userRepository.save(user);
+
+    return {
+      id: saved.id,
+      username: saved.username,
+      avatarUrl: saved.avatarUrl,
+    };
+  }
+
+  async getAvatarFileSource(fileName: string): Promise<{ fileName: string; mimeType: string; stream: NodeJS.ReadableStream }> {
+    if (!/^[a-f0-9-]{36}-[a-f0-9-]+\.(png|jpg|jpeg|webp)$/i.test(fileName)) {
+      throw new NotFoundException('Avatar not found');
+    }
+
+    const avatarRoot = this.configService?.get<string>('AVATAR_ROOT', '/tmp/security-chat-avatars') ?? '/tmp/security-chat-avatars';
+    const fullPath = join(avatarRoot, fileName);
+    if (!fullPath.startsWith(avatarRoot)) {
+      throw new NotFoundException('Avatar not found');
+    }
+
+    try {
+      await access(fullPath);
+    } catch {
+      throw new NotFoundException('Avatar not found');
+    }
+
+    return {
+      fileName,
+      mimeType: this.avatarMimeType(fileName),
+      stream: createReadStream(fullPath),
+    };
+  }
+
   async updatePassword(userId: string, passwordHash: string): Promise<void> {
     await this.userRepository.update(userId, { passwordHash });
+  }
+
+  private validateAvatarFile(file: AvatarUploadFile): void {
+    if (!file.buffer || !file.originalname) {
+      throw new BadRequestException('invalid avatar upload');
+    }
+
+    const maxBytes = Number(this.configService?.get<string>('AVATAR_MAX_BYTES', String(256 * 1024)) ?? String(256 * 1024));
+    if (file.size <= 0 || file.size > maxBytes || file.buffer.length > maxBytes) {
+      throw new BadRequestException(`avatar size must be between 1 and ${maxBytes} bytes`);
+    }
+
+    const allowed = this.allowedAvatarMimeTypes();
+    const mimeType = (file.mimetype || '').toLowerCase();
+    if (!allowed.has(mimeType)) {
+      throw new BadRequestException('unsupported avatar image type');
+    }
+
+    const signature = AVATAR_SIGNATURES[mimeType];
+    if (!signature) {
+      throw new BadRequestException('unsupported avatar image type');
+    }
+
+    const offset = signature.offset ?? 0;
+    if (file.buffer.length < offset + signature.magic.length) {
+      throw new BadRequestException('avatar file is too small to validate');
+    }
+
+    const fileMagic = file.buffer.slice(offset, offset + signature.magic.length);
+    const isMatch = signature.magic.every((byte, index) => fileMagic[index] === byte);
+    if (!isMatch) {
+      throw new BadRequestException(`avatar content does not match declared MIME type: ${mimeType}`);
+    }
+  }
+
+  private allowedAvatarMimeTypes(): Set<string> {
+    const configured = this.configService?.get<string>('AVATAR_ALLOWED_MIME_TYPES', 'image/png,image/jpeg,image/webp') ?? 'image/png,image/jpeg,image/webp';
+    return new Set(configured.split(',').map((value) => value.trim().toLowerCase()).filter(Boolean));
+  }
+
+  private avatarExtension(mimeType: string): string {
+    return AVATAR_SIGNATURES[mimeType.toLowerCase()]?.extension ?? (extname(mimeType).slice(0, 10) || '.img');
+  }
+
+  private avatarMimeType(fileName: string): string {
+    const lower = fileName.toLowerCase();
+    if (lower.endsWith('.png')) {
+      return 'image/png';
+    }
+    if (lower.endsWith('.webp')) {
+      return 'image/webp';
+    }
+    return 'image/jpeg';
+  }
+
+  private normalizeAvatarUrlPrefix(value: string): string {
+    const trimmed = value.trim() || '/api/v1/user/avatar';
+    return trimmed.endsWith('/') ? trimmed.slice(0, -1) : trimmed;
   }
 
   async touchDeviceActivity(userId: string, deviceId: string): Promise<void> {

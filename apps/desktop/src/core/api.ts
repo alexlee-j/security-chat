@@ -190,6 +190,21 @@ export async function getUserProfile(userId: string): Promise<{
   return res.data.data;
 }
 
+export async function updateUserAvatar(file: File): Promise<{
+  id: string;
+  username: string;
+  avatarUrl: string | null;
+}> {
+  const formData = new FormData();
+  formData.append('file', file);
+  const res = await http.post<ApiEnvelope<{ id: string; username: string; avatarUrl: string | null }>>(
+    '/user/me/avatar',
+    formData,
+    { headers: { 'content-type': 'multipart/form-data' } },
+  );
+  return res.data.data;
+}
+
 export async function login(account: string, password: string, deviceId?: string): Promise<AuthResult> {
   const res = await http.post<ApiEnvelope<AuthResult>>('/auth/login', { account, password, deviceId });
   return res.data.data;
