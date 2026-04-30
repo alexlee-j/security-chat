@@ -5,58 +5,32 @@
 //! Week 10: 添加 SQLite 本地消息持久化
 //! Week 11: 添加 macOS Keychain 集成
 
-mod signal;
 mod api;
-mod db;
 mod crypto;
+mod db;
 mod file_commands;
+mod signal;
 
 use api::commands::{
-    AppState,
-    decrypt_group_message_command,
-    initialize_identity_command,
-    encrypt_group_message_command,
-    get_prekey_bundle_command,
-    get_registration_keys_command,
-    establish_session_command,
-    encrypt_message_command,
-    decrypt_message_command,
-    sync_group_members_command,
-    set_current_user_command,
+    AppState, decrypt_group_message_command, decrypt_message_command,
+    encrypt_group_message_command, encrypt_message_command, establish_session_command,
+    get_prekey_bundle_command, get_registration_keys_command, initialize_identity_command,
+    set_current_user_command, sync_group_members_command,
 };
+use crypto::media::{decrypt_media_command, encrypt_media_command};
 use db::commands::{
-    AppDbState,
-    db_save_message,
-    db_get_messages,
-    db_save_conversation,
-    db_get_conversations,
-    db_save_draft,
-    db_get_draft,
-    db_delete_draft,
-    db_mark_message_read,
-    db_get_unread_count,
-    keychain_store,
-    keychain_retrieve,
-    keychain_delete,
-};
-use crypto::media::{
-    decrypt_media_command,
-    encrypt_media_command,
+    AppDbState, db_delete_draft, db_delete_message, db_get_conversations, db_get_draft,
+    db_get_messages, db_get_unread_count, db_mark_message_read, db_save_conversation,
+    db_save_draft, db_save_message, keychain_delete, keychain_retrieve, keychain_store,
 };
 use file_commands::{
-    ensure_cached_media_file_command,
-    lookup_cached_media_file_command,
-    open_cached_media_file_command,
-    remove_cached_media_file_command,
-    save_and_open_file_command,
+    ensure_cached_media_file_command, lookup_cached_media_file_command,
+    open_cached_media_file_command, remove_cached_media_file_command, save_and_open_file_command,
 };
 use std::path::PathBuf;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Initialize app state with in-memory store (R2-1 修复)
-    let app_state = AppState::new().expect("Failed to create AppState");
-
     // Initialize database state with SQLite
     // 使用应用数据目录存储数据库
     let app_dir = dirs::data_local_dir()
@@ -64,6 +38,13 @@ pub fn run() {
         .join("security-chat");
     std::fs::create_dir_all(&app_dir).expect("Failed to create app data directory");
     let db_path = app_dir.join("security-chat.db");
+    let signal_db_url = format!(
+        "sqlite://{}",
+        app_dir.join("security-chat-signal.db").display()
+    );
+
+    // Initialize app state with encrypted persistent Signal store
+    let app_state = AppState::new(&signal_db_url).expect("Failed to create AppState");
     let app_db_state = AppDbState::new(db_path).expect("Failed to create AppDbState");
 
     tauri::Builder::default()
@@ -86,6 +67,7 @@ pub fn run() {
             decrypt_group_message_command,
             db_save_message,
             db_get_messages,
+            db_delete_message,
             db_save_conversation,
             db_get_conversations,
             db_save_draft,

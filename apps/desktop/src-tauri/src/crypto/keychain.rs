@@ -13,11 +13,11 @@
 //! - Level 2: 业务密钥 (identity_key, session_key 等) - 存储在 SQLite
 
 use aes_gcm::{
-    aead::{Aead, KeyInit},
     Aes256Gcm, Nonce,
+    aead::{Aead, KeyInit},
 };
-use rand::{Rng as _, TryRngCore as _};
 use rand::rngs::OsRng;
+use rand::{Rng as _, TryRngCore as _};
 use std::sync::{Arc, Mutex};
 use thiserror::Error;
 
@@ -90,10 +90,7 @@ impl SecureKeychain {
         rng.fill(&mut master_key);
 
         // 存储 master key 到 macOS Keychain
-        crate::crypto::mac_keychain::MacKeychain::store(
-            "master_key",
-            &master_key,
-        )?;
+        crate::crypto::mac_keychain::MacKeychain::store("master_key", &master_key)?;
 
         Ok(Self { master_key })
     }
@@ -103,7 +100,9 @@ impl SecureKeychain {
     pub fn load() -> Result<Self, KeychainError> {
         let master_key = crate::crypto::mac_keychain::MacKeychain::retrieve("master_key")?
             .try_into()
-            .map_err(|_| KeychainError::EncryptionFailed("Invalid master key length".to_string()))?;
+            .map_err(|_| {
+                KeychainError::EncryptionFailed("Invalid master key length".to_string())
+            })?;
 
         Ok(Self { master_key })
     }
@@ -115,7 +114,11 @@ impl SecureKeychain {
     }
 
     /// 存储密钥（加密后）
-    pub fn store_key(&self, key_type: &KeyType, key_data: &[u8]) -> Result<EncryptedKey, KeychainError> {
+    pub fn store_key(
+        &self,
+        key_type: &KeyType,
+        key_data: &[u8],
+    ) -> Result<EncryptedKey, KeychainError> {
         let encrypted_data = self.encrypt(key_data)?;
 
         Ok(EncryptedKey {
@@ -150,7 +153,9 @@ impl SecureKeychain {
     /// 解密数据
     fn decrypt(&self, encrypted_data: &[u8]) -> Result<Vec<u8>, KeychainError> {
         if encrypted_data.len() < 12 {
-            return Err(KeychainError::DecryptionFailed("Data too short".to_string()));
+            return Err(KeychainError::DecryptionFailed(
+                "Data too short".to_string(),
+            ));
         }
 
         let cipher = Aes256Gcm::new_from_slice(&self.master_key)
@@ -232,7 +237,9 @@ mod tests {
         let key_type = KeyType::Identity;
 
         // 加密
-        let encrypted = keychain.store_key(&key_type, plaintext).expect("should encrypt");
+        let encrypted = keychain
+            .store_key(&key_type, plaintext)
+            .expect("should encrypt");
 
         // 解密
         let decrypted = keychain.retrieve_key(&encrypted).expect("should decrypt");

@@ -17,8 +17,8 @@
 #![allow(dead_code)]
 
 use aes_gcm::{
-    aead::{Aead, KeyInit},
     Aes256Gcm, Nonce,
+    aead::{Aead, KeyInit},
 };
 use hkdf::Hkdf;
 use rand::Rng as _;
@@ -141,7 +141,9 @@ impl GroupSession {
 
     /// Get the sender key for a specific user (encrypted with group key)
     pub fn get_encrypted_sender_key(&self, user_id: &str) -> Result<Vec<u8>, SenderKeyError> {
-        let sender_key_state = self.sender_keys.get(user_id)
+        let sender_key_state = self
+            .sender_keys
+            .get(user_id)
             .ok_or(SenderKeyError::MemberNotFound(user_id.to_string()))?;
 
         // Encrypt sender key with group key using AES-256-GCM
@@ -163,10 +165,16 @@ impl GroupSession {
     }
 
     /// Add a member with their encrypted sender key
-    pub fn add_member_with_key(&mut self, user_id: &str, encrypted_key: &[u8]) -> Result<(), SenderKeyError> {
+    pub fn add_member_with_key(
+        &mut self,
+        user_id: &str,
+        encrypted_key: &[u8],
+    ) -> Result<(), SenderKeyError> {
         if encrypted_key.len() < 12 + 16 {
             // 12 (nonce) + 16 (auth tag minimum for 0-byte plaintext, but we have 32-byte key)
-            return Err(SenderKeyError::EncryptionFailed("Invalid encrypted key".to_string()));
+            return Err(SenderKeyError::EncryptionFailed(
+                "Invalid encrypted key".to_string(),
+            ));
         }
 
         let cipher = Aes256Gcm::new_from_slice(&self.group_key)
@@ -179,17 +187,21 @@ impl GroupSession {
             .decrypt(nonce, ciphertext)
             .map_err(|e| SenderKeyError::DecryptionFailed(e.to_string()))?;
 
-        let sender_key: [u8; 32] = sender_key.as_slice().try_into()
-            .map_err(|_| SenderKeyError::DecryptionFailed("Invalid sender key length".to_string()))?;
+        let sender_key: [u8; 32] = sender_key.as_slice().try_into().map_err(|_| {
+            SenderKeyError::DecryptionFailed("Invalid sender key length".to_string())
+        })?;
 
         let mut chain_key = [0u8; 32];
         rand::thread_rng().fill(&mut chain_key);
 
-        self.sender_keys.insert(user_id.to_string(), SenderKeyState {
-            key: sender_key,
-            chain_key,
-            message_number: 0,
-        });
+        self.sender_keys.insert(
+            user_id.to_string(),
+            SenderKeyState {
+                key: sender_key,
+                chain_key,
+                message_number: 0,
+            },
+        );
         self.chain_counters.insert(user_id.to_string(), 0);
 
         Ok(())
@@ -215,8 +227,14 @@ impl GroupSession {
     }
 
     /// Encrypt a message using sender key
-    pub fn encrypt_message(&mut self, sender_id: &str, plaintext: &[u8]) -> Result<GroupEncryptedMessage, SenderKeyError> {
-        let sender_state = self.sender_keys.get_mut(sender_id)
+    pub fn encrypt_message(
+        &mut self,
+        sender_id: &str,
+        plaintext: &[u8],
+    ) -> Result<GroupEncryptedMessage, SenderKeyError> {
+        let sender_state = self
+            .sender_keys
+            .get_mut(sender_id)
             .ok_or(SenderKeyError::MemberNotFound(sender_id.to_string()))?;
 
         // Simple symmetric encryption with ratcheting
@@ -231,7 +249,8 @@ impl GroupSession {
         let hk = Hkdf::<Sha256>::new(None, &sender_state.chain_key);
         let mut okm = vec![0u8; 64];
         let info = format!("msg-key:{}", message_number);
-        hk.expand(info.as_bytes(), &mut okm).map_err(|_| SenderKeyError::EncryptionFailed("HKDF expand failed".to_string()))?;
+        hk.expand(info.as_bytes(), &mut okm)
+            .map_err(|_| SenderKeyError::EncryptionFailed("HKDF expand failed".to_string()))?;
         let message_key: [u8; 32] = okm[..32].try_into().unwrap();
 
         // Encrypt with message key
@@ -241,7 +260,9 @@ impl GroupSession {
         let chain_hk = Hkdf::<Sha256>::new(None, &sender_state.chain_key);
         let mut chain_okm = vec![0u8; 32];
         let chain_info = format!("chain-key:{}", message_number);
-        chain_hk.expand(chain_info.as_bytes(), &mut chain_okm).map_err(|_| SenderKeyError::EncryptionFailed("HKDF expand failed".to_string()))?;
+        chain_hk
+            .expand(chain_info.as_bytes(), &mut chain_okm)
+            .map_err(|_| SenderKeyError::EncryptionFailed("HKDF expand failed".to_string()))?;
         sender_state.chain_key = chain_okm.try_into().unwrap();
 
         // Ratchet sender key periodically (every 100 messages) using HKDF
@@ -249,7 +270,9 @@ impl GroupSession {
             let key_hk = Hkdf::<Sha256>::new(None, &sender_state.key);
             let mut key_okm = vec![0u8; 32];
             let key_info = format!("sender-key:{}", message_number);
-            key_hk.expand(key_info.as_bytes(), &mut key_okm).map_err(|_| SenderKeyError::EncryptionFailed("HKDF expand failed".to_string()))?;
+            key_hk
+                .expand(key_info.as_bytes(), &mut key_okm)
+                .map_err(|_| SenderKeyError::EncryptionFailed("HKDF expand failed".to_string()))?;
             sender_state.key = key_okm.try_into().unwrap();
         }
 
@@ -262,15 +285,22 @@ impl GroupSession {
     }
 
     /// Decrypt a message using sender key
-    pub fn decrypt_message(&self, sender_id: &str, message: &GroupEncryptedMessage) -> Result<Vec<u8>, SenderKeyError> {
-        let _sender_state = self.sender_keys.get(sender_id)
+    pub fn decrypt_message(
+        &self,
+        sender_id: &str,
+        message: &GroupEncryptedMessage,
+    ) -> Result<Vec<u8>, SenderKeyError> {
+        let _sender_state = self
+            .sender_keys
+            .get(sender_id)
             .ok_or(SenderKeyError::MemberNotFound(sender_id.to_string()))?;
 
         // Derive message key using the chain_key from the message using HKDF
         let hk = Hkdf::<Sha256>::new(None, &message.chain_key);
         let mut okm = vec![0u8; 64];
         let info = format!("msg-key:{}", message.message_number);
-        hk.expand(info.as_bytes(), &mut okm).map_err(|_| SenderKeyError::DecryptionFailed("HKDF expand failed".to_string()))?;
+        hk.expand(info.as_bytes(), &mut okm)
+            .map_err(|_| SenderKeyError::DecryptionFailed("HKDF expand failed".to_string()))?;
         let message_key: [u8; 32] = okm[..32].try_into().unwrap();
 
         // Decrypt with message key
@@ -279,8 +309,7 @@ impl GroupSession {
 
     /// AES-256-GCM encryption with message key
     fn simple_encrypt(plaintext: &[u8], key: &[u8; 32]) -> Vec<u8> {
-        let cipher = Aes256Gcm::new_from_slice(key)
-            .expect("AES-256-GCM key size is correct");
+        let cipher = Aes256Gcm::new_from_slice(key).expect("AES-256-GCM key size is correct");
 
         // Generate random 12-byte nonce
         let mut nonce_bytes = [0u8; 12];
@@ -301,7 +330,9 @@ impl GroupSession {
     /// AES-256-GCM decryption with message key
     fn simple_decrypt(ciphertext: &[u8], key: &[u8; 32]) -> Result<Vec<u8>, SenderKeyError> {
         if ciphertext.len() < 12 {
-            return Err(SenderKeyError::DecryptionFailed("Ciphertext too short".to_string()));
+            return Err(SenderKeyError::DecryptionFailed(
+                "Ciphertext too short".to_string(),
+            ));
         }
 
         let cipher = Aes256Gcm::new_from_slice(key)
@@ -324,7 +355,9 @@ impl GroupSession {
 
     /// Export sender keys state for a member
     pub fn export_sender_key_state(&self, user_id: &str) -> Result<Vec<u8>, SenderKeyError> {
-        let state = self.sender_keys.get(user_id)
+        let state = self
+            .sender_keys
+            .get(user_id)
             .ok_or(SenderKeyError::MemberNotFound(user_id.to_string()))?;
 
         let mut export = Vec::new();
@@ -335,24 +368,37 @@ impl GroupSession {
     }
 
     /// Import sender key state for a member
-    pub fn import_sender_key_state(&mut self, user_id: &str, data: &[u8]) -> Result<(), SenderKeyError> {
+    pub fn import_sender_key_state(
+        &mut self,
+        user_id: &str,
+        data: &[u8],
+    ) -> Result<(), SenderKeyError> {
         if data.len() < 68 {
-            return Err(SenderKeyError::InvalidGroupState("Invalid state data".to_string()));
+            return Err(SenderKeyError::InvalidGroupState(
+                "Invalid state data".to_string(),
+            ));
         }
 
-        let key: [u8; 32] = data[0..32].try_into()
+        let key: [u8; 32] = data[0..32]
+            .try_into()
             .map_err(|_| SenderKeyError::InvalidGroupState("Invalid key length".to_string()))?;
-        let chain_key: [u8; 32] = data[32..64].try_into()
-            .map_err(|_| SenderKeyError::InvalidGroupState("Invalid chain key length".to_string()))?;
-        let message_number = u32::from_le_bytes(data[64..68].try_into()
-            .map_err(|_| SenderKeyError::InvalidGroupState("Invalid message number".to_string()))?);
+        let chain_key: [u8; 32] = data[32..64].try_into().map_err(|_| {
+            SenderKeyError::InvalidGroupState("Invalid chain key length".to_string())
+        })?;
+        let message_number = u32::from_le_bytes(data[64..68].try_into().map_err(|_| {
+            SenderKeyError::InvalidGroupState("Invalid message number".to_string())
+        })?);
 
-        self.sender_keys.insert(user_id.to_string(), SenderKeyState {
-            key,
-            chain_key,
-            message_number,
-        });
-        self.chain_counters.insert(user_id.to_string(), message_number);
+        self.sender_keys.insert(
+            user_id.to_string(),
+            SenderKeyState {
+                key,
+                chain_key,
+                message_number,
+            },
+        );
+        self.chain_counters
+            .insert(user_id.to_string(), message_number);
 
         Ok(())
     }
@@ -420,14 +466,18 @@ impl SenderKeysStore {
 
     /// List members in a group session
     pub fn list_members(&self, group_id: &str) -> Result<Vec<String>, SenderKeyError> {
-        let session = self.groups.get(group_id)
+        let session = self
+            .groups
+            .get(group_id)
             .ok_or(SenderKeyError::GroupNotFound(group_id.to_string()))?;
         Ok(session.member_user_ids())
     }
 
     /// Add a member to a group
     pub fn add_member(&mut self, group_id: &str, user_id: &str) -> Result<Vec<u8>, SenderKeyError> {
-        let session = self.groups.get_mut(group_id)
+        let session = self
+            .groups
+            .get_mut(group_id)
             .ok_or(SenderKeyError::GroupNotFound(group_id.to_string()))?;
 
         session.generate_sender_key(user_id);
@@ -436,7 +486,9 @@ impl SenderKeysStore {
 
     /// Remove a member from a group
     pub fn remove_member(&mut self, group_id: &str, user_id: &str) -> Result<(), SenderKeyError> {
-        let session = self.groups.get_mut(group_id)
+        let session = self
+            .groups
+            .get_mut(group_id)
             .ok_or(SenderKeyError::GroupNotFound(group_id.to_string()))?;
 
         session.remove_member(user_id)
@@ -449,7 +501,9 @@ impl SenderKeysStore {
         sender_id: &str,
         encrypted_key: &[u8],
     ) -> Result<(), SenderKeyError> {
-        let session = self.groups.get_mut(group_id)
+        let session = self
+            .groups
+            .get_mut(group_id)
             .ok_or(SenderKeyError::GroupNotFound(group_id.to_string()))?;
 
         session.add_member_with_key(sender_id, encrypted_key)
@@ -461,7 +515,9 @@ impl SenderKeysStore {
         group_id: &str,
         plaintext: &[u8],
     ) -> Result<GroupEncryptedMessage, SenderKeyError> {
-        let session = self.groups.get_mut(group_id)
+        let session = self
+            .groups
+            .get_mut(group_id)
             .ok_or(SenderKeyError::GroupNotFound(group_id.to_string()))?;
 
         session.encrypt_message(&self.user_id, plaintext)
@@ -473,7 +529,9 @@ impl SenderKeysStore {
         group_id: &str,
         message: &GroupEncryptedMessage,
     ) -> Result<Vec<u8>, SenderKeyError> {
-        let session = self.groups.get(group_id)
+        let session = self
+            .groups
+            .get(group_id)
             .ok_or(SenderKeyError::GroupNotFound(group_id.to_string()))?;
 
         session.decrypt_message(&message.sender_id, message)

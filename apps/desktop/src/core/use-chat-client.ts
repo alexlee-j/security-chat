@@ -13,6 +13,7 @@ import { getSecureJSON, setSecureJSON, getSecureItem, setSecureItem } from './se
 import { io, Socket } from 'socket.io-client';
 import {
   ackReadOne,
+  ackDirectEnvelopesPersisted,
   ackDelivered,
   ackRead,
   blockUser,
@@ -31,6 +32,7 @@ import {
   getFriends,
   getIncomingRequests,
   getMessages,
+  getPendingDirectEnvelopes,
   login,
   loginWithCode,
   logout,
@@ -65,7 +67,17 @@ import {
   normalizeVoiceMessageMetadata,
   type VoiceMessageMetadata,
 } from './media-message';
-import { LocalConversation, useLocalDb } from './use-local-db';
+import {
+  applyLocalDirectConversationPreview,
+  buildDirectEnvelopeTargets,
+  createSentDirectMessageItem,
+  isBurnExpiredMessage,
+  loadDirectConversationLocalFirst,
+  localMessageToMessageItem,
+  processPendingDirectEnvelopes,
+  retryTransportKind,
+} from './direct-history';
+import { LocalConversation, LocalMessage, useLocalDb } from './use-local-db';
 import {
   AuthState,
   BlockedFriendItem,
@@ -93,6 +105,8 @@ import {
 const MESSAGE_CURSOR_STORAGE_KEY = 'security-chat.desktop.message-cursors.v1';
 const MESSAGE_DRAFT_STORAGE_KEY = 'security-chat.desktop.message-drafts.v1';
 const CONVERSATION_PREF_STORAGE_KEY = 'security-chat.desktop.conversation-prefs.v1';
+const viteEnv = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env ?? {};
+const DIRECT_LOCAL_FIRST_HISTORY_ENABLED = viteEnv.VITE_DIRECT_LOCAL_FIRST_HISTORY !== 'false';
 
 type PendingRetryRequest =
   | { kind: 'group_v1'; input: SendMessageInput }
@@ -545,14 +559,7 @@ export function useChatClient(): {
   );
 
   const isBurnExpired = (row: MessageItem, nowMs = Date.now()): boolean => {
-    if (!row.isBurn || !row.readAt || !row.burnDuration) {
-      return false;
-    }
-    const readAtMs = Date.parse(row.readAt);
-    if (Number.isNaN(readAtMs)) {
-      return false;
-    }
-    return readAtMs + row.burnDuration * 1000 <= nowMs;
+    return isBurnExpiredMessage(row, nowMs);
   };
 
   function applyReadAckToActiveMessages(
@@ -682,30 +689,31 @@ export function useChatClient(): {
   async function restoreMessagesFromLocal(conversationId: string): Promise<MessageItem[]> {
     try {
       const localRows = await localDb.getMessages(conversationId, 100);
-      return localRows.map((row) => {
-        const payload = row.content ?? '';
-        const fallbackEncryptedPayload = payload ? btoa(unescape(encodeURIComponent(payload))) : '';
-        return {
-          id: row.id,
-          conversationId: row.conversationId,
-          senderId: row.senderId,
-          messageType: row.messageType,
-          encryptedPayload: fallbackEncryptedPayload,
-          nonce: row.nonce,
-          mediaAssetId: null,
-          messageIndex: String(row.serverTimestamp ?? row.localTimestamp),
-          isBurn: row.isBurn,
-          burnDuration: row.burnDuration,
-          deliveredAt: row.isRead ? new Date(row.createdAt).toISOString() : null,
-          readAt: row.isRead ? new Date(row.createdAt).toISOString() : null,
-          createdAt: new Date(row.createdAt).toISOString(),
-          localDeliveryState: 'replayed',
-        } satisfies MessageItem;
-      });
+      return localRows.map(localMessageToMessageItem);
     } catch (error) {
       console.warn('[LocalDb] Restore messages failed:', error);
       return [];
     }
+  }
+
+  async function applyLocalDirectPreviews(rows: ConversationListItem[]): Promise<ConversationListItem[]> {
+    return Promise.all(
+      rows.map(async (row) => {
+        if (!DIRECT_LOCAL_FIRST_HISTORY_ENABLED || row.type !== 1) {
+          return row;
+        }
+        try {
+          const [latestLocal] = await localDb.getMessages(row.conversationId, 1);
+          if (latestLocal) {
+            cacheLocalMessages([latestLocal]);
+          }
+          return applyLocalDirectConversationPreview(row, latestLocal ?? null);
+        } catch (error) {
+          console.warn('[LocalDb] Failed to apply local direct preview:', error);
+          return row;
+        }
+      }),
+    );
   }
 
   async function loadConversations(): Promise<ConversationListItem[]> {
@@ -713,12 +721,13 @@ export function useChatClient(): {
     const dedupedRows = rows.filter(
       (row, index, array) => array.findIndex((item) => item.conversationId === row.conversationId) === index,
     );
-    void persistConversationsToLocal(dedupedRows);
-    setConversations(dedupedRows);
-    if (!activeConversationIdRef.current && dedupedRows.length > 0) {
-      setActiveConversationId(dedupedRows[0].conversationId);
+    const localPreviewRows = await applyLocalDirectPreviews(dedupedRows);
+    void persistConversationsToLocal(localPreviewRows);
+    setConversations(localPreviewRows);
+    if (!activeConversationIdRef.current && localPreviewRows.length > 0) {
+      setActiveConversationId(localPreviewRows[0].conversationId);
     }
-    return dedupedRows;
+    return localPreviewRows;
   }
 
   function updateConversationCursor(conversationId: string, indexValue: number): void {
@@ -736,7 +745,128 @@ export function useChatClient(): {
     saveMessageCursorSnapshot(messageCursorRef.current);
   }
 
+  function isDirectConversation(conversationId: string): boolean {
+    return conversations.find((row) => row.conversationId === conversationId)?.type === 1;
+  }
+
+  function shouldUseLocalFirstDirectHistory(conversationId: string): boolean {
+    return DIRECT_LOCAL_FIRST_HISTORY_ENABLED && isDirectConversation(conversationId);
+  }
+
+  async function deleteLocalDirectMessage(conversationId: string, messageId: string): Promise<void> {
+    if (!shouldUseLocalFirstDirectHistory(conversationId)) {
+      return;
+    }
+    try {
+      await localDb.deleteMessage(messageId);
+    } catch (error) {
+      console.warn('[LocalDb] Failed to delete local direct message:', error);
+    }
+    if (activeConversationIdRef.current === conversationId) {
+      setMessages((prev) => prev.filter((row) => row.id !== messageId));
+    }
+  }
+
+  async function markDirectMessagesReadLocally(
+    conversationId: string,
+    maxMessageIndex: string | number,
+    ackByUserId: string,
+  ): Promise<void> {
+    if (!shouldUseLocalFirstDirectHistory(conversationId)) {
+      return;
+    }
+    const maxIndex = Number(maxMessageIndex);
+    if (!Number.isFinite(maxIndex) || maxIndex <= 0) {
+      return;
+    }
+    try {
+      const localRows = await localDb.getMessages(conversationId, 100);
+      await Promise.all(
+        localRows
+          .filter((row) => {
+            const rowIndex = Number(row.serverTimestamp ?? 0);
+            return Number.isFinite(rowIndex) && rowIndex > 0 && rowIndex <= maxIndex && row.senderId !== ackByUserId;
+          })
+          .map((row) => localDb.markMessageRead(row.id)),
+      );
+    } catch (error) {
+      console.warn('[LocalDb] Failed to mark direct messages read locally:', error);
+    }
+  }
+
+  function cacheLocalMessages(rows: LocalMessage[]): void {
+    for (const row of rows) {
+      const plaintext = row.content ?? '';
+      if (!plaintext) {
+        continue;
+      }
+      const item = localMessageToMessageItem(row);
+      payloadCacheRef.current.set(item.encryptedPayload, plaintext);
+      payloadCacheRef.current.set(`msg:${row.id}`, plaintext);
+    }
+  }
+
+  async function loadDirectMessagesFromLocal(conversationId: string): Promise<void> {
+    let localRows: LocalMessage[] = [];
+    await loadDirectConversationLocalFirst({
+      getLocalMessages: async () => {
+        localRows = await localDb.getMessages(conversationId, 100);
+        return localRows;
+      },
+      cacheLocalMessages,
+      renderLocalMessages: setMessages,
+      setHasMoreHistory,
+      syncPendingEnvelopes: () => syncDirectPendingEnvelopes(conversationId, true),
+    });
+    const maxIndex = localRows.reduce((max, row) => Math.max(max, Number(row.serverTimestamp ?? 0)), 0);
+    updateConversationCursor(conversationId, maxIndex);
+  }
+
+  async function syncDirectPendingEnvelopes(conversationId: string, applyToActive: boolean): Promise<void> {
+    try {
+      const afterIndex = 0;
+      const pendingRows = await getPendingDirectEnvelopes(conversationId, afterIndex, 100);
+      if (pendingRows.length === 0) {
+        return;
+      }
+
+      const { persistedRows, maxIndex } = await processPendingDirectEnvelopes({
+        pendingRows,
+        afterIndex,
+        decodePayload,
+        ensureLocalConversation,
+        saveMessage: (row) => localDb.saveMessage(row),
+        ackPersisted: ackDirectEnvelopesPersisted,
+        onPersisted: (row, decrypted) => {
+          payloadCacheRef.current.set(row.encryptedPayload, decrypted);
+          payloadCacheRef.current.set(`msg:${row.id}`, decrypted);
+        },
+      });
+      updateConversationCursor(conversationId, maxIndex);
+
+      if (applyToActive && activeConversationIdRef.current === conversationId && persistedRows.length > 0) {
+        const nowMs = Date.now();
+        setMessages((prev) => mergeMessages(prev, persistedRows).filter((row) => !isBurnExpired(row, nowMs)));
+      }
+    } catch (error) {
+      console.error('同步待投递单聊消息失败:', error);
+    }
+  }
+
   async function loadMessages(conversationId: string): Promise<void> {
+    if (shouldUseLocalFirstDirectHistory(conversationId)) {
+      try {
+        await loadDirectMessagesFromLocal(conversationId);
+        setError('');
+      } catch (error) {
+        console.error('加载本地单聊消息失败:', error);
+        setError('加载本地消息失败，请稍后重试。');
+        setMessages([]);
+        setHasMoreHistory(false);
+      }
+      return;
+    }
+
     try {
       const rows = await getMessages(conversationId, 0, 100);
       const cursorBeforeLoad = messageCursorRef.current[conversationId] ?? 0;
@@ -792,6 +922,11 @@ export function useChatClient(): {
   }
 
   async function syncMessagesDelta(conversationId: string): Promise<void> {
+    if (shouldUseLocalFirstDirectHistory(conversationId)) {
+      await syncDirectPendingEnvelopes(conversationId, true);
+      return;
+    }
+
     try {
       const currentRows = activeConversationIdRef.current === conversationId ? messagesRef.current : [];
       const localCursor = messageCursorRef.current[conversationId] ?? 0;
@@ -840,6 +975,11 @@ export function useChatClient(): {
   }
 
   async function syncConversationCursor(conversationId: string, applyToActive: boolean): Promise<void> {
+    if (shouldUseLocalFirstDirectHistory(conversationId)) {
+      await syncDirectPendingEnvelopes(conversationId, applyToActive);
+      return;
+    }
+
     try {
       const afterIndex = messageCursorRef.current[conversationId] ?? 0;
       const rows = await getMessages(conversationId, afterIndex, 100);
@@ -902,6 +1042,26 @@ export function useChatClient(): {
 
     setLoadingMoreHistory(true);
     try {
+      if (shouldUseLocalFirstDirectHistory(conversationId)) {
+        const oldestCreatedAt = messagesRef.current.reduce((min, row) => {
+          const createdAt = Date.parse(row.createdAt);
+          return Number.isFinite(createdAt) ? Math.min(min, createdAt) : min;
+        }, Number.POSITIVE_INFINITY);
+        if (!Number.isFinite(oldestCreatedAt)) {
+          setHasMoreHistory(false);
+          return;
+        }
+        const olderLocalRows = await localDb.getMessages(conversationId, 100, oldestCreatedAt);
+        cacheLocalMessages(olderLocalRows);
+        const olderRows = olderLocalRows.map(localMessageToMessageItem);
+        const nowMs = Date.now();
+        setMessages((prev) => mergeMessages(olderRows, prev).filter((row) => !isBurnExpired(row, nowMs)));
+        if (olderRows.length < 100) {
+          setHasMoreHistory(false);
+        }
+        return;
+      }
+
       const olderRows = await getMessages(conversationId, 0, 100, oldestIndex);
       // 预先解密新消息
       for (const row of olderRows) {
@@ -1603,6 +1763,8 @@ export function useChatClient(): {
       }
 
       let sendResult: { messageId: string; messageIndex: string };
+      let sentDirectEcho: MessageItem | null = null;
+      let sentDirectPlaintext: string | null = null;
       setMessages((prev) =>
         prev.map((row) =>
           row.id === tempMessageId
@@ -1653,43 +1815,28 @@ export function useChatClient(): {
         const currentUserId = authRef.current?.userId;
         const userIdsToQuery = currentUserId ? [recipientUserId, currentUserId] : [recipientUserId];
         const deviceInfoList = await getDevicesByUserIds(userIdsToQuery);
-        const recipientDeviceInfo = deviceInfoList.find((info) => info.userId === recipientUserId);
-        const recipientDevices = recipientDeviceInfo?.devices ?? [];
-        if (recipientDevices.length === 0) {
+        const targetDevices = buildDirectEnvelopeTargets({
+          recipientUserId,
+          currentUserId,
+          deviceInfoList,
+        });
+        if (!targetDevices.some((target) => target.targetUserId === recipientUserId)) {
           throw new Error('无法获取接收方设备信息');
         }
 
-        // 对接收方所有设备进行加密（fan-out）
+        // 对接收方和发送方所有设备进行加密（fan-out + self-sync）
         const envelopes: Array<{ targetUserId: string; targetDeviceId: string; encryptedPayload: string }> = [];
-        for (const recipientDevice of recipientDevices) {
+        for (const targetDevice of targetDevices) {
           const encryptedPayload = await signalActions.encryptMessage(
-            recipientUserId,
-            recipientDevice.deviceId,
+            targetDevice.targetUserId,
+            targetDevice.targetDeviceId,
             serializedMessage,
           );
           envelopes.push({
-            targetUserId: recipientUserId,
-            targetDeviceId: recipientDevice.deviceId,
+            targetUserId: targetDevice.targetUserId,
+            targetDeviceId: targetDevice.targetDeviceId,
             encryptedPayload,
           });
-        }
-
-        // 发送方自同步：覆盖当前设备 + 其他设备，确保“自己发送自己可见”。
-        if (currentUserId) {
-          const selfDeviceInfo = deviceInfoList.find((info) => info.userId === currentUserId);
-          const selfDevices = selfDeviceInfo?.devices ?? [];
-          for (const selfDevice of selfDevices) {
-            const encryptedPayload = await signalActions.encryptMessage(
-              currentUserId,
-              selfDevice.deviceId,
-              serializedMessage,
-            );
-            envelopes.push({
-              targetUserId: currentUserId,
-              targetDeviceId: selfDevice.deviceId,
-              encryptedPayload,
-            });
-          }
         }
 
         // 对于自己发送的消息，预先缓存明文，避免解密时无法显示
@@ -1715,9 +1862,53 @@ export function useChatClient(): {
       // 按消息ID缓存明文，支持后续转发等场景
       if (sendResult?.messageId) {
         payloadCacheRef.current.set(`msg:${sendResult.messageId}`, serializedMessage);
+        if (!isGroupConversation) {
+          sentDirectEcho = createSentDirectMessageItem({
+            messageId: sendResult.messageId,
+            conversationId: activeConversationIdRef.current,
+            senderId: authRef.current?.userId ?? 'unknown',
+            messageType,
+            serializedMessage,
+            nonce,
+            mediaAssetId: messageType === 1 ? null : pendingMediaAssetIdRef.current,
+            messageIndex: sendResult.messageIndex,
+            isBurn: isBurnForThisMessage,
+            burnDuration: isBurnForThisMessage ? burnDuration : null,
+            createdAt: localNowIso,
+          });
+          sentDirectPlaintext = serializedMessage;
+          payloadCacheRef.current.set(sentDirectEcho.encryptedPayload, serializedMessage);
+        }
       }
       delete retryRequestRef.current[tempMessageId];
-      setMessages((prev) => prev.filter((row) => row.id !== tempMessageId));
+      if (sentDirectEcho && sentDirectPlaintext) {
+        await ensureLocalConversation(sentDirectEcho.conversationId);
+        await localDb.saveMessage({
+          id: sentDirectEcho.id,
+          conversationId: sentDirectEcho.conversationId,
+          senderId: sentDirectEcho.senderId,
+          messageType: sentDirectEcho.messageType,
+          content: sentDirectPlaintext,
+          nonce: sentDirectEcho.nonce,
+          isBurn: sentDirectEcho.isBurn,
+          burnDuration: sentDirectEcho.burnDuration,
+          isRead: !!sentDirectEcho.readAt,
+          createdAt: new Date(sentDirectEcho.createdAt).getTime(),
+          serverTimestamp: Number.isFinite(Number(sentDirectEcho.messageIndex)) ? Number(sentDirectEcho.messageIndex) : null,
+          localTimestamp: Date.now(),
+        });
+        const maxIndex = Number(sentDirectEcho.messageIndex);
+        if (Number.isFinite(maxIndex)) {
+          updateConversationCursor(sentDirectEcho.conversationId, maxIndex);
+          await ackDirectEnvelopesPersisted(sentDirectEcho.conversationId, [sentDirectEcho.id], maxIndex).catch((error) => {
+            console.warn('Direct self-sync ack failed after local save:', error);
+          });
+        }
+      }
+      setMessages((prev) => {
+        const withoutTemp = prev.filter((row) => row.id !== tempMessageId);
+        return sentDirectEcho ? mergeMessages(withoutTemp, [sentDirectEcho]) : withoutTemp;
+      });
       setMessageText('');
       setReplyToMessage(null);
       if (activeConversationIdRef.current) {
@@ -1734,7 +1925,11 @@ export function useChatClient(): {
       handleMessageTypeChange(1);
       setTypingHint('');
       setError('');
-      await loadMessages(activeConversationIdRef.current);
+      if (sentDirectEcho) {
+        void syncDirectPendingEnvelopes(sentDirectEcho.conversationId, true);
+      } else {
+        await loadMessages(activeConversationIdRef.current);
+      }
       await loadConversations();
     } catch {
       setMessages((prev) =>
@@ -1766,8 +1961,14 @@ export function useChatClient(): {
 
     try {
       if (request.kind === 'group_v1') {
+        if (retryTransportKind(request) !== 'send-v1') {
+          throw new Error('invalid group retry transport');
+        }
         await sendMessage(request.input);
       } else {
+        if (retryTransportKind(request) !== 'send-v2') {
+          throw new Error('invalid direct retry transport');
+        }
         await sendMessageV2(request.input);
       }
       delete retryRequestRef.current[messageId];
@@ -1965,9 +2166,15 @@ export function useChatClient(): {
     if (!activeConversationIdRef.current) {
       return;
     }
+    const conversationId = activeConversationIdRef.current;
     try {
       await triggerBurn(messageId);
-      await Promise.all([loadMessages(activeConversationIdRef.current), loadConversations()]);
+      if (shouldUseLocalFirstDirectHistory(conversationId)) {
+        await deleteLocalDirectMessage(conversationId, messageId);
+        await loadConversations();
+      } else {
+        await Promise.all([loadMessages(conversationId), loadConversations()]);
+      }
     } catch {
       setError('触发焚毁失败，请稍后重试。');
     }
@@ -2626,7 +2833,9 @@ export function useChatClient(): {
         autoBurnPendingRef.current.add(row.id);
         void triggerBurn(row.id)
           .then(async () => {
-            if (activeConversationIdRef.current === row.conversationId) {
+            if (shouldUseLocalFirstDirectHistory(row.conversationId)) {
+              await deleteLocalDirectMessage(row.conversationId, row.id);
+            } else if (activeConversationIdRef.current === row.conversationId) {
               await loadMessages(row.conversationId);
             }
             await loadConversations();
@@ -2706,6 +2915,7 @@ export function useChatClient(): {
         payload.ackByUserId,
         payload.ackAt ?? new Date().toISOString(),
       );
+      void markDirectMessagesReadLocally(payload.conversationId, payload.maxMessageIndex, payload.ackByUserId);
       onConversationEvent(payload);
     };
 
@@ -2713,6 +2923,7 @@ export function useChatClient(): {
       if (!payload.conversationId || !payload.messageId) {
         return;
       }
+      void deleteLocalDirectMessage(payload.conversationId, payload.messageId);
       setMessages((prev) => prev.filter((row) => row.id !== payload.messageId));
       onConversationEvent(payload);
     };
@@ -2721,8 +2932,10 @@ export function useChatClient(): {
       if (!payload.conversationId || !payload.messageId) {
         return;
       }
+      void deleteLocalDirectMessage(payload.conversationId, payload.messageId);
       // 检查当前会话是否匹配
       if (payload.conversationId !== activeConversationIdRef.current) {
+        void loadConversations();
         return;
       }
       // 从消息列表中移除被撤回的消息

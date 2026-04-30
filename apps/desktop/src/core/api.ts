@@ -13,6 +13,7 @@ import { encryptPayload, decryptPayload, decryptPayloadSync } from './crypto';
 import { getAutoLogin, setAutoLogin, clearAutoLogin } from './auth-storage';
 import {
   ApiEnvelope,
+  AckPersistedDirectEnvelopeInput,
   AuthResult,
   BlockedFriendItem,
   CallRecordItem,
@@ -21,12 +22,15 @@ import {
   FriendSearchItem,
   MessageItem,
   PendingFriendItem,
+  PendingDirectEnvelopeItem,
 } from './types';
 
+const viteEnv = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env ?? {};
+
 /** API基础URL，可通过环境变量配置 */
-const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000/api/v1';
+const API_BASE = viteEnv.VITE_API_URL ?? 'http://localhost:3000/api/v1';
 /** WebSocket基础URL */
-export const wsBaseUrl = import.meta.env.VITE_WS_URL ?? 'http://localhost:3000/ws';
+export const wsBaseUrl = viteEnv.VITE_WS_URL ?? 'http://localhost:3000/ws';
 
 /** axios实例，统一配置baseURL和超时 */
 const http = axios.create({ 
@@ -360,6 +364,53 @@ export async function getMessages(
       beforeIndex: beforeIndex && beforeIndex > 0 ? beforeIndex : undefined,
     },
   });
+  return res.data.data;
+}
+
+export function buildPendingDirectEnvelopeParams(
+  conversationId: string,
+  afterIndex = 0,
+  limit = 50,
+): { conversationId: string; afterIndex: number; limit: number } {
+  return {
+    conversationId,
+    afterIndex,
+    limit,
+  };
+}
+
+export async function getPendingDirectEnvelopes(
+  conversationId: string,
+  afterIndex = 0,
+  limit = 50,
+): Promise<PendingDirectEnvelopeItem[]> {
+  const res = await http.get<ApiEnvelope<PendingDirectEnvelopeItem[]>>('/message/direct/pending', {
+    params: buildPendingDirectEnvelopeParams(conversationId, afterIndex, limit),
+  });
+  return res.data.data;
+}
+
+export function buildAckPersistedDirectEnvelopeBody(
+  conversationId: string,
+  messageIds: string[],
+  maxMessageIndex?: number,
+): AckPersistedDirectEnvelopeInput {
+  return {
+    conversationId,
+    messageIds,
+    maxMessageIndex,
+  };
+}
+
+export async function ackDirectEnvelopesPersisted(
+  conversationId: string,
+  messageIds: string[],
+  maxMessageIndex?: number,
+): Promise<{ acknowledgedCount: number }> {
+  const res = await http.post<ApiEnvelope<{ acknowledgedCount: number }>>(
+    '/message/direct/ack-persisted',
+    buildAckPersistedDirectEnvelopeBody(conversationId, messageIds, maxMessageIndex),
+  );
   return res.data.data;
 }
 

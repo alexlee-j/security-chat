@@ -36,6 +36,21 @@ function authHeader(token) {
   return { authorization: `Bearer ${token}` };
 }
 
+function directEnvelopes(sender, recipient, encryptedPayload) {
+  return [
+    {
+      targetUserId: recipient.userId,
+      targetDeviceId: recipient.deviceId,
+      encryptedPayload,
+    },
+    {
+      targetUserId: sender.userId,
+      targetDeviceId: sender.deviceId,
+      encryptedPayload,
+    },
+  ];
+}
+
 async function register(label, phonePrefix) {
   const username = `ws_${label}_${SUFFIX}`;
   return requestJson('/auth/register', {
@@ -160,14 +175,15 @@ async function main() {
       (p) => p?.conversationId === direct.conversationId && p?.senderId === alice.userId,
     );
 
-    const normalSend = await requestJson('/message/send', {
+    const normalPayload = createEncryptedPayload(1, 'ws-normal');
+    const normalSend = await requestJson('/message/send-v2', {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...authHeader(alice.accessToken) },
       body: JSON.stringify({
         conversationId: direct.conversationId,
         messageType: 1,
-        encryptedPayload: createEncryptedPayload(1, 'ws-normal'),
         nonce: `ws_nonce_normal_${SUFFIX}`,
+        envelopes: directEnvelopes(alice, bob, normalPayload),
         isBurn: false,
       }),
     });
@@ -215,14 +231,15 @@ async function main() {
       'message.sent',
       (p) => p?.conversationId === direct.conversationId && p?.senderId === alice.userId,
     );
-    const burnSend = await requestJson('/message/send', {
+    const burnPayload = createEncryptedPayload(1, 'ws-burn');
+    const burnSend = await requestJson('/message/send-v2', {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...authHeader(alice.accessToken) },
       body: JSON.stringify({
         conversationId: direct.conversationId,
         messageType: 1,
-        encryptedPayload: createEncryptedPayload(1, 'ws-burn'),
         nonce: `ws_nonce_burn_${SUFFIX}`,
+        envelopes: directEnvelopes(alice, bob, burnPayload),
         isBurn: true,
         burnDuration: 30,
       }),

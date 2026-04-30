@@ -56,6 +56,29 @@ export type MessageItem = {
   retryToken?: string;
 };
 
+export type PendingDirectEnvelopeItem = {
+  messageId: string;
+  conversationId: string;
+  senderId: string;
+  sourceDeviceId?: string | null;
+  messageType: number;
+  encryptedPayload: string;
+  nonce: string;
+  mediaAssetId: string | null;
+  messageIndex: string;
+  isBurn: boolean;
+  burnDuration: number | null;
+  deliveredAt: string | null;
+  readAt: string | null;
+  createdAt: string;
+};
+
+export type AckPersistedDirectEnvelopeInput = {
+  conversationId: string;
+  messageIds: string[];
+  maxMessageIndex?: number;
+};
+
 export type CallOutcome = 'completed' | 'rejected' | 'missed' | 'canceled' | 'failed' | 'offline' | 'timeout' | 'answered_elsewhere';
 
 export type CallRecordItem = {

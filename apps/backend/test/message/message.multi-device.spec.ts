@@ -446,6 +446,7 @@ describe('MessageService queryMessages', () => {
     } as unknown as jest.Mocked<DataSource>;
     conversationService = {
       assertMember: jest.fn().mockResolvedValue(undefined),
+      findById: jest.fn().mockResolvedValue({ id: conversationId, type: 2 } as Conversation),
     } as unknown as jest.Mocked<ConversationService>;
     messageGateway = {} as jest.Mocked<MessageGateway>;
     notificationService = {} as jest.Mocked<NotificationService>;

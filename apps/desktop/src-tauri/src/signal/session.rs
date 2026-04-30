@@ -2,13 +2,10 @@
 
 #![allow(dead_code)]
 
-use libsignal_protocol::{
-    process_prekey_bundle,
-    PreKeyBundle,
-    ProtocolAddress,
-    SignalProtocolError, DeviceId,
-};
 use crate::signal::store::AppStore;
+use libsignal_protocol::{
+    DeviceId, PreKeyBundle, ProtocolAddress, SignalProtocolError, process_prekey_bundle,
+};
 use std::time::SystemTime;
 
 /// X3DH 会话管理器

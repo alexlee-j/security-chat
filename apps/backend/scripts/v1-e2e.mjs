@@ -38,6 +38,21 @@ function authHeader(token) {
   return { authorization: `Bearer ${token}` };
 }
 
+function directEnvelopes(sender, recipient, encryptedPayload) {
+  return [
+    {
+      targetUserId: recipient.userId,
+      targetDeviceId: recipient.deviceId,
+      encryptedPayload,
+    },
+    {
+      targetUserId: sender.userId,
+      targetDeviceId: sender.deviceId,
+      encryptedPayload,
+    },
+  ];
+}
+
 async function register(label, phonePrefix) {
   const username = `e2e_${label}_${SUFFIX}`;
   return requestJson('/auth/register', {
@@ -120,80 +135,85 @@ async function main() {
     headers: { ...authHeader(charlie.accessToken) },
   });
 
-  const fileMessage = await requestJson('/message/send', {
+  const filePayload = 'eyJ0eXBlIjoiZmlsZSJ9';
+  const fileMessage = await requestJson('/message/send-v2', {
     method: 'POST',
     headers: { 'content-type': 'application/json', ...authHeader(alice.accessToken) },
     body: JSON.stringify({
       conversationId: direct.conversationId,
       messageType: 4,
-      encryptedPayload: 'eyJ0eXBlIjoiZmlsZSJ9',
       nonce: `nonce_file_${SUFFIX}`,
+      envelopes: directEnvelopes(alice, bob, filePayload),
       mediaAssetId: uploaded.mediaAssetId,
       isBurn: false,
     }),
   });
   assert(Boolean(fileMessage.messageId), 'file message send failed');
 
-  const burnText = await requestJson('/message/send', {
+  const burnPayload = 'eyJ0eXBlIjoiYnVybi10ZXh0In0=';
+  const burnText = await requestJson('/message/send-v2', {
     method: 'POST',
     headers: { 'content-type': 'application/json', ...authHeader(alice.accessToken) },
     body: JSON.stringify({
       conversationId: direct.conversationId,
       messageType: 1,
-      encryptedPayload: 'eyJ0eXBlIjoiYnVybi10ZXh0In0=',
       nonce: `nonce_burn_${SUFFIX}`,
+      envelopes: directEnvelopes(alice, bob, burnPayload),
       isBurn: true,
       burnDuration: 30,
     }),
   });
   assert(Boolean(burnText.messageId), 'burn text send failed');
 
-  const inheritedBurnText = await requestJson('/message/send', {
+  const inheritedBurnPayload = 'eyJ0eXBlIjoiYnVybi1pbmhlcml0ZWQifQ==';
+  const inheritedBurnText = await requestJson('/message/send-v2', {
     method: 'POST',
     headers: { 'content-type': 'application/json', ...authHeader(alice.accessToken) },
     body: JSON.stringify({
       conversationId: direct.conversationId,
       messageType: 1,
-      encryptedPayload: 'eyJ0eXBlIjoiYnVybi1pbmhlcml0ZWQifQ==',
       nonce: `nonce_burn_inherited_${SUFFIX}`,
+      envelopes: directEnvelopes(alice, bob, inheritedBurnPayload),
     }),
   });
   assert(Boolean(inheritedBurnText.messageId), 'inherited burn text send failed');
 
-  await requestExpect('/message/send', 400, {
+  const invalidBurnFilePayload = 'eyJ0eXBlIjoiYnVybi1maWxlIn0=';
+  await requestExpect('/message/send-v2', 400, {
     method: 'POST',
     headers: { 'content-type': 'application/json', ...authHeader(alice.accessToken) },
     body: JSON.stringify({
       conversationId: direct.conversationId,
       messageType: 4,
-      encryptedPayload: 'eyJ0eXBlIjoiYnVybi1maWxlIn0=',
       nonce: `nonce_burn_file_${SUFFIX}`,
+      envelopes: directEnvelopes(alice, bob, invalidBurnFilePayload),
       mediaAssetId: uploaded.mediaAssetId,
       isBurn: true,
       burnDuration: 30,
     }),
   });
 
-  await requestExpect('/message/send', 400, {
+  const invalidDurationPayload = 'eyJ0eXBlIjoidGV4dCJ9';
+  await requestExpect('/message/send-v2', 400, {
     method: 'POST',
     headers: { 'content-type': 'application/json', ...authHeader(alice.accessToken) },
     body: JSON.stringify({
       conversationId: direct.conversationId,
       messageType: 1,
-      encryptedPayload: 'eyJ0eXBlIjoidGV4dCJ9',
       nonce: `nonce_invalid_duration_${SUFFIX}`,
+      envelopes: directEnvelopes(alice, bob, invalidDurationPayload),
       isBurn: false,
       burnDuration: 30,
     }),
   });
 
-  const bobList = await requestJson(`/message/list?conversationId=${direct.conversationId}&afterIndex=0&limit=20`, {
+  const bobList = await requestJson(`/message/direct/pending?conversationId=${direct.conversationId}&afterIndex=0&limit=20`, {
     method: 'GET',
     headers: { ...authHeader(bob.accessToken) },
   });
-  assert(Array.isArray(bobList) && bobList.length >= 3, 'bob should see at least 3 messages', bobList);
+  assert(Array.isArray(bobList) && bobList.length >= 3, 'bob should see at least 3 pending direct envelopes', bobList);
 
-  const inheritedRow = bobList.find((row) => row.id === inheritedBurnText.messageId);
+  const inheritedRow = bobList.find((row) => row.messageId === inheritedBurnText.messageId);
   assert(Boolean(inheritedRow), 'inherited burn message should be present in message list', bobList);
   assert(inheritedRow.isBurn === true, 'inherited burn message should have isBurn=true', inheritedRow);
   assert(Number(inheritedRow.burnDuration) === 30, 'inherited burn message should inherit burnDuration=30', inheritedRow);

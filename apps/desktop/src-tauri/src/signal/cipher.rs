@@ -5,15 +5,12 @@
 //! 2. 使用裸指针技巧绕过借用检查器
 //! 3. 所有异步操作都在 spawn_blocking 内完成
 
+use crate::signal::store::AppStore;
 use libsignal_protocol::{
-    message_encrypt, message_decrypt,
-    CiphertextMessage,
-    ProtocolAddress,
-    SignalProtocolError,
-    InMemSignalProtocolStore,
+    CiphertextMessage, InMemSignalProtocolStore, ProtocolAddress, SignalProtocolError,
+    message_decrypt, message_encrypt,
 };
 use std::time::SystemTime;
-use crate::signal::store::AppStore;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct EncryptedMessage {
@@ -28,7 +25,9 @@ pub struct EncryptedMessage {
 /// 2. libsignal-protocol 的 trait 实现不会实际同时修改同一块内存
 /// 3. 调用是同步的，在 spawn_blocking 内执行
 #[inline]
-fn get_multiple_store_refs(store: &mut InMemSignalProtocolStore) -> (
+fn get_multiple_store_refs(
+    store: &mut InMemSignalProtocolStore,
+) -> (
     &mut dyn libsignal_protocol::SessionStore,
     &mut dyn libsignal_protocol::IdentityKeyStore,
     &mut dyn libsignal_protocol::PreKeyStore,
@@ -36,15 +35,7 @@ fn get_multiple_store_refs(store: &mut InMemSignalProtocolStore) -> (
     &mut dyn libsignal_protocol::KyberPreKeyStore,
 ) {
     let ptr = store as *mut InMemSignalProtocolStore;
-    unsafe {
-        (
-            &mut *ptr,
-            &mut *ptr,
-            &mut *ptr,
-            &*ptr,
-            &mut *ptr,
-        )
-    }
+    unsafe { (&mut *ptr, &mut *ptr, &mut *ptr, &*ptr, &mut *ptr) }
 }
 
 /// 加密消息
@@ -56,15 +47,17 @@ pub async fn encrypt_message(
     let store_clone = store.clone();
     let address_clone = address.clone();
     let plaintext_vec = plaintext.to_vec();
-    
+
     let result = tokio::task::spawn_blocking(move || {
-        let mut store_guard = store_clone.lock()
+        let mut store_guard = store_clone
+            .lock()
             .map_err(|_| SignalProtocolError::InvalidState("store", "poisoned lock".to_string()))?;
-        
+
         encrypt_message_impl(&mut *store_guard, &address_clone, &plaintext_vec)
-    }).await
+    })
+    .await
     .map_err(|_| SignalProtocolError::InvalidState("spawn", "task failed".to_string()))?;
-    
+
     result
 }
 
@@ -75,9 +68,9 @@ fn encrypt_message_impl(
     plaintext: &[u8],
 ) -> Result<EncryptedMessage, SignalProtocolError> {
     let mut rng = rand::thread_rng();
-    
+
     let (session_store, identity_store, _, _, _) = get_multiple_store_refs(store);
-    
+
     let ciphertext = futures::executor::block_on(message_encrypt(
         plaintext,
         address,
@@ -108,15 +101,17 @@ pub async fn decrypt_message(
     let store_clone = store.clone();
     let address_clone = address.clone();
     let encrypted_clone = encrypted.clone();
-    
+
     let result = tokio::task::spawn_blocking(move || {
-        let mut store_guard = store_clone.lock()
+        let mut store_guard = store_clone
+            .lock()
             .map_err(|_| SignalProtocolError::InvalidState("store", "poisoned lock".to_string()))?;
-        
+
         decrypt_message_impl(&mut *store_guard, &address_clone, &encrypted_clone)
-    }).await
+    })
+    .await
     .map_err(|_| SignalProtocolError::InvalidState("spawn", "task failed".to_string()))?;
-    
+
     result
 }
 
@@ -132,26 +127,28 @@ fn decrypt_message_impl(
         1 => {
             let msg = libsignal_protocol::PreKeySignalMessage::try_from(encrypted.body.as_slice())?;
             CiphertextMessage::PreKeySignalMessage(msg)
-        },
+        }
         2 => {
             let msg = libsignal_protocol::SignalMessage::try_from(encrypted.body.as_slice())?;
             CiphertextMessage::SignalMessage(msg)
-        },
+        }
         3 => {
             let msg = libsignal_protocol::SenderKeyMessage::try_from(encrypted.body.as_slice())?;
             CiphertextMessage::SenderKeyMessage(msg)
-        },
+        }
         4 => {
             let msg = libsignal_protocol::PlaintextContent::try_from(encrypted.body.as_slice())?;
             CiphertextMessage::PlaintextContent(msg)
-        },
-        _ => return Err(SignalProtocolError::InvalidMessage(
-            libsignal_protocol::CiphertextMessageType::Whisper,
-            "Unknown message type"
-        )),
+        }
+        _ => {
+            return Err(SignalProtocolError::InvalidMessage(
+                libsignal_protocol::CiphertextMessageType::Whisper,
+                "Unknown message type",
+            ));
+        }
     };
 
-    let (session_store, identity_store, prekey_store, signed_prekey_store, kyber_prekey_store) = 
+    let (session_store, identity_store, prekey_store, signed_prekey_store, kyber_prekey_store) =
         get_multiple_store_refs(store);
 
     let plaintext = futures::executor::block_on(message_decrypt(
@@ -171,23 +168,29 @@ fn decrypt_message_impl(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::signal::store::{create_store, initialize_store, get_prekey_bundle};
-    use libsignal_protocol::{process_prekey_bundle, PreKeyBundle, DeviceId};
+    use crate::signal::store::{create_store, get_prekey_bundle, initialize_store};
+    use libsignal_protocol::{DeviceId, PreKeyBundle, process_prekey_bundle};
 
     /// 创建两个 store 并建立会话
     async fn setup_connected_stores() -> (AppStore, AppStore, ProtocolAddress, ProtocolAddress) {
         let alice_store: AppStore = create_store().expect("should create alice store");
         let bob_store: AppStore = create_store().expect("should create bob store");
-        
-        initialize_store(&alice_store).await.expect("should initialize alice store");
-        initialize_store(&bob_store).await.expect("should initialize bob store");
-        
+
+        initialize_store(&alice_store)
+            .await
+            .expect("should initialize alice store");
+        initialize_store(&bob_store)
+            .await
+            .expect("should initialize bob store");
+
         let alice_address = ProtocolAddress::new("alice".to_string(), DeviceId::new(1).unwrap());
         let bob_address = ProtocolAddress::new("bob".to_string(), DeviceId::new(1).unwrap());
-        
+
         // 获取 Bob 的预密钥包
-        let bob_bundle: PreKeyBundle = get_prekey_bundle(&bob_store).await.expect("should get bob bundle");
-        
+        let bob_bundle: PreKeyBundle = get_prekey_bundle(&bob_store)
+            .await
+            .expect("should get bob bundle");
+
         // Alice 与 Bob 建立会话
         let alice_store_clone = alice_store.clone();
         let bob_address_clone = bob_address.clone();
@@ -204,10 +207,13 @@ mod tests {
                     &bundle_clone,
                     SystemTime::now(),
                     &mut rng,
-                )).unwrap()
+                ))
+                .unwrap()
             }
-        }).await.unwrap();
-        
+        })
+        .await
+        .unwrap();
+
         (alice_store, bob_store, alice_address, bob_address)
     }
 
@@ -239,11 +245,11 @@ mod tests {
             let encrypted = encrypt_message(&alice_store, &bob_address, plaintext.as_bytes())
                 .await
                 .expect("should encrypt");
-            
+
             let decrypted = decrypt_message(&bob_store, &bob_address, &encrypted)
                 .await
                 .expect("should decrypt");
-            
+
             assert_eq!(plaintext.as_bytes(), decrypted.as_slice());
         }
     }

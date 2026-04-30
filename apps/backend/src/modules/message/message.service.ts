@@ -25,6 +25,8 @@ import { RequestUser } from '../../common/decorators/current-user.decorator';
 import { MessageDeviceEnvelope } from './entities/message-device-envelope.entity';
 import { SendMessageV2Dto } from './dto/send-message-v2.dto';
 import { SendMessageEnvelopeDto } from './dto/send-message-envelope.dto';
+import { QueryPendingEnvelopesDto } from './dto/query-pending-envelopes.dto';
+import { AckPersistedDto } from './dto/ack-persisted.dto';
 
 type ExpiredBurnRow = {
   id: string;
@@ -61,6 +63,53 @@ type ParsedRustGroupEnvelope = {
   mn: number;
   chain: string;
   body: string;
+};
+
+export type PendingDirectEnvelope = {
+  messageId: string;
+  conversationId: string;
+  senderId: string;
+  sourceDeviceId: string | null;
+  messageType: number;
+  encryptedPayload: string;
+  nonce: string;
+  mediaAssetId: string | null;
+  messageIndex: string;
+  isBurn: boolean;
+  burnDuration: number | null;
+  deliveredAt: string | null;
+  readAt: string | null;
+  createdAt: string;
+};
+
+type PendingDirectEnvelopeRow = {
+  message_id?: string;
+  messageId?: string;
+  conversation_id?: string;
+  conversationId?: string;
+  sender_id?: string;
+  senderId?: string;
+  source_device_id?: string | null;
+  sourceDeviceId?: string | null;
+  message_type?: number;
+  messageType?: number;
+  encrypted_payload?: string;
+  encryptedPayload?: string;
+  nonce?: string;
+  media_asset_id?: string | null;
+  mediaAssetId?: string | null;
+  message_index?: string | number;
+  messageIndex?: string | number;
+  is_burn?: boolean;
+  isBurn?: boolean;
+  burn_duration?: number | null;
+  burnDuration?: number | null;
+  delivered_at?: Date | string | null;
+  deliveredAt?: Date | string | null;
+  read_at?: Date | string | null;
+  readAt?: Date | string | null;
+  created_at?: Date | string | null;
+  createdAt?: Date | string | null;
 };
 
 @Injectable()
@@ -588,8 +637,114 @@ export class MessageService implements OnModuleInit, OnModuleDestroy {
     return message;
   }
 
+  async queryPendingDirectEnvelopes(
+    userId: string,
+    deviceId: string | undefined,
+    query: QueryPendingEnvelopesDto,
+  ): Promise<PendingDirectEnvelope[]> {
+    if (!deviceId) {
+      throw new BadRequestException('Device context is required to read pending direct envelopes');
+    }
+    await this.conversationService.assertMember(query.conversationId, userId);
+
+    const afterIndex = String(query.afterIndex ?? 0);
+    const limit = Math.min(query.limit ?? 50, 100);
+    const rows = await this.dataSource.query(
+      `
+      SELECT
+        m.id::text AS message_id,
+        m.conversation_id::text AS conversation_id,
+        m.sender_id::text AS sender_id,
+        m.source_device_id::text AS source_device_id,
+        m.message_type AS message_type,
+        e.encrypted_payload AS encrypted_payload,
+        m.nonce AS nonce,
+        m.media_asset_id::text AS media_asset_id,
+        m.message_index::text AS message_index,
+        m.is_burn AS is_burn,
+        m.burn_duration AS burn_duration,
+        m.delivered_at AS delivered_at,
+        m.read_at AS read_at,
+        m.created_at AS created_at
+      FROM messages m
+      INNER JOIN message_device_envelopes e ON e.message_id = m.id
+      WHERE m.conversation_id = $1
+        AND e.target_device_id = $2
+        AND m.message_index > $3
+        AND m.is_revoked = false
+      ORDER BY m.message_index ASC
+      LIMIT $4;
+      `,
+      [query.conversationId, deviceId, afterIndex, limit],
+    );
+    this.logger.debug(
+      `Pending direct envelopes queried conversation=${query.conversationId} device=${deviceId} afterIndex=${afterIndex} count=${Array.isArray(rows) ? rows.length : 0}`,
+    );
+
+    return (rows as PendingDirectEnvelopeRow[]).map((row) => ({
+      messageId: String(row.message_id ?? row.messageId),
+      conversationId: String(row.conversation_id ?? row.conversationId),
+      senderId: String(row.sender_id ?? row.senderId),
+      sourceDeviceId: (row.source_device_id ?? row.sourceDeviceId) ?? null,
+      messageType: Number(row.message_type ?? row.messageType),
+      encryptedPayload: String(row.encrypted_payload ?? row.encryptedPayload),
+      nonce: String(row.nonce),
+      mediaAssetId: (row.media_asset_id ?? row.mediaAssetId) ?? null,
+      messageIndex: String(row.message_index ?? row.messageIndex),
+      isBurn: Boolean(row.is_burn ?? row.isBurn),
+      burnDuration: (row.burn_duration ?? row.burnDuration) ?? null,
+      deliveredAt: this.toIsoOrNull((row.delivered_at ?? row.deliveredAt) ?? null),
+      readAt: this.toIsoOrNull((row.read_at ?? row.readAt) ?? null),
+      createdAt: this.toIsoOrNull((row.created_at ?? row.createdAt) ?? null) ?? new Date(0).toISOString(),
+    }));
+  }
+
+  async ackDirectEnvelopesPersisted(
+    userId: string,
+    deviceId: string | undefined,
+    dto: AckPersistedDto,
+  ): Promise<{ acknowledgedCount: number }> {
+    if (!deviceId) {
+      throw new BadRequestException('Device context is required to acknowledge pending direct envelopes');
+    }
+    await this.conversationService.assertMember(dto.conversationId, userId);
+
+    if (!dto.messageIds.length) {
+      return { acknowledgedCount: 0 };
+    }
+
+    const rows = await this.dataSource.query(
+      `
+      DELETE FROM message_device_envelopes e
+      WHERE e.target_device_id = $1
+        AND e.message_id = ANY($2::uuid[])
+        AND EXISTS (
+          SELECT 1
+          FROM messages m
+          WHERE m.id = e.message_id
+            AND m.conversation_id = $3
+        )
+      RETURNING e.message_id;
+      `,
+      [deviceId, dto.messageIds, dto.conversationId],
+    );
+
+    const acknowledgedCount = Array.isArray(rows) ? rows.length : 0;
+    this.logger.debug(
+      `Pending direct envelopes acknowledged conversation=${dto.conversationId} device=${deviceId} requested=${dto.messageIds.length} deleted=${acknowledgedCount}`,
+    );
+
+    return { acknowledgedCount };
+  }
+
   async queryMessages(userId: string, query: QueryMessagesDto, deviceId?: string): Promise<Message[]> {
     await this.conversationService.assertMember(query.conversationId, userId);
+    const conversation = await this.conversationService.findById(query.conversationId);
+    if (conversation?.type === 1) {
+      throw new BadRequestException(
+        'Direct conversation history is local-first. Use /api/v1/message/direct/pending for pending delivery envelopes.',
+      );
+    }
     // Optimized: Moved cleanup to background to improve query performance
     void this.cleanupExpiredBurnMessages(query.conversationId);
     const afterIndex = query.afterIndex ?? 0;
@@ -637,6 +792,17 @@ export class MessageService implements OnModuleInit, OnModuleDestroy {
       .getMany();
     await this.resolveEnvelopePayloadsForDevice(rows, deviceId);
     return rows;
+  }
+
+  private toIsoOrNull(value: Date | string | null): string | null {
+    if (!value) {
+      return null;
+    }
+    if (value instanceof Date) {
+      return value.toISOString();
+    }
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
   }
 
   private assertMediaPayloadShape(messageType: number, mediaAssetId?: string | null): void {

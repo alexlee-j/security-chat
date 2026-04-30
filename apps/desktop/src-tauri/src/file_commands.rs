@@ -59,11 +59,7 @@ fn sanitize_file_name(file_name: &str) -> String {
 
 fn sanitize_cache_key(cache_key: &str) -> String {
     let trimmed = cache_key.trim();
-    let fallback = if trimmed.is_empty() {
-        "media"
-    } else {
-        trimmed
-    };
+    let fallback = if trimmed.is_empty() { "media" } else { trimmed };
     let sanitized = fallback
         .chars()
         .map(|ch| {
@@ -230,7 +226,9 @@ pub async fn lookup_cached_media_file_command(
 }
 
 #[tauri::command]
-pub async fn open_cached_media_file_command(path: String) -> Result<OpenCachedMediaFileResult, String> {
+pub async fn open_cached_media_file_command(
+    path: String,
+) -> Result<OpenCachedMediaFileResult, String> {
     tokio::task::spawn_blocking(move || {
         let cache_root = resolve_media_cache_root()?;
         let target_path = PathBuf::from(path);
@@ -347,16 +345,15 @@ mod tests {
         assert!(!first_hit, "initial write should not be a cache hit");
 
         fs::remove_file(&path).expect("cached file should be removable");
-        let (restored_path, restored_hit) = ensure_cached_media_file_at_root(
-            &root,
-            "asset-2-digest-b",
-            file_name,
-            recovered_bytes,
-        )
-        .expect("recovery ensure should succeed");
+        let (restored_path, restored_hit) =
+            ensure_cached_media_file_at_root(&root, "asset-2-digest-b", file_name, recovered_bytes)
+                .expect("recovery ensure should succeed");
 
         assert!(!restored_hit, "missing file should trigger fresh write");
-        assert_eq!(path, restored_path, "recovery should keep deterministic path");
+        assert_eq!(
+            path, restored_path,
+            "recovery should keep deterministic path"
+        );
         let stored = fs::read(restored_path).expect("recovered file should be readable");
         assert_eq!(stored, recovered_bytes, "recovered bytes should be stored");
 
@@ -368,20 +365,12 @@ mod tests {
         let root = temp_root();
         let file_name = "same-name.pdf";
 
-        let (first_path, _) = ensure_cached_media_file_at_root(
-            &root,
-            "asset-3-digest-c",
-            file_name,
-            b"file-a",
-        )
-        .expect("first ensure should succeed");
-        let (second_path, _) = ensure_cached_media_file_at_root(
-            &root,
-            "asset-4-digest-d",
-            file_name,
-            b"file-b",
-        )
-        .expect("second ensure should succeed");
+        let (first_path, _) =
+            ensure_cached_media_file_at_root(&root, "asset-3-digest-c", file_name, b"file-a")
+                .expect("first ensure should succeed");
+        let (second_path, _) =
+            ensure_cached_media_file_at_root(&root, "asset-4-digest-d", file_name, b"file-b")
+                .expect("second ensure should succeed");
 
         assert_ne!(
             first_path, second_path,

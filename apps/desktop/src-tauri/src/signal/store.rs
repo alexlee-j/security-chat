@@ -1,19 +1,15 @@
 //! libsignal-protocol Store - Week 4 设计（简单有效）
-//! 
+//!
 //! 关键设计：
 //! 1. 使用 std::sync::Mutex 而不是 tokio::sync::RwLock
 //! 2. 所有异步操作包装在 spawn_blocking 中
 //! 3. 使用裸指针技巧绕过借用检查器
 
 use libsignal_protocol::{
-    InMemSignalProtocolStore,
-    IdentityKeyPair, IdentityKeyStore,
-    PreKeyStore, SignedPreKeyStore, KyberPreKeyStore,
-    GenericSignedPreKey,
-    PreKeyRecord, SignedPreKeyRecord, KyberPreKeyRecord,
-    PreKeyId, SignedPreKeyId, KyberPreKeyId,
-    DeviceId, KeyPair, kem, Timestamp,
-    SignalProtocolError,
+    DeviceId, GenericSignedPreKey, IdentityKeyPair, IdentityKeyStore, InMemSignalProtocolStore,
+    KeyPair, KyberPreKeyId, KyberPreKeyRecord, KyberPreKeyStore, PreKeyId, PreKeyRecord,
+    PreKeyStore, SignalProtocolError, SignedPreKeyId, SignedPreKeyRecord, SignedPreKeyStore,
+    Timestamp, kem,
 };
 use rand::Rng as _;
 use std::sync::{Arc, Mutex};
@@ -34,11 +30,12 @@ pub fn create_store() -> Result<AppStore, SignalProtocolError> {
 /// 初始化 store（生成预密钥、签名预密钥、Kyber 预密钥）
 pub async fn initialize_store(store: &AppStore) -> Result<(), SignalProtocolError> {
     let store_clone = store.clone();
-    
+
     tokio::task::spawn_blocking(move || {
-        let mut store_guard = store_clone.lock()
+        let mut store_guard = store_clone
+            .lock()
             .map_err(|_| SignalProtocolError::InvalidState("store", "poisoned lock".to_string()))?;
-        
+
         let mut rng = rand::thread_rng();
 
         // 生成预密钥 (100 个)
@@ -46,70 +43,111 @@ pub async fn initialize_store(store: &AppStore) -> Result<(), SignalProtocolErro
             let pre_key_id = PreKeyId::from(i);
             let key_pair: KeyPair = KeyPair::generate(&mut rng);
             let pre_key_record = PreKeyRecord::new(pre_key_id, &key_pair);
-            futures::executor::block_on(store_guard.pre_key_store.save_pre_key(pre_key_id, &pre_key_record))?;
+            futures::executor::block_on(
+                store_guard
+                    .pre_key_store
+                    .save_pre_key(pre_key_id, &pre_key_record),
+            )?;
         }
 
         // 生成签名预密钥
         let signed_pre_key_id = SignedPreKeyId::from(1);
-        let identity_key_pair: IdentityKeyPair = futures::executor::block_on(store_guard.identity_store.get_identity_key_pair())?;
+        let identity_key_pair: IdentityKeyPair =
+            futures::executor::block_on(store_guard.identity_store.get_identity_key_pair())?;
         let key_pair: KeyPair = KeyPair::generate(&mut rng);
-        let signature = identity_key_pair.private_key()
+        let signature = identity_key_pair
+            .private_key()
             .calculate_signature(&key_pair.public_key.serialize(), &mut rng)?;
 
         let signed_pre_key_record = <SignedPreKeyRecord as GenericSignedPreKey>::new(
             signed_pre_key_id,
-            Timestamp::from_epoch_millis(SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_millis() as u64),
+            Timestamp::from_epoch_millis(
+                SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .unwrap()
+                    .as_millis() as u64,
+            ),
             &key_pair,
             &signature,
         );
-        futures::executor::block_on(store_guard.signed_pre_key_store.save_signed_pre_key(signed_pre_key_id, &signed_pre_key_record))?;
+        futures::executor::block_on(
+            store_guard
+                .signed_pre_key_store
+                .save_signed_pre_key(signed_pre_key_id, &signed_pre_key_record),
+        )?;
 
         // 生成 Kyber 预密钥（后量子）
         let kyber_pre_key_id = KyberPreKeyId::from(1);
-        let identity_key_pair: IdentityKeyPair = futures::executor::block_on(store_guard.identity_store.get_identity_key_pair())?;
-        let kyber_key_pair: kem::KeyPair = kem::KeyPair::generate(kem::KeyType::Kyber1024, &mut rng);
-        let signature = identity_key_pair.private_key()
+        let identity_key_pair: IdentityKeyPair =
+            futures::executor::block_on(store_guard.identity_store.get_identity_key_pair())?;
+        let kyber_key_pair: kem::KeyPair =
+            kem::KeyPair::generate(kem::KeyType::Kyber1024, &mut rng);
+        let signature = identity_key_pair
+            .private_key()
             .calculate_signature(&kyber_key_pair.public_key.serialize(), &mut rng)?;
 
         let kyber_pre_key_record = <KyberPreKeyRecord as GenericSignedPreKey>::new(
             kyber_pre_key_id,
-            Timestamp::from_epoch_millis(SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_millis() as u64),
+            Timestamp::from_epoch_millis(
+                SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .unwrap()
+                    .as_millis() as u64,
+            ),
             &kyber_key_pair,
             &signature,
         );
-        futures::executor::block_on(store_guard.kyber_pre_key_store.save_kyber_pre_key(kyber_pre_key_id, &kyber_pre_key_record))?;
+        futures::executor::block_on(
+            store_guard
+                .kyber_pre_key_store
+                .save_kyber_pre_key(kyber_pre_key_id, &kyber_pre_key_record),
+        )?;
 
         Ok::<_, SignalProtocolError>(())
-    }).await
+    })
+    .await
     .map_err(|_| SignalProtocolError::InvalidState("spawn", "task failed".to_string()))?
 }
 
 /// 获取预密钥包
-pub async fn get_prekey_bundle(store: &AppStore) -> Result<libsignal_protocol::PreKeyBundle, SignalProtocolError> {
+pub async fn get_prekey_bundle(
+    store: &AppStore,
+) -> Result<libsignal_protocol::PreKeyBundle, SignalProtocolError> {
     let store_clone = store.clone();
     tokio::task::spawn_blocking(move || {
-        let store_guard = store_clone.lock()
+        let store_guard = store_clone
+            .lock()
             .map_err(|_| SignalProtocolError::InvalidState("store", "poisoned lock".to_string()))?;
         futures::executor::block_on(get_prekey_bundle_impl(&*store_guard))
-    }).await
+    })
+    .await
     .map_err(|_| SignalProtocolError::InvalidState("spawn", "task failed".to_string()))?
 }
 
-async fn get_prekey_bundle_impl(store: &InMemSignalProtocolStore) -> Result<libsignal_protocol::PreKeyBundle, SignalProtocolError> {
+async fn get_prekey_bundle_impl(
+    store: &InMemSignalProtocolStore,
+) -> Result<libsignal_protocol::PreKeyBundle, SignalProtocolError> {
     let identity_key_pair: IdentityKeyPair = store.identity_store.get_identity_key_pair().await?;
-    
-    let pre_key_id = store.all_pre_key_ids()
+
+    let pre_key_id = store
+        .all_pre_key_ids()
         .max()
         .copied()
         .ok_or(SignalProtocolError::InvalidPreKeyId)?;
-    
+
     let pre_key_record: PreKeyRecord = store.pre_key_store.get_pre_key(pre_key_id).await?;
-    let signed_pre_key_record: SignedPreKeyRecord = store.signed_pre_key_store.get_signed_pre_key(SignedPreKeyId::from(1)).await?;
-    let kyber_pre_key_record: KyberPreKeyRecord = store.kyber_pre_key_store.get_kyber_pre_key(KyberPreKeyId::from(1)).await?;
+    let signed_pre_key_record: SignedPreKeyRecord = store
+        .signed_pre_key_store
+        .get_signed_pre_key(SignedPreKeyId::from(1))
+        .await?;
+    let kyber_pre_key_record: KyberPreKeyRecord = store
+        .kyber_pre_key_store
+        .get_kyber_pre_key(KyberPreKeyId::from(1))
+        .await?;
 
     let device_id = DeviceId::new(1).unwrap();
     let pre_key_keypair = pre_key_record.key_pair()?;
-    
+
     let bundle = libsignal_protocol::PreKeyBundle::new(
         store.identity_store.get_local_registration_id().await?,
         device_id,
@@ -140,8 +178,10 @@ mod tests {
     #[tokio::test]
     async fn test_initialize_store() {
         let store = create_store().expect("should create store");
-        initialize_store(&store).await.expect("should initialize store");
-        
+        initialize_store(&store)
+            .await
+            .expect("should initialize store");
+
         let guard = store.lock().unwrap();
         assert!(guard.all_pre_key_ids().count() > 0);
     }
@@ -149,8 +189,10 @@ mod tests {
     #[tokio::test]
     async fn test_get_prekey_bundle() {
         let store = create_store().expect("should create store");
-        initialize_store(&store).await.expect("should initialize store");
-        
+        initialize_store(&store)
+            .await
+            .expect("should initialize store");
+
         let bundle = get_prekey_bundle(&store).await.expect("should get bundle");
         assert!(bundle.identity_key().is_ok());
         assert!(bundle.signed_pre_key_public().is_ok());
