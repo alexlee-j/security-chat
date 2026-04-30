@@ -14,6 +14,9 @@ import { SaveDraftDto, GetDraftDto, DeleteDraftDto } from './dto/draft-message.d
 import { SearchMessagesDto } from './dto/search-messages.dto';
 import { Message } from './entities/message.entity';
 import { DraftMessage } from './entities/draft-message.entity';
+import { QueryPendingEnvelopesDto } from './dto/query-pending-envelopes.dto';
+import { AckPersistedDto } from './dto/ack-persisted.dto';
+import { PendingDirectEnvelope } from './message.service';
 
 @Controller('message')
 @UseGuards(JwtAuthGuard)
@@ -39,6 +42,22 @@ export class MessageController {
   @Get('list')
   list(@CurrentUser() user: RequestUser, @Query() query: QueryMessagesDto): Promise<Message[]> {
     return this.messageService.queryMessages(user.userId, query, user.deviceId);
+  }
+
+  @Get('direct/pending')
+  listPendingDirectEnvelopes(
+    @CurrentUser() user: RequestUser,
+    @Query() query: QueryPendingEnvelopesDto,
+  ): Promise<PendingDirectEnvelope[]> {
+    return this.messageService.queryPendingDirectEnvelopes(user.userId, user.deviceId, query);
+  }
+
+  @Post('direct/ack-persisted')
+  ackPersistedDirectEnvelopes(
+    @CurrentUser() user: RequestUser,
+    @Body() dto: AckPersistedDto,
+  ): Promise<{ acknowledgedCount: number }> {
+    return this.messageService.ackDirectEnvelopesPersisted(user.userId, user.deviceId, dto);
   }
 
   @Post('ack/delivered')

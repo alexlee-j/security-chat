@@ -166,6 +166,7 @@ export interface UseLocalDbReturn {
   // 消息操作
   saveMessage: (message: LocalMessage) => Promise<void>;
   getMessages: (conversationId: string, limit: number, before?: number) => Promise<LocalMessage[]>;
+  deleteMessage: (messageId: string) => Promise<void>;
 
   // 会话操作
   saveConversation: (conversation: LocalConversation) => Promise<void>;
@@ -252,6 +253,18 @@ export function useLocalDb(): UseLocalDbReturn {
       return messages.map(rustToLocalMessage);
     } catch (error) {
       console.error('[LocalDb] Failed to get messages:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * 删除本地消息
+   */
+  async function deleteMessage(messageId: string): Promise<void> {
+    try {
+      await invoke('db_delete_message', { messageId });
+    } catch (error) {
+      console.error('[LocalDb] Failed to delete message:', error);
       throw error;
     }
   }
@@ -380,6 +393,7 @@ export function useLocalDb(): UseLocalDbReturn {
   return {
     saveMessage,
     getMessages,
+    deleteMessage,
     saveConversation,
     getConversations,
     saveDraft,

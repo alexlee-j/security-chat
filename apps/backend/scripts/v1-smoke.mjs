@@ -64,6 +64,21 @@ function authHeader(token) {
   return { authorization: `Bearer ${token}` };
 }
 
+function directEnvelopes(sender, recipient, encryptedPayload) {
+  return [
+    {
+      targetUserId: recipient.userId,
+      targetDeviceId: recipient.deviceId,
+      encryptedPayload,
+    },
+    {
+      targetUserId: sender.userId,
+      targetDeviceId: sender.deviceId,
+      encryptedPayload,
+    },
+  ];
+}
+
 function sanitize(prefix) {
   return prefix.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 20) || 'smoke';
 }
@@ -140,47 +155,50 @@ async function run() {
     body: JSON.stringify({ conversationId: conversation.conversationId }),
   });
 
-  const send = await requestJson('/message/send', {
+  const sendPayload = 'eyJ0eXBlIjoiZmlsZSIsIm5hbWUiOiJzbW9rZSJ9';
+  const send = await requestJson('/message/send-v2', {
     method: 'POST',
     headers: { 'content-type': 'application/json', ...authHeader(alice.accessToken) },
     body: JSON.stringify({
       conversationId: conversation.conversationId,
       messageType: MESSAGE_TYPE,
-      encryptedPayload: 'eyJ0eXBlIjoiZmlsZSIsIm5hbWUiOiJzbW9rZSJ9',
       nonce: `nonce_${SUFFIX}`,
+      envelopes: directEnvelopes(alice, bob, sendPayload),
       mediaAssetId: upload.mediaAssetId,
       isBurn: false,
     }),
   });
 
-  const burnSend = await requestJson('/message/send', {
+  const burnPayload = 'eyJ0eXBlIjoiYnVybiIsIm5hbWUiOiJzbW9rZS1idXJuIn0=';
+  const burnSend = await requestJson('/message/send-v2', {
     method: 'POST',
     headers: { 'content-type': 'application/json', ...authHeader(alice.accessToken) },
     body: JSON.stringify({
       conversationId: conversation.conversationId,
       messageType: 1,
-      encryptedPayload: 'eyJ0eXBlIjoiYnVybiIsIm5hbWUiOiJzbW9rZS1idXJuIn0=',
       nonce: `nonce_burn_${SUFFIX}`,
+      envelopes: directEnvelopes(alice, bob, burnPayload),
       isBurn: true,
       burnDuration: BURN_DURATION,
     }),
   });
 
-  await requestJsonExpectStatus('/message/send', 400, {
+  const invalidBurnPayload = 'eyJ0eXBlIjoiYnVybi1maWxlIn0=';
+  await requestJsonExpectStatus('/message/send-v2', 400, {
     method: 'POST',
     headers: { 'content-type': 'application/json', ...authHeader(alice.accessToken) },
     body: JSON.stringify({
       conversationId: conversation.conversationId,
       messageType: 4,
-      encryptedPayload: 'eyJ0eXBlIjoiYnVybi1maWxlIn0=',
       nonce: `nonce_burn_invalid_${SUFFIX}`,
+      envelopes: directEnvelopes(alice, bob, invalidBurnPayload),
       isBurn: true,
       burnDuration: BURN_DURATION,
       mediaAssetId: upload.mediaAssetId,
     }),
   });
 
-  const list = await requestJson(`/message/list?conversationId=${conversation.conversationId}&afterIndex=0&limit=${MESSAGE_LIMIT}`, {
+  const list = await requestJson(`/message/direct/pending?conversationId=${conversation.conversationId}&afterIndex=0&limit=${MESSAGE_LIMIT}`, {
     method: 'GET',
     headers: { ...authHeader(bob.accessToken) },
   });

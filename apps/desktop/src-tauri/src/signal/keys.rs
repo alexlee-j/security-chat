@@ -3,19 +3,12 @@
 #![allow(dead_code)]
 
 use libsignal_protocol::{
-    IdentityKey,
-    IdentityKeyPair,
-    PrivateKey,
-    PublicKey,
-    KeyPair,
-    SignalProtocolError,
-    PreKeyBundle,
-    DeviceId,
-    kem,
+    DeviceId, IdentityKey, IdentityKeyPair, KeyPair, PreKeyBundle, PrivateKey, PublicKey,
+    SignalProtocolError, kem,
 };
-use rand::rngs::OsRng;
-use rand::TryRngCore as _;
 use rand::RngCore as _;
+use rand::TryRngCore as _;
+use rand::rngs::OsRng;
 
 /// 本地身份密钥对
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -93,7 +86,8 @@ pub fn generate_signed_pre_key(
     let identity_key_pair_signal = identity_key_pair.to_signal_keypair()?;
     let mut rng = OsRng.unwrap_err();
     let key_pair = KeyPair::generate(&mut rng);
-    let signature = identity_key_pair_signal.private_key()
+    let signature = identity_key_pair_signal
+        .private_key()
         .calculate_signature(&key_pair.public_key.serialize(), &mut rng)?;
 
     Ok(LocalSignedPreKey {
@@ -114,7 +108,8 @@ pub fn generate_kyber_pre_key(
 
     let kem_keypair = kem::KeyPair::generate(kem::KeyType::Kyber1024, &mut rng);
 
-    let signature = identity_key_pair_signal.private_key()
+    let signature = identity_key_pair_signal
+        .private_key()
         .calculate_signature(&kem_keypair.public_key.serialize(), &mut rng)?;
 
     Ok(LocalKyberPreKey {
@@ -147,7 +142,11 @@ pub fn generate_prekey_bundle(
     let bundle = PreKeyBundle::new(
         registration_id,
         device_id,
-        pre_key.and_then(|pk| PublicKey::deserialize(&pk.public_key).ok().map(|pubkey| (pk.key_id.into(), pubkey))),
+        pre_key.and_then(|pk| {
+            PublicKey::deserialize(&pk.public_key)
+                .ok()
+                .map(|pubkey| (pk.key_id.into(), pubkey))
+        }),
         signed_pre_key.key_id.into(),
         signed_prekey_pub,
         signed_pre_key.signature.to_vec(),

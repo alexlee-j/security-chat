@@ -19,15 +19,23 @@ The system SHALL track local message lifecycle states so users can distinguish d
 - **THEN** the conversation list, chat thread, and input recovery affordance SHALL not contradict each other about whether the message was sent
 
 ### Requirement: Clients SHALL recover message history after reconnect or re-login
-The system SHALL support deterministic catch-up after reconnect, restart, or re-login so the active device can recover missing history for its authorized conversations.
+The system SHALL support deterministic recovery after reconnect, restart, or re-login. For supported direct conversations, readable history SHALL be restored from the local encrypted device store, and server synchronization SHALL be limited to pending delivery envelopes and metadata events. For conversation types that remain outside the local-first direct-history model, the system MAY continue using their existing supported recovery path.
 
 #### Scenario: Client catches up after reconnect
-- **WHEN** a device reconnects after being offline while conversation activity occurred
-- **THEN** the client SHALL request and persist the missing history required to bring the conversation into a consistent state
+- **WHEN** a device reconnects after being offline while direct conversation activity occurred
+- **THEN** the client SHALL render locally persisted direct-message history and SHALL request only pending direct-message envelopes and metadata events needed to bring the conversation into a consistent state
 
 #### Scenario: Client replays readable history after re-login
-- **WHEN** a user logs back into a device that has previously participated in a supported conversation
-- **THEN** the system SHALL restore the readable conversation history that remains authorized for that device
+- **WHEN** a user logs back into a device that has previously participated in a supported direct conversation and still has its local encrypted message store
+- **THEN** the system SHALL restore readable direct-message history from that local store without requiring backend historical direct-message ciphertext
+
+#### Scenario: New device has no local direct history
+- **WHEN** a user logs into a newly linked device that has no local encrypted history for a supported direct conversation
+- **THEN** the system SHALL NOT recover old direct-message history from the backend and SHALL only synchronize pending envelopes addressed to that device
+
+#### Scenario: Pending envelope persists until local save
+- **WHEN** a direct-message envelope is available on the backend for an authenticated device but the device has not acknowledged local persistence
+- **THEN** the system SHALL keep the envelope pending for that device so reconnect or retry can process it again
 
 ### Requirement: Conversation previews SHALL use one consistent summary strategy
 The system SHALL define a single source of truth for conversation preview text under encrypted delivery so preview rows do not drift from message reality, and the desktop conversation list SHALL render that strategy without ad hoc fallback text.

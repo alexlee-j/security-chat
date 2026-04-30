@@ -22,10 +22,7 @@ impl AppDbState {
 
 /// 保存消息
 #[tauri::command]
-pub async fn db_save_message(
-    msg: Message,
-    state: State<'_, AppDbState>,
-) -> Result<(), String> {
+pub async fn db_save_message(msg: Message, state: State<'_, AppDbState>) -> Result<(), String> {
     let store = state.store.clone();
     let msg_clone = msg.clone();
 
@@ -50,7 +47,26 @@ pub async fn db_get_messages(
 
     tokio::task::spawn_blocking(move || {
         let guard = store.lock().map_err(|e| e.to_string())?;
-        guard.get_messages(&conv_id, limit, before).map_err(|e| e.to_string())
+        guard
+            .get_messages(&conv_id, limit, before)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// 删除单条消息
+#[tauri::command]
+pub async fn db_delete_message(
+    message_id: String,
+    state: State<'_, AppDbState>,
+) -> Result<(), String> {
+    let store = state.store.clone();
+    let msg_id = message_id.clone();
+
+    tokio::task::spawn_blocking(move || {
+        let guard = store.lock().map_err(|e| e.to_string())?;
+        guard.delete_message(&msg_id).map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())?
@@ -67,7 +83,9 @@ pub async fn db_save_conversation(
 
     tokio::task::spawn_blocking(move || {
         let guard = store.lock().map_err(|e| e.to_string())?;
-        guard.save_conversation(&conv_clone).map_err(|e| e.to_string())
+        guard
+            .save_conversation(&conv_clone)
+            .map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())?
@@ -90,10 +108,7 @@ pub async fn db_get_conversations(
 
 /// 保存草稿
 #[tauri::command]
-pub async fn db_save_draft(
-    draft: Draft,
-    state: State<'_, AppDbState>,
-) -> Result<(), String> {
+pub async fn db_save_draft(draft: Draft, state: State<'_, AppDbState>) -> Result<(), String> {
     let store = state.store.clone();
     let draft_clone = draft.clone();
 
@@ -187,7 +202,9 @@ pub async fn keychain_store(
 
     tokio::task::spawn_blocking(move || {
         let guard = store.lock().map_err(|e| e.to_string())?;
-        guard.keychain_store(&id_clone, &key_type_clone, &key_data).map_err(|e| e.to_string())
+        guard
+            .keychain_store(&id_clone, &key_type_clone, &key_data)
+            .map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())?
@@ -204,7 +221,9 @@ pub async fn keychain_retrieve(
 
     tokio::task::spawn_blocking(move || {
         let guard = store.lock().map_err(|e| e.to_string())?;
-        guard.keychain_retrieve(&key_type_clone).map_err(|e| e.to_string())
+        guard
+            .keychain_retrieve(&key_type_clone)
+            .map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())?
@@ -212,16 +231,15 @@ pub async fn keychain_retrieve(
 
 /// 从 Keychain 删除密钥
 #[tauri::command]
-pub async fn keychain_delete(
-    key_type: String,
-    state: State<'_, AppDbState>,
-) -> Result<(), String> {
+pub async fn keychain_delete(key_type: String, state: State<'_, AppDbState>) -> Result<(), String> {
     let store = state.store.clone();
     let key_type_clone = key_type.clone();
 
     tokio::task::spawn_blocking(move || {
         let guard = store.lock().map_err(|e| e.to_string())?;
-        guard.keychain_delete(&key_type_clone).map_err(|e| e.to_string())
+        guard
+            .keychain_delete(&key_type_clone)
+            .map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())?

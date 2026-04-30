@@ -1,8 +1,5 @@
-# device-bound-transport-convergence Specification
+## MODIFIED Requirements
 
-## Purpose
-TBD - created by archiving change advance-to-global-completion. Update Purpose after archive.
-## Requirements
 ### Requirement: Direct messaging SHALL use authenticated device-bound envelope delivery
 The system SHALL deliver supported direct messages through the device-bound `send-v2` model, where one logical message is accepted with one encrypted envelope per required target device, the backend resolves pending ciphertext only by authenticated device context, and server-side direct envelopes are treated as delivery-queue records rather than durable history.
 
@@ -22,17 +19,6 @@ The system SHALL deliver supported direct messages through the device-bound `sen
 - **WHEN** a supported client retries a failed direct message
 - **THEN** the retry path SHALL reuse or regenerate envelopes in a way that still targets the correct authenticated device set rather than falling back to a legacy single-ciphertext path
 
-### Requirement: Legacy direct-message send paths SHALL be deprecated and blocked from bypassing device-bound guarantees
-The system SHALL prevent supported direct-message traffic from using legacy single-ciphertext send paths that bypass per-device envelope storage and authenticated device resolution.
-
-#### Scenario: Legacy socket direct send is rejected or removed
-- **WHEN** a supported client attempts to send a direct message through the legacy WebSocket `message.send` path
-- **THEN** the system SHALL reject the request or remove the path so that the message cannot bypass `send-v2`
-
-#### Scenario: Compatibility fallbacks are removed only after regression gates pass
-- **WHEN** implementation removes device/session fallback branches that mask transport mismatches
-- **THEN** the change SHALL only proceed after backend, desktop, and real-account direct-message regressions are green
-
 ### Requirement: Device-bound direct messaging SHALL support deterministic self-sync and replay
 The system SHALL preserve sender self-sync and post-login replay behavior for authorized devices using the same device-bound transport model, while direct-message readable history SHALL be replayed from each device's local encrypted store after successful persistence.
 
@@ -47,4 +33,3 @@ The system SHALL preserve sender self-sync and post-login replay behavior for au
 #### Scenario: Missing device context does not trigger unsafe fallback
 - **WHEN** a client or token lacks the device context required to resolve a `send-v2` pending envelope
 - **THEN** the system SHALL return an explicit error instead of substituting another device's ciphertext or fabricating a default device identity
-
