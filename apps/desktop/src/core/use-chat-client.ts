@@ -745,7 +745,14 @@ export function useChatClient(): {
   }
 
   function isDirectConversation(conversationId: string): boolean {
-    return conversations.find((row) => row.conversationId === conversationId)?.type === 1;
+    if (conversations.find((row) => row.conversationId === conversationId)?.type === 1) {
+      return true;
+    }
+    // Fallback: check activeConversation to handle cases where conversations list hasn't loaded yet
+    if (activeConversation?.conversationId === conversationId && activeConversation?.type === 1) {
+      return true;
+    }
+    return false;
   }
 
   function shouldUseLocalFirstDirectHistory(conversationId: string): boolean {
