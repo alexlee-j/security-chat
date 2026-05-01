@@ -369,6 +369,9 @@ export function useChatClient(): {
   const toastHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const socketRef = useRef<Socket | null>(null);
   const conversationPrefHydratedRef = useRef(false);
+  // 会话类型同步数据源：Map&lt;conversationId, type&gt;
+  // 用于 WebSocket 事件处理时同步查询会话类型，避免依赖 React state 的时序问题
+  const conversationTypeRef = useRef<Map<string, number>>(new Map());
 
   useEffect(() => {
     let canceled = false;
@@ -722,6 +725,12 @@ export function useChatClient(): {
       (row, index, array) => array.findIndex((item) => item.conversationId === row.conversationId) === index,
     );
     const localPreviewRows = await applyLocalDirectPreviews(dedupedRows);
+
+    // 更新会话类型同步数据源，供 WebSocket handler 同步查询
+    for (const row of localPreviewRows) {
+      conversationTypeRef.current.set(row.conversationId, row.type);
+    }
+
     void persistConversationsToLocal(localPreviewRows);
     setConversations(localPreviewRows);
     if (!activeConversationIdRef.current && localPreviewRows.length > 0) {
@@ -746,6 +755,10 @@ export function useChatClient(): {
   }
 
   function isDirectConversation(conversationId: string): boolean {
+    // 优先查询同步数据源（WebSocket handler 可在任何时机同步查询）
+    if (conversationTypeRef.current.get(conversationId) === 1) {
+      return true;
+    }
     if (conversations.find((row) => row.conversationId === conversationId)?.type === 1) {
       return true;
     }
@@ -982,6 +995,12 @@ export function useChatClient(): {
   }
 
   async function syncConversationCursor(conversationId: string, applyToActive: boolean): Promise<void> {
+    // 无法确认会话类型时（不在同步数据源中且非活跃会话），保守处理跳过同步
+    // 避免对单聊会话错误调用 /message/list 导致 400 错误
+    if (!conversationTypeRef.current.has(conversationId) && conversationId !== activeConversationIdRef.current) {
+      return;
+    }
+
     if (shouldUseLocalFirstDirectHistory(conversationId)) {
       await syncDirectPendingEnvelopes(conversationId, applyToActive);
       return;
@@ -1520,6 +1539,9 @@ export function useChatClient(): {
     setError('');
     // 清除加密密钥
     clearEncryptionKey();
+
+    // 清除会话类型同步数据源
+    conversationTypeRef.current.clear();
 
     setConversations([]);
     setActiveConversationId('');
