@@ -53,7 +53,10 @@
     "windows": {
       "certificateThumbprint": null,
       "digestAlgorithm": "sha256",
-      "timestampUrl": "http://timestamp.digicert.com"
+      "timestampUrl": "http://timestamp.digicert.com",
+      "nsis": {
+        "installerIcon": "icons/icon.ico"
+      }
     }
   },
   "plugins": {
