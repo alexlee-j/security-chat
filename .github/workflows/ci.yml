@@ -93,8 +93,8 @@ jobs:
             sleep 1
           done
 
-          # Run tests with forceExit to prevent Socket serialization issues
-          pnpm test:e2e -- --forceExit
+          # Run tests (forceExit is already configured in jest-e2e.json)
+          pnpm test:e2e
 
           # Cleanup
           kill $BACKEND_PID 2>/dev/null || true
