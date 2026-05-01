@@ -36,6 +36,11 @@ export class MailService implements OnModuleInit {
 
   async onModuleInit(): Promise<void> {
     // 在模块初始化时验证 SMTP 连接
+    const skipVerify = this.configService.get<string>('SKIP_SMTP_VERIFY') === 'true';
+    if (skipVerify) {
+      this.logger.warn('SMTP connection verification skipped (SKIP_SMTP_VERIFY=true)');
+      return;
+    }
     await this.verifyConnection();
   }
 

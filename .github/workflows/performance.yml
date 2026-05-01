@@ -77,6 +77,7 @@ jobs:
           DB_PASSWORD: postgres
           DB_NAME: security-chat-test
           DB_SYNC: 'true'
+          SKIP_SMTP_VERIFY: 'true'
 
       - name: Generate test JWT token
         run: |

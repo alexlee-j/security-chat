@@ -69,6 +69,7 @@ jobs:
           DB_PASSWORD: postgres
           DB_NAME: security-chat-test
           DB_SYNC: 'true'
+          SKIP_SMTP_VERIFY: 'true'
         run: |
           # Build backend first (must complete before starting)
           pnpm build:backend
