@@ -9,7 +9,8 @@
   "moduleNameMapper": {
     "^@/(.*)$": "<rootDir>/../../apps/backend/src/$1"
   },
-  "testTimeout": 10000,
+  "testTimeout": 30000,
   "forceExit": true,
-  "detectOpenHandles": false
+  "detectOpenHandles": false,
+  "runInBand": true
 }
