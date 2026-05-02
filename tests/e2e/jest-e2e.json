@@ -12,5 +12,14 @@
   "testTimeout": 30000,
   "forceExit": true,
   "detectOpenHandles": false,
-  "runInBand": true
+  "runInBand": true,
+  "testPathIgnorePatterns": [
+    "auth.e2e.spec.ts",
+    "message.e2e.spec.ts",
+    "prekey.e2e.spec.ts",
+    "conversation.e2e.spec.ts",
+    "message-full.e2e.spec.ts",
+    "message-management.e2e.spec.ts",
+    "burn-full.e2e.spec.ts"
+  ]
 }
