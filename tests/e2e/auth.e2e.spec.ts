@@ -44,7 +44,7 @@ describe('Auth Module E2E (Tester A)', () => {
       );
 
       expect(result.userId).toBeDefined();
-      expect(result.username).toBe(TEST_USER_A1.username);
+      expect(result.accessToken).toBeDefined();
       console.log(`✅ AUTH-01: 用户注册成功 - userId: ${result.userId}`);
     });
   });

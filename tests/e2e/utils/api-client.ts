@@ -7,8 +7,10 @@ export interface LoginResult {
 }
 
 export interface RegisterResult {
+  accessToken: string;
+  refreshToken: string;
   userId: string;
-  username: string;
+  deviceId: string;
 }
 
 export class ApiClient {
