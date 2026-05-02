@@ -30,6 +30,10 @@ describe('Burn After Reading E2E (Tester A)', () => {
     await clientA1.register(TEST_USER_A1.username, TEST_USER_A1.email, TEST_USER_A1.password);
     await clientA2.register(TEST_USER_A2.username, TEST_USER_A2.email, TEST_USER_A2.password);
 
+    // Login after register to set Authorization header
+    await clientA1.login(TEST_USER_A1.username, TEST_USER_A1.password);
+    await clientA2.login(TEST_USER_A2.username, TEST_USER_A2.password);
+
     // 创建单聊
     const response = await clientA1.client.post('/conversation/direct', {
       peerUserId: TEST_USER_A2.username,
