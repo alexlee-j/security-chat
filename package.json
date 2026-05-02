@@ -12,7 +12,7 @@
     "smoke:backend:v1": "pnpm --filter @security-chat/backend smoke:v1",
     "test:backend:e2e:v1": "pnpm --filter @security-chat/backend test:e2e:v1",
     "test:backend:ws:v1": "pnpm --filter @security-chat/backend test:ws:v1",
-    "test:e2e": "jest --config tests/e2e/jest-e2e.json",
+    "test:e2e": "jest --config tests/e2e/jest-e2e.json --runInBand --no-cache",
     "test:e2e:watch": "jest --config tests/e2e/jest-e2e.json --watch",
     "test:integration": "jest --config tests/e2e/jest-e2e.json tests/integration",
     "bench:message": "tsx tests/benchmarks/message-latency.bench.ts",

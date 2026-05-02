@@ -93,8 +93,8 @@ jobs:
             sleep 1
           done
 
-          # Run tests sequentially with no cache to avoid worker crashes
-          pnpm test:e2e -- --runInBand --no-cache
+          # Run tests (runInBand and no-cache are in package.json script)
+          pnpm test:e2e
 
           # Cleanup
           kill $BACKEND_PID 2>/dev/null || true
