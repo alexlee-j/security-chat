@@ -93,8 +93,8 @@ jobs:
             sleep 1
           done
 
-          # Run tests (forceExit is already configured in jest-e2e.json)
-          pnpm test:e2e
+          # Run tests sequentially with no cache to avoid worker crashes
+          pnpm test:e2e -- --runInBand --no-cache
 
           # Cleanup
           kill $BACKEND_PID 2>/dev/null || true
