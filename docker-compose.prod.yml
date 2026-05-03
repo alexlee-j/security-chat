@@ -21,7 +21,7 @@ services:
       - DB_NAME=${DB_NAME:-security_chat}
       - DB_SYNC=false
       - DB_SSL=false
-      - DB_RUN_MIGRATIONS=false
+      - DB_RUN_MIGRATIONS=true
       # Redis 配置
       - REDIS_HOST=redis
       - REDIS_PORT=6379
