@@ -27,17 +27,19 @@ export class MessageEncryptionService {
   async encryptMessage(
     recipientUserId: string,
     recipientDeviceId: string,
+    recipientSignalDeviceId: number,
     plaintext: string
   ): Promise<EncryptedMessage> {
     const prekeyBundle = await this.fetchPrekeyBundle(recipientUserId, recipientDeviceId);
-    await this.rustSignal.establishSession(recipientUserId, recipientDeviceId, prekeyBundle);
-    const encrypted = await this.rustSignal.encryptMessage(recipientUserId, recipientDeviceId, plaintext);
+    await this.rustSignal.establishSession(recipientUserId, recipientDeviceId, recipientSignalDeviceId, prekeyBundle);
+    const encrypted = await this.rustSignal.encryptMessage(recipientUserId, recipientDeviceId, recipientSignalDeviceId, plaintext);
     return this.rustMessageToLegacyShape(encrypted);
   }
 
   async decryptMessage(
     senderUserId: string,
     senderDeviceId: string,
+    senderSignalDeviceId: number,
     encryptedMessage: EncryptedMessage
   ): Promise<string> {
     const fixedEncryptedMessage = this.fixEncryptedMessage(encryptedMessage);
@@ -45,7 +47,7 @@ export class MessageEncryptionService {
       message_type: fixedEncryptedMessage.signedPreKeyId || 2,
       body: Array.from(fixedEncryptedMessage.ciphertext),
     };
-    return await this.rustSignal.decryptMessage(senderUserId, senderDeviceId, rustMsg);
+    return await this.rustSignal.decryptMessage(senderUserId, senderDeviceId, senderSignalDeviceId, rustMsg);
   }
 
   async syncGroupMembers(groupId: string, memberUserIds: string[]): Promise<void> {
@@ -66,7 +68,9 @@ export class MessageEncryptionService {
       throw new Error('Remote device missing kyber prekey, cannot establish Rust Signal session');
     }
     return {
+      deviceId: data.deviceId,
       registrationId: data.registrationId,
+      signalDeviceId: data.signalDeviceId,
       identityKey: data.identityKey,
       signedPrekey: {
         keyId: data.signedPrekey.keyId,

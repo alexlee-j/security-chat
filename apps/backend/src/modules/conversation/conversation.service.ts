@@ -40,6 +40,9 @@ export class ConversationService {
       throw new NotFoundException('Peer user not found');
     }
 
+    await this.assertCanSendDirectMessage(userId, peerUserId);
+    await this.assertBidirectionalFriends(userId, peerUserId);
+
     const [a, b] = [userId, peerUserId].sort();
 
     return this.dataSource.transaction(async (manager) => {
@@ -57,6 +60,11 @@ export class ConversationService {
         [userId, peerUserId],
       );
       if (rows.length > 0) {
+        await manager.update(
+          ConversationMember,
+          { conversationId: rows[0].conversation_id as string, userId },
+          { hidden: false },
+        );
         return { conversationId: rows[0].conversation_id as string };
       }
 
@@ -455,6 +463,80 @@ export class ConversationService {
     }
   }
 
+  async assertCanSendDirectMessage(fromUserId: string, toUserId: string): Promise<void> {
+    const rows = await this.dataSource.query(
+      `
+      SELECT id
+      FROM friendships
+      WHERE status = 2
+        AND (
+          (user_id = $1 AND friend_id = $2)
+          OR (user_id = $2 AND friend_id = $1)
+        )
+      LIMIT 1;
+      `,
+      [fromUserId, toUserId],
+    );
+
+    if (rows.length > 0) {
+      throw new ForbiddenException('BLOCKED');
+    }
+  }
+
+  async getDirectPeerUserId(conversationId: string, userId: string): Promise<string | null> {
+    const rows = await this.dataSource.query(
+      `
+      SELECT cm.user_id::text AS user_id
+      FROM conversation_members cm
+      INNER JOIN conversations c ON c.id = cm.conversation_id
+      WHERE cm.conversation_id = $1
+        AND c.type = 1
+        AND cm.user_id <> $2
+      LIMIT 1;
+      `,
+      [conversationId, userId],
+    );
+    return rows[0]?.user_id ?? null;
+  }
+
+  async unhideConversationForUsers(conversationId: string, userIds: string[]): Promise<void> {
+    const uniqueUserIds = [...new Set(userIds.filter(Boolean))];
+    if (!uniqueUserIds.length) {
+      return;
+    }
+
+    await this.memberRepository.update(
+      { conversationId, userId: In(uniqueUserIds) },
+      { hidden: false },
+    );
+  }
+
+  async unhideConversationForAllMembers(conversationId: string): Promise<void> {
+    await this.memberRepository.update(
+      { conversationId },
+      { hidden: false },
+    );
+  }
+
+  async assertBidirectionalFriends(userId: string, peerUserId: string): Promise<void> {
+    const rows = await this.dataSource.query(
+      `
+      SELECT COUNT(*)::int AS count
+      FROM friendships
+      WHERE status = 1
+        AND (
+          (user_id = $1 AND friend_id = $2)
+          OR (user_id = $2 AND friend_id = $1)
+        );
+      `,
+      [userId, peerUserId],
+    );
+
+    if (Number(rows?.[0]?.count ?? 0) < 2) {
+      throw new ForbiddenException('You can only message friends');
+    }
+  }
+
   async updateSettings(
     userId: string,
     conversationId: string,
@@ -535,20 +617,7 @@ export class ConversationService {
       throw new NotFoundException('Conversation not found');
     }
 
-    // 私聊：任何成员都可以删除
-    // 群聊：只有创建者可以删除
-    if (conversation.type === 2) {
-      // 检查是否是群聊创建者
-      const members = await this.memberRepository.find({
-        where: { conversationId, role: 1 },
-      });
-      const isCreator = members.some((m) => m.userId === userId);
-      if (!isCreator) {
-        throw new ForbiddenException('Only group creator can delete the conversation');
-      }
-    }
-
-    await this.conversationRepository.remove(conversation);
+    await this.memberRepository.update({ conversationId, userId }, { hidden: true });
 
     return { deleted: true };
   }
@@ -566,6 +635,7 @@ export class ConversationService {
       unreadCount: number;
       isPinned: boolean;
       isMuted: boolean;
+      hidden: boolean;
       isOnline?: boolean;
       peerUser: { userId: string; username: string; avatarUrl: string | null } | null;
       groupInfo: { name: string; memberCount: number } | null;
@@ -594,6 +664,7 @@ export class ConversationService {
         COALESCE(uc.unread_count, 0) AS unread_count,
         my.is_pinned AS is_pinned,
         my.is_muted AS is_muted,
+        my.hidden AS hidden,
         u.id AS peer_user_id,
         u.username AS peer_username,
         u.avatar_url AS peer_avatar_url,
@@ -669,6 +740,7 @@ export class ConversationService {
         unread_count: string | number;
         is_pinned: boolean;
         is_muted: boolean;
+        hidden: boolean;
         peer_user_id: string | null;
         peer_username: string | null;
         peer_avatar_url: string | null;
@@ -691,6 +763,7 @@ export class ConversationService {
         unreadCount: Number(row.unread_count ?? 0),
         isPinned: Boolean(row.is_pinned),
         isMuted: Boolean(row.is_muted),
+        hidden: Boolean(row.hidden),
         isOnline: row.type === 1 && row.peer_user_id ? (onlineStatusMap.get(row.peer_user_id) ?? false) : undefined,
         peerUser: row.peer_user_id
           ? {

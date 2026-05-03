@@ -32,6 +32,9 @@ export class ConversationMember {
   @Column({ name: 'is_muted', type: 'boolean', default: false })
   isMuted!: boolean;
 
+  @Column({ name: 'hidden', type: 'boolean', default: false })
+  hidden!: boolean;
+
   @CreateDateColumn({ name: 'joined_at', type: 'timestamptz' })
   joinedAt!: Date;
 

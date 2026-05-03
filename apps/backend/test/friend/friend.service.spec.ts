@@ -9,6 +9,7 @@ describe('FriendService remove-friend contract', () => {
   let friendshipRepository: jest.Mocked<Repository<Friendship>>;
   let userRepository: jest.Mocked<Repository<User>>;
   let redis: jest.Mocked<Redis>;
+  let dataSource: { query: jest.Mock };
   let service: FriendService;
 
   beforeEach(() => {
@@ -24,8 +25,11 @@ describe('FriendService remove-friend contract', () => {
     redis = {
       mget: jest.fn(),
     } as unknown as jest.Mocked<Redis>;
+    dataSource = {
+      query: jest.fn().mockResolvedValue([]),
+    };
 
-    service = new FriendService(friendshipRepository, userRepository, redis);
+    service = new FriendService(friendshipRepository, userRepository, redis, dataSource as any);
   });
 
   it('removes both directions of an accepted friendship and preserves chat history', async () => {
@@ -104,5 +108,18 @@ describe('FriendService remove-friend contract', () => {
       new BadRequestException('Cannot remove a blocked relationship'),
     );
     expect(friendshipRepository.remove).not.toHaveBeenCalled();
+  });
+
+  it('hides both users direct conversation when blocking', async () => {
+    userRepository.findOne.mockResolvedValue({ id: 'user-b' } as User);
+    friendshipRepository.findOne.mockResolvedValue(null);
+    friendshipRepository.save.mockResolvedValue({} as Friendship);
+
+    await service.blockUser('user-a', { targetUserId: 'user-b' } as never);
+
+    expect(dataSource.query).toHaveBeenCalledWith(
+      expect.stringContaining('UPDATE conversation_members'),
+      ['user-a', 'user-b'],
+    );
   });
 });

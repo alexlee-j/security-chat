@@ -70,6 +70,7 @@ export type PendingDirectEnvelope = {
   conversationId: string;
   senderId: string;
   sourceDeviceId: string | null;
+  sourceSignalDeviceId: number | null;
   messageType: number;
   encryptedPayload: string;
   nonce: string;
@@ -91,6 +92,8 @@ type PendingDirectEnvelopeRow = {
   senderId?: string;
   source_device_id?: string | null;
   sourceDeviceId?: string | null;
+  source_signal_device_id?: number | string | null;
+  sourceSignalDeviceId?: number | string | null;
   message_type?: number;
   messageType?: number;
   encrypted_payload?: string;
@@ -162,6 +165,39 @@ export class MessageService implements OnModuleInit, OnModuleDestroy {
       if (!isNullable) {
         await this.dataSource.query(`ALTER TABLE "messages" ALTER COLUMN "encrypted_payload" DROP NOT NULL;`);
       }
+      await this.dataSource.query(`ALTER TABLE "messages" ADD COLUMN IF NOT EXISTS "source_signal_device_id" smallint;`);
+      await this.dataSource.query(`
+        DO $$
+        BEGIN
+          IF EXISTS (
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_name = 'devices'
+              AND column_name = 'signal_device_id'
+          ) THEN
+            UPDATE "messages" m
+            SET "source_signal_device_id" = d."signal_device_id"
+            FROM "devices" d
+            WHERE m."source_device_id" = d."id"
+              AND m."source_signal_device_id" IS NULL
+              AND d."signal_device_id" IS NOT NULL;
+          END IF;
+        END $$;
+      `);
+      await this.dataSource.query(`
+        DO $$
+        BEGIN
+          IF NOT EXISTS (
+            SELECT 1
+            FROM pg_constraint
+            WHERE conname = 'CHK_messages_source_signal_device_id_range'
+          ) THEN
+            ALTER TABLE "messages"
+            ADD CONSTRAINT "CHK_messages_source_signal_device_id_range"
+            CHECK ("source_signal_device_id" IS NULL OR "source_signal_device_id" BETWEEN 1 AND 127);
+          END IF;
+        END $$;
+      `);
 
       const tableRows = await this.dataSource.query(
         `SELECT to_regclass('public.message_device_envelopes') AS reg;`,
@@ -310,6 +346,7 @@ export class MessageService implements OnModuleInit, OnModuleDestroy {
 
     if (!sent.deduped) {
       // 异步处理WebSocket事件和通知，避免阻塞主流程
+      await this.conversationService.unhideConversationForAllMembers(sent.conversationId);
       void this.handleMessageSentEvent(sent, senderId);
     }
 
@@ -467,6 +504,11 @@ export class MessageService implements OnModuleInit, OnModuleDestroy {
     const sourceDeviceId = this.assertAuthenticatedDeviceId(user);
 
     await this.conversationService.assertMember(dto.conversationId, user.userId);
+    const directPeerUserId = await this.conversationService.getDirectPeerUserId(dto.conversationId, user.userId);
+    if (directPeerUserId) {
+      await this.conversationService.assertCanSendDirectMessage(user.userId, directPeerUserId);
+      await this.conversationService.assertBidirectionalFriends(user.userId, directPeerUserId);
+    }
     this.assertMediaPayloadShape(dto.messageType, dto.mediaAssetId);
     this.assertEnvelopeSetIsWellFormed(dto.envelopes);
 
@@ -483,7 +525,7 @@ export class MessageService implements OnModuleInit, OnModuleDestroy {
         ? await this.assertAndBindMediaAsset(manager, user.userId, dto.conversationId, dto.messageType, dto.mediaAssetId)
         : null;
 
-      await this.assertSourceDeviceBelongsToSender(manager, user.userId, sourceDeviceId);
+      const sourceSignalDeviceId = await this.assertSourceDeviceBelongsToSender(manager, user.userId, sourceDeviceId);
       await this.assertEnvelopeTargetsBelongToConversation(
         manager,
         dto.conversationId,
@@ -514,6 +556,7 @@ export class MessageService implements OnModuleInit, OnModuleDestroy {
           existed.messageType === dto.messageType &&
           existed.encryptedPayload === null &&
           (existed.sourceDeviceId ?? null) === sourceDeviceId &&
+          (existed.sourceSignalDeviceId ?? null) === sourceSignalDeviceId &&
           (existed.mediaAssetId ?? null) === (mediaAssetId ?? null) &&
           existed.isBurn === burnSettings.isBurn &&
           (existed.burnDuration ?? null) === (burnSettings.burnDuration ?? null) &&
@@ -537,6 +580,7 @@ export class MessageService implements OnModuleInit, OnModuleDestroy {
         conversationId: dto.conversationId,
         senderId: user.userId,
         sourceDeviceId,
+        sourceSignalDeviceId,
         messageType: dto.messageType,
         encryptedPayload: null,
         nonce: dto.nonce,
@@ -569,6 +613,7 @@ export class MessageService implements OnModuleInit, OnModuleDestroy {
     });
 
     if (!sent.deduped) {
+      await this.conversationService.unhideConversationForUsers(sent.conversationId, [user.userId, ...dto.envelopes.map((envelope) => envelope.targetUserId)]);
       void this.handleMessageSentEvent(sent, user.userId);
     }
 
@@ -656,6 +701,7 @@ export class MessageService implements OnModuleInit, OnModuleDestroy {
         m.conversation_id::text AS conversation_id,
         m.sender_id::text AS sender_id,
         m.source_device_id::text AS source_device_id,
+        m.source_signal_device_id AS source_signal_device_id,
         m.message_type AS message_type,
         e.encrypted_payload AS encrypted_payload,
         m.nonce AS nonce,
@@ -686,6 +732,7 @@ export class MessageService implements OnModuleInit, OnModuleDestroy {
       conversationId: String(row.conversation_id ?? row.conversationId),
       senderId: String(row.sender_id ?? row.senderId),
       sourceDeviceId: (row.source_device_id ?? row.sourceDeviceId) ?? null,
+      sourceSignalDeviceId: this.toNumberOrNull((row.source_signal_device_id ?? row.sourceSignalDeviceId) ?? null),
       messageType: Number(row.message_type ?? row.messageType),
       encryptedPayload: String(row.encrypted_payload ?? row.encryptedPayload),
       nonce: String(row.nonce),
@@ -805,6 +852,14 @@ export class MessageService implements OnModuleInit, OnModuleDestroy {
     return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
   }
 
+  private toNumberOrNull(value: number | string | null): number | null {
+    if (value === null || value === undefined) {
+      return null;
+    }
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
   private assertMediaPayloadShape(messageType: number, mediaAssetId?: string | null): void {
     if (messageType === 1 && mediaAssetId) {
       throw new BadRequestException('Text message must not include mediaAssetId');
@@ -837,14 +892,19 @@ export class MessageService implements OnModuleInit, OnModuleDestroy {
     manager: EntityManager,
     senderId: string,
     sourceDeviceId: string,
-  ): Promise<void> {
+  ): Promise<number> {
     const ownDevice = await manager.query(
-      'SELECT id FROM devices WHERE id = $1 AND user_id = $2 LIMIT 1;',
+      'SELECT id, signal_device_id FROM devices WHERE id = $1 AND user_id = $2 LIMIT 1;',
       [sourceDeviceId, senderId],
     );
     if (!Array.isArray(ownDevice) || ownDevice.length === 0) {
       throw new BadRequestException('Authenticated deviceId is invalid for current user');
     }
+    const sourceSignalDeviceId = this.toNumberOrNull(ownDevice[0]?.signal_device_id ?? ownDevice[0]?.signalDeviceId ?? null);
+    if (!sourceSignalDeviceId) {
+      throw new BadRequestException('Authenticated device is missing signalDeviceId');
+    }
+    return sourceSignalDeviceId;
   }
 
   private async assertEnvelopeTargetsBelongToConversation(
@@ -1584,6 +1644,12 @@ export class MessageService implements OnModuleInit, OnModuleDestroy {
     if (targetConversation.type !== 1) {
       throw new BadRequestException('服务端转发仅支持单聊会话');
     }
+    const directPeerUserId = await this.conversationService.getDirectPeerUserId(dto.conversationId, userId);
+    if (!directPeerUserId) {
+      throw new BadRequestException('Direct conversation peer not found');
+    }
+    await this.conversationService.assertCanSendDirectMessage(userId, directPeerUserId);
+    await this.conversationService.assertBidirectionalFriends(userId, directPeerUserId);
 
     const originalMessage = await this.messageRepository.findOne({
       where: { id: dto.originalMessageId },
@@ -1657,6 +1723,7 @@ export class MessageService implements OnModuleInit, OnModuleDestroy {
     });
 
     // 异步处理WebSocket事件，避免阻塞主流程
+    await this.conversationService.unhideConversationForUsers(sent.conversationId, [userId, directPeerUserId]);
     void this.handleMessageSentEvent(sent, userId);
 
     return { messageId: sent.messageId, messageIndex: sent.messageIndex };

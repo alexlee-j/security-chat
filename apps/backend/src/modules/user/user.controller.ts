@@ -106,7 +106,7 @@ export class UserController {
   registerDevice(
     @CurrentUser() user: RequestUser,
     @Body() dto: RegisterDeviceDto,
-  ): Promise<{ deviceId: string }> {
+  ): Promise<{ deviceId: string; signalDeviceId: number }> {
     return this.userService.registerDevice(user.userId, dto);
   }
 
@@ -121,6 +121,7 @@ export class UserController {
     signedPreKey: string;
     signedPreKeySignature: string;
     registrationId: number | null;
+    signalDeviceId: number;
     createdAt: string;
     lastActiveAt: string | null;
   }>> {
@@ -166,6 +167,7 @@ export class UserController {
       signedPreKey: string;
       signedPreKeySignature: string;
       registrationId: number | null;
+      signalDeviceId: number;
     }>;
   }>> {
     return this.userService.getDevicesByUserIds(dto.userIds);
@@ -177,7 +179,9 @@ export class UserController {
     @Param('userId', new ParseUUIDPipe()) userId: string,
     @Param('deviceId', new ParseUUIDPipe()) deviceId: string,
   ): Promise<{
+    deviceId: string;
     registrationId: number;
+    signalDeviceId: number;
     identityKey: string;
     signedPrekey: {
       keyId: number;
@@ -206,7 +210,9 @@ export class UserController {
     @Param('userId', new ParseUUIDPipe()) userId: string,
     @Param('deviceId', new ParseUUIDPipe()) deviceId: string,
   ): Promise<{
+    deviceId: string;
     registrationId: number;
+    signalDeviceId: number;
     identityKey: string;
     signedPrekey: {
       keyId: number;
@@ -290,7 +296,7 @@ export class UserController {
   async confirmLinkDevice(
     @CurrentUser() user: RequestUser,
     @Body() dto: LinkDeviceRequestDto,
-  ): Promise<{ deviceId: string; success: boolean }> {
+  ): Promise<{ deviceId: string; signalDeviceId: number; success: boolean }> {
     return this.userService.confirmLinkDevice(user.userId, dto.temporaryToken, {
       deviceName: dto.deviceName,
       deviceType: dto.deviceType,

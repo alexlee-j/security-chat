@@ -21,6 +21,7 @@ describe('ConversationService sender-key rotation', () => {
       save: jest.fn(),
       create: jest.fn((payload: object) => payload as Conversation),
       findOne: jest.fn(),
+      remove: jest.fn(),
     } as unknown as jest.Mocked<Repository<Conversation>>;
     memberRepository = {
       save: jest.fn(),
@@ -35,7 +36,10 @@ describe('ConversationService sender-key rotation', () => {
     senderKeyRepository = {
       delete: jest.fn(),
     } as unknown as jest.Mocked<Repository<SenderKey>>;
-    dataSource = {} as jest.Mocked<DataSource>;
+    dataSource = {
+      query: jest.fn(),
+      transaction: jest.fn(),
+    } as unknown as jest.Mocked<DataSource>;
     redis = {
       del: jest.fn(),
     } as unknown as jest.Mocked<Redis>;
@@ -110,5 +114,58 @@ describe('ConversationService sender-key rotation', () => {
       new ForbiddenException('Only admins can add members'),
     );
     expect(senderKeyRepository.delete).not.toHaveBeenCalled();
+  });
+
+  it('rejects direct conversation creation when users are not friends', async () => {
+    userRepository.findOne = jest.fn().mockResolvedValue({ id: 'user-b' } as User);
+    (dataSource.query as jest.Mock).mockResolvedValueOnce([]);
+
+    await expect(service.createDirectConversation('user-a', 'user-b')).rejects.toThrow(
+      new ForbiddenException('You can only message friends'),
+    );
+
+    expect(dataSource.transaction).not.toHaveBeenCalled();
+  });
+
+  it('rejects direct sends when either side has blocked the other', async () => {
+    (dataSource.query as jest.Mock).mockResolvedValueOnce([{ id: 'block-row' }]);
+
+    await expect(service.assertCanSendDirectMessage('user-a', 'user-b')).rejects.toThrow(
+      new ForbiddenException('BLOCKED'),
+    );
+  });
+
+  it('hides only the current member when deleting a conversation', async () => {
+    memberRepository.findOne.mockResolvedValue({ id: 'member-a', conversationId: 'conv-1', userId: 'user-a' } as ConversationMember);
+    conversationRepository.findOne.mockResolvedValue({ id: 'conv-1', type: 1 } as Conversation);
+    memberRepository.update = jest.fn().mockResolvedValue({ affected: 1, raw: {} } as any);
+
+    await expect(service.deleteConversation('user-a', 'conv-1')).resolves.toEqual({ deleted: true });
+
+    expect(memberRepository.update).toHaveBeenCalledWith(
+      { conversationId: 'conv-1', userId: 'user-a' },
+      { hidden: true },
+    );
+    expect(conversationRepository.remove).not.toHaveBeenCalled();
+  });
+
+  it('unhides current member when reopening an existing direct conversation', async () => {
+    userRepository.findOne = jest.fn().mockResolvedValue({ id: 'user-b' } as User);
+    (dataSource.query as jest.Mock)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ count: 2 }]);
+    const manager = {
+      query: jest.fn().mockResolvedValue([{ conversation_id: 'conv-1' }]),
+      update: jest.fn().mockResolvedValue({ affected: 1, raw: {} }),
+    };
+    dataSource.transaction.mockImplementation(async (callback: any) => callback(manager));
+
+    await expect(service.createDirectConversation('user-a', 'user-b')).resolves.toEqual({ conversationId: 'conv-1' });
+
+    expect(manager.update).toHaveBeenCalledWith(
+      ConversationMember,
+      { conversationId: 'conv-1', userId: 'user-a' },
+      { hidden: false },
+    );
   });
 });

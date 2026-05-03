@@ -118,6 +118,7 @@ export class UserService {
 
       const device = manager.create(Device, {
         userId: savedUser.id,
+        signalDeviceId: 1,
         deviceName: input.device.deviceName,
         deviceType: input.device.deviceType,
         identityPublicKey: input.device.identityPublicKey,
@@ -401,20 +402,58 @@ export class UserService {
     signedPreKey: string;
     signedPreKeySignature: string;
     registrationId?: number;
-  }): Promise<{ deviceId: string }> {
-    const device = this.deviceRepository.create({
-      userId,
-      deviceName: deviceData.deviceName,
-      deviceType: deviceData.deviceType,
-      identityPublicKey: deviceData.identityPublicKey,
-      signedPreKey: deviceData.signedPreKey,
-      signedPreKeySignature: deviceData.signedPreKeySignature,
-      registrationId: deviceData.registrationId || randomInt(1, 65535),
-      lastActiveAt: new Date(),
-    });
+  }): Promise<{ deviceId: string; signalDeviceId: number }> {
+    const register = async (repository: Repository<Device>) => {
+      const signalDeviceId = await this.allocateSignalDeviceIdForUser(userId, repository);
+      const device = repository.create({
+        userId,
+        signalDeviceId,
+        deviceName: deviceData.deviceName,
+        deviceType: deviceData.deviceType,
+        identityPublicKey: deviceData.identityPublicKey,
+        signedPreKey: deviceData.signedPreKey,
+        signedPreKeySignature: deviceData.signedPreKeySignature,
+        registrationId: deviceData.registrationId || randomInt(1, 65535),
+        lastActiveAt: new Date(),
+      });
 
-    const savedDevice = await this.deviceRepository.save(device);
-    return { deviceId: savedDevice.id };
+      const savedDevice = await repository.save(device);
+      return { deviceId: savedDevice.id, signalDeviceId: savedDevice.signalDeviceId };
+    };
+
+    const manager = this.deviceRepository.manager;
+    if (manager?.transaction) {
+      return manager.transaction(async (transactionManager) => {
+        await transactionManager.query('SELECT pg_advisory_xact_lock(hashtext($1));', [`device:${userId}`]);
+        return register(transactionManager.getRepository(Device));
+      });
+    }
+
+    return register(this.deviceRepository);
+  }
+
+  private async allocateSignalDeviceIdForUser(
+    userId: string,
+    repository: Pick<Repository<Device>, 'find'>,
+  ): Promise<number> {
+    const devices = await repository.find({
+      where: { userId },
+      select: ['signalDeviceId'],
+      order: { signalDeviceId: 'ASC' },
+    });
+    const used = new Set(
+      devices
+        .map((device) => device.signalDeviceId)
+        .filter((value): value is number => Number.isInteger(value) && value >= 1 && value <= 127),
+    );
+
+    for (let candidate = 1; candidate <= 127; candidate += 1) {
+      if (!used.has(candidate)) {
+        return candidate;
+      }
+    }
+
+    throw new BadRequestException('Maximum Signal devices reached for this user');
   }
 
   async listDevices(userId: string): Promise<Array<{
@@ -425,6 +464,7 @@ export class UserService {
     signedPreKey: string;
     signedPreKeySignature: string;
     registrationId: number | null;
+    signalDeviceId: number;
     createdAt: string;
     lastActiveAt: string | null;
   }>> {
@@ -441,6 +481,7 @@ export class UserService {
       signedPreKey: device.signedPreKey,
       signedPreKeySignature: device.signedPreKeySignature,
       registrationId: device.registrationId,
+      signalDeviceId: device.signalDeviceId,
       createdAt: device.createdAt.toISOString(),
       lastActiveAt: device.lastActiveAt?.toISOString() || null,
     }));
@@ -649,11 +690,12 @@ export class UserService {
       signedPreKey: string;
       signedPreKeySignature: string;
       registrationId: number | null;
+      signalDeviceId: number;
     }>;
   }>> {
     const devices = await this.deviceRepository.find({
       where: { userId: In(userIds) },
-      select: ['id', 'userId', 'identityPublicKey', 'signedPreKey', 'signedPreKeySignature', 'registrationId'],
+      select: ['id', 'userId', 'identityPublicKey', 'signedPreKey', 'signedPreKeySignature', 'registrationId', 'signalDeviceId'],
     });
 
     const result = userIds.map(userId => ({
@@ -666,6 +708,7 @@ export class UserService {
           signedPreKey: device.signedPreKey,
           signedPreKeySignature: device.signedPreKeySignature,
           registrationId: device.registrationId,
+          signalDeviceId: device.signalDeviceId,
         })),
     }));
 
@@ -693,7 +736,9 @@ export class UserService {
    * 返回身份密钥、签名预密钥和一个一次性预密钥
    */
   async getPrekeyBundle(userId: string, deviceId: string): Promise<{
+    deviceId: string;
     registrationId: number;
+    signalDeviceId: number;
     identityKey: string;
     signedPrekey: {
       keyId: number;
@@ -714,7 +759,7 @@ export class UserService {
     // 获取设备信息
     const device = await this.deviceRepository.findOne({
       where: { id: deviceId, userId },
-      select: ['id', 'userId', 'identityPublicKey', 'signedPreKey', 'signedPreKeySignature', 'registrationId'],
+      select: ['id', 'userId', 'identityPublicKey', 'signedPreKey', 'signedPreKeySignature', 'registrationId', 'signalDeviceId'],
     });
 
     if (!device) {
@@ -729,7 +774,9 @@ export class UserService {
     });
 
     return {
+      deviceId: device.id,
       registrationId: device.registrationId || 0,
+      signalDeviceId: device.signalDeviceId,
       identityKey: device.identityPublicKey,
       signedPrekey: {
         keyId: 1, // 签名预密钥通常使用固定 keyId
@@ -755,7 +802,9 @@ export class UserService {
    * 获取预密钥包（不消耗预密钥，用于查询）
    */
   async peekPrekeyBundle(userId: string, deviceId: string): Promise<{
+    deviceId: string;
     registrationId: number;
+    signalDeviceId: number;
     identityKey: string;
     signedPrekey: {
       keyId: number;
@@ -767,7 +816,7 @@ export class UserService {
   } | null> {
     const device = await this.deviceRepository.findOne({
       where: { id: deviceId, userId },
-      select: ['id', 'userId', 'identityPublicKey', 'signedPreKey', 'signedPreKeySignature', 'registrationId'],
+      select: ['id', 'userId', 'identityPublicKey', 'signedPreKey', 'signedPreKeySignature', 'registrationId', 'signalDeviceId'],
     });
 
     if (!device) {
@@ -782,7 +831,9 @@ export class UserService {
     });
 
     return {
+      deviceId: device.id,
       registrationId: device.registrationId || 0,
+      signalDeviceId: device.signalDeviceId,
       identityKey: device.identityPublicKey,
       signedPrekey: {
         keyId: 1,
@@ -1049,7 +1100,7 @@ export class UserService {
       signedPreKeySignature: string;
       registrationId?: number;
     },
-  ): Promise<{ deviceId: string; success: boolean }> {
+  ): Promise<{ deviceId: string; signalDeviceId: number; success: boolean }> {
     try {
       const requestData = await this.redis.get(`linking:${temporaryToken}`);
       if (!requestData) {
@@ -1073,7 +1124,7 @@ export class UserService {
       }
 
       // 注册新设备
-      const { deviceId } = await this.registerDevice(userId, deviceData);
+      const { deviceId, signalDeviceId } = await this.registerDevice(userId, deviceData);
 
       // 标记链接请求为已确认
       request.confirmed = true;
@@ -1083,7 +1134,7 @@ export class UserService {
         JSON.stringify(request)
       );
 
-      return { deviceId, success: true };
+      return { deviceId, signalDeviceId, success: true };
     } catch (error) {
       if (error instanceof BadRequestException || error instanceof ForbiddenException) {
         throw error;

@@ -91,6 +91,7 @@ pub async fn get_registration_keys_command(
 pub async fn establish_session_command(
     recipient_id: String,
     recipient_device_id: String,
+    recipient_signal_device_id: u8,
     prekey_bundle: RemotePrekeyBundleDto,
     state: State<'_, AppState>,
 ) -> Result<bool, String> {
@@ -99,7 +100,7 @@ pub async fn establish_session_command(
         tauri::async_runtime::block_on(async move {
             let address = ProtocolAddress::new(
                 format!("{}#{}", recipient_id, recipient_device_id),
-                DeviceId::new(1).unwrap(),
+                device_id_from_signal_device_id(recipient_signal_device_id)?,
             );
             let bundle = convert_remote_prekey_bundle(prekey_bundle)?;
             let mut rng = OsRng.unwrap_err();
@@ -137,6 +138,7 @@ pub async fn establish_session_command(
 pub async fn encrypt_message_command(
     recipient_id: String,
     recipient_device_id: String,
+    recipient_signal_device_id: u8,
     plaintext: String,
     state: State<'_, AppState>,
 ) -> Result<EncryptedMessage, String> {
@@ -145,7 +147,7 @@ pub async fn encrypt_message_command(
         tauri::async_runtime::block_on(async move {
             let address = ProtocolAddress::new(
                 format!("{}#{}", recipient_id, recipient_device_id),
-                DeviceId::new(1).unwrap(),
+                device_id_from_signal_device_id(recipient_signal_device_id)?,
             );
             encrypt_with_persistent_store(store, &address, plaintext.as_bytes()).await
         })
@@ -158,6 +160,7 @@ pub async fn encrypt_message_command(
 pub async fn decrypt_message_command(
     sender_id: String,
     sender_device_id: String,
+    sender_signal_device_id: u8,
     encrypted: EncryptedMessage,
     state: State<'_, AppState>,
 ) -> Result<String, String> {
@@ -166,7 +169,7 @@ pub async fn decrypt_message_command(
         tauri::async_runtime::block_on(async move {
             let address = ProtocolAddress::new(
                 format!("{}#{}", sender_id, sender_device_id),
-                DeviceId::new(1).unwrap(),
+                device_id_from_signal_device_id(sender_signal_device_id)?,
             );
             let plaintext = decrypt_with_persistent_store(store, &address, &encrypted).await?;
             String::from_utf8(plaintext).map_err(|_| "Invalid UTF-8".to_string())
@@ -489,6 +492,7 @@ pub async fn decrypt_group_message_command(
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RemotePrekeyBundleDto {
     pub registration_id: u32,
+    pub signal_device_id: u8,
     pub identity_key: String,
     pub signed_prekey: RemoteSignedPrekeyDto,
     pub one_time_prekey: Option<RemoteOneTimePrekeyDto>,
@@ -575,7 +579,7 @@ fn convert_remote_prekey_bundle(input: RemotePrekeyBundleDto) -> Result<PreKeyBu
 
     PreKeyBundle::new(
         input.registration_id,
-        DeviceId::new(1).unwrap(),
+        device_id_from_signal_device_id(input.signal_device_id)?,
         prekey,
         SignedPreKeyId::from(input.signed_prekey.key_id),
         signed_public,
@@ -586,6 +590,11 @@ fn convert_remote_prekey_bundle(input: RemotePrekeyBundleDto) -> Result<PreKeyBu
         identity,
     )
     .map_err(|e| e.to_string())
+}
+
+fn device_id_from_signal_device_id(signal_device_id: u8) -> Result<DeviceId, String> {
+    DeviceId::new(signal_device_id)
+        .map_err(|_| format!("invalid signal_device_id: {}", signal_device_id))
 }
 
 async fn get_local_prekey_upload_impl(
@@ -679,6 +688,7 @@ mod tests {
             .expect("export bob bundle");
         let remote_bundle = RemotePrekeyBundleDto {
             registration_id: bob_bundle.registration_id,
+            signal_device_id: 7,
             identity_key: bob_bundle.identity_public_key,
             signed_prekey: bob_bundle.signed_prekey.clone(),
             one_time_prekey: bob_bundle.one_time_prekeys.first().cloned(),
@@ -686,7 +696,7 @@ mod tests {
         };
         let converted = convert_remote_prekey_bundle(remote_bundle).expect("convert remote bundle");
 
-        let bob_addr = ProtocolAddress::new("bob#device".to_string(), DeviceId::new(1).unwrap());
+        let bob_addr = ProtocolAddress::new("bob#device".to_string(), DeviceId::new(7).unwrap());
         {
             let mut rng = OsRng.unwrap_err();
             let ptr = &mut alice_store as *mut SQLiteStore;

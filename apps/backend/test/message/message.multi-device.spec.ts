@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { DataSource, EntityManager, Repository } from 'typeorm';
 import Redis from 'ioredis';
 import { RequestUser } from '../../src/common/decorators/current-user.decorator';
@@ -76,13 +76,13 @@ describe('MessageService sendMessageV2', () => {
     conversationType?: number;
     existingMessage?: Message | null;
     existingEnvelopes?: MessageDeviceEnvelope[];
-    ownDeviceRows?: Array<{ id: string }>;
+    ownDeviceRows?: Array<{ id: string; signal_device_id?: number }>;
     memberRows?: Array<{ user_id: string }>;
     targetDeviceRows?: Array<{ device_id: string; user_id: string }>;
   } = {}): MockManager => {
     const query = jest.fn(async (sql: string, _params?: unknown[]) => {
-      if (sql.includes('SELECT id FROM devices WHERE id = $1 AND user_id = $2 LIMIT 1;')) {
-        return overrides.ownDeviceRows ?? [{ id: senderDeviceId }];
+      if (sql.includes('SELECT id, signal_device_id FROM devices WHERE id = $1 AND user_id = $2 LIMIT 1;')) {
+        return overrides.ownDeviceRows ?? [{ id: senderDeviceId, signal_device_id: 9 }];
       }
       if (sql.includes('cm.user_id <> $2')) {
         return (overrides.targetDeviceRows ?? [
@@ -164,6 +164,10 @@ describe('MessageService sendMessageV2', () => {
     } as unknown as jest.Mocked<DataSource>;
     conversationService = {
       assertMember: jest.fn().mockResolvedValue(undefined),
+      assertCanSendDirectMessage: jest.fn().mockResolvedValue(undefined),
+      assertBidirectionalFriends: jest.fn().mockResolvedValue(undefined),
+      unhideConversationForUsers: jest.fn().mockResolvedValue(undefined),
+      getDirectPeerUserId: jest.fn().mockResolvedValue(recipientUserId),
       findById: jest.fn().mockResolvedValue({ id: conversationId, type: 1 } as Conversation),
     } as unknown as jest.Mocked<ConversationService>;
     messageGateway = {} as jest.Mocked<MessageGateway>;
@@ -205,6 +209,8 @@ describe('MessageService sendMessageV2', () => {
       messageIndex: '1',
     });
     expect(conversationService.assertMember).toHaveBeenCalledWith(conversationId, senderId);
+    expect(conversationService.assertCanSendDirectMessage).toHaveBeenCalledWith(senderId, recipientUserId);
+    expect((conversationService as any).assertBidirectionalFriends).toHaveBeenCalledWith(senderId, recipientUserId);
     expect(manager.save).toHaveBeenNthCalledWith(
       1,
       Message,
@@ -212,6 +218,7 @@ describe('MessageService sendMessageV2', () => {
         conversationId,
         senderId,
         sourceDeviceId: senderDeviceId,
+        sourceSignalDeviceId: 9,
         encryptedPayload: null,
         nonce: dto.nonce,
       }),
@@ -247,12 +254,27 @@ describe('MessageService sendMessageV2', () => {
     );
   });
 
+  it('rejects direct sends to existing conversations when users are no longer friends', async () => {
+    ((conversationService as any).assertBidirectionalFriends as jest.Mock).mockRejectedValue(
+      new ForbiddenException('You can only message friends'),
+    );
+
+    await expect(service.sendMessageV2(user, dto)).rejects.toThrow(
+      new ForbiddenException('You can only message friends'),
+    );
+
+    expect(conversationService.assertCanSendDirectMessage).toHaveBeenCalledWith(senderId, recipientUserId);
+    expect((conversationService as any).assertBidirectionalFriends).toHaveBeenCalledWith(senderId, recipientUserId);
+    expect(dataSource.transaction).not.toHaveBeenCalled();
+  });
+
   it('dedupes an identical nonce replay without saving duplicate rows or emitting events', async () => {
     const existingMessage = {
       id: '88888888-8888-4888-8888-888888888888',
       conversationId,
       senderId,
       sourceDeviceId: senderDeviceId,
+      sourceSignalDeviceId: 9,
       messageType: 1,
       encryptedPayload: null,
       nonce: dto.nonce,
@@ -446,6 +468,10 @@ describe('MessageService queryMessages', () => {
     } as unknown as jest.Mocked<DataSource>;
     conversationService = {
       assertMember: jest.fn().mockResolvedValue(undefined),
+      assertCanSendDirectMessage: jest.fn().mockResolvedValue(undefined),
+      assertBidirectionalFriends: jest.fn().mockResolvedValue(undefined),
+      unhideConversationForUsers: jest.fn().mockResolvedValue(undefined),
+      getDirectPeerUserId: jest.fn().mockResolvedValue(null),
       findById: jest.fn().mockResolvedValue({ id: conversationId, type: 2 } as Conversation),
     } as unknown as jest.Mocked<ConversationService>;
     messageGateway = {} as jest.Mocked<MessageGateway>;
@@ -660,6 +686,11 @@ describe('MessageService sendMessage (group rust payload)', () => {
     } as unknown as jest.Mocked<DataSource>;
     conversationService = {
       assertMember: jest.fn().mockResolvedValue(undefined),
+      assertCanSendDirectMessage: jest.fn().mockResolvedValue(undefined),
+      assertBidirectionalFriends: jest.fn().mockResolvedValue(undefined),
+      unhideConversationForAllMembers: jest.fn().mockResolvedValue(undefined),
+      unhideConversationForUsers: jest.fn().mockResolvedValue(undefined),
+      getDirectPeerUserId: jest.fn().mockResolvedValue(null),
     } as unknown as jest.Mocked<ConversationService>;
     messageGateway = {} as jest.Mocked<MessageGateway>;
     notificationService = {} as jest.Mocked<NotificationService>;
@@ -739,6 +770,7 @@ describe('MessageService sendMessage (group rust payload)', () => {
       expect.stringContaining('INSERT INTO sender_keys'),
       [conversationId, senderId, 'Y2hhaW4='],
     );
+    expect((conversationService as any).unhideConversationForAllMembers).toHaveBeenCalledWith(conversationId);
   });
 
   it('rejects non rust-group payload for group conversations', async () => {
@@ -900,6 +932,10 @@ describe('MessageService forwardMessage', () => {
     } as unknown as jest.Mocked<DataSource>;
     conversationService = {
       assertMember: jest.fn().mockResolvedValue(undefined),
+      assertCanSendDirectMessage: jest.fn().mockResolvedValue(undefined),
+      assertBidirectionalFriends: jest.fn().mockResolvedValue(undefined),
+      unhideConversationForUsers: jest.fn().mockResolvedValue(undefined),
+      getDirectPeerUserId: jest.fn().mockResolvedValue(recipientUserId),
       findById: jest.fn().mockResolvedValue({ id: conversationId, type: 1 } as Conversation),
     } as unknown as jest.Mocked<ConversationService>;
     messageGateway = {} as jest.Mocked<MessageGateway>;
@@ -976,6 +1012,61 @@ describe('MessageService forwardMessage', () => {
       }),
     ).rejects.toThrow(new BadRequestException('服务端转发仅支持单聊会话'));
 
+    expect(dataSource.transaction).not.toHaveBeenCalled();
+  });
+
+  it('checks block guard before forwarding into a direct conversation', async () => {
+    const legacyMessage = {
+      id: originalMessageId,
+      conversationId,
+      senderId: 'aaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      messageType: 1,
+      encryptedPayload: 'legacy-ciphertext',
+      mediaAssetId: null,
+      isBurn: false,
+      burnDuration: null,
+    } as Message;
+    const manager = buildManager({ originalMessage: legacyMessage });
+    messageRepository.findOne.mockResolvedValue(legacyMessage);
+    dataSource.transaction.mockImplementation(async (...args: unknown[]) => {
+      const callback = args.at(-1) as (em: EntityManager) => Promise<unknown>;
+      return callback(manager as unknown as EntityManager);
+    });
+    jest.spyOn<any, any>(service as any, 'handleMessageSentEvent').mockResolvedValue(undefined);
+
+    await service.forwardMessage(userId, {
+      conversationId,
+      originalMessageId,
+    });
+
+    expect(conversationService.assertCanSendDirectMessage).toHaveBeenCalled();
+  });
+
+  it('rejects forwarding into existing direct conversations when users are no longer friends', async () => {
+    const legacyMessage = {
+      id: originalMessageId,
+      conversationId,
+      senderId: 'aaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      messageType: 1,
+      encryptedPayload: 'legacy-ciphertext',
+      mediaAssetId: null,
+      isBurn: false,
+      burnDuration: null,
+    } as Message;
+    messageRepository.findOne.mockResolvedValue(legacyMessage);
+    ((conversationService as any).assertBidirectionalFriends as jest.Mock).mockRejectedValue(
+      new ForbiddenException('You can only message friends'),
+    );
+
+    await expect(
+      service.forwardMessage(userId, {
+        conversationId,
+        originalMessageId,
+      }),
+    ).rejects.toThrow(new ForbiddenException('You can only message friends'));
+
+    expect(conversationService.assertCanSendDirectMessage).toHaveBeenCalledWith(userId, recipientUserId);
+    expect((conversationService as any).assertBidirectionalFriends).toHaveBeenCalledWith(userId, recipientUserId);
     expect(dataSource.transaction).not.toHaveBeenCalled();
   });
 

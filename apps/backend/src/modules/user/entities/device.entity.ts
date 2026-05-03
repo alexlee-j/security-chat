@@ -36,6 +36,9 @@ export class Device {
   @Column({ name: 'registration_id', type: 'int', nullable: true })
   registrationId!: number | null;
 
+  @Column({ name: 'signal_device_id', type: 'smallint' })
+  signalDeviceId!: number;
+
   @Column({ name: 'signal_version', type: 'varchar', length: 20, default: 'v1' })
   signalVersion!: string;
 

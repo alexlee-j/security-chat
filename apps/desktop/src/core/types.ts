@@ -13,6 +13,7 @@ export type AuthResult = {
   refreshToken: string;
   userId: string;
   deviceId: string;
+  signalDeviceId?: number;
 };
 
 export type ConversationListItem = {
@@ -21,6 +22,7 @@ export type ConversationListItem = {
   defaultBurnEnabled: boolean;
   defaultBurnDuration: number | null;
   unreadCount: number;
+  hidden?: boolean;
   peerUser: { userId: string; username: string; avatarUrl: string | null; isOnline?: boolean } | null;
   groupInfo: { name: string; memberCount: number; avatarUrl?: string | null } | null;
   lastMessage: {
@@ -41,6 +43,7 @@ export type MessageItem = {
   conversationId: string;
   senderId: string;
   sourceDeviceId?: string;
+  sourceSignalDeviceId?: number;
   messageType: number;
   encryptedPayload: string;
   nonce: string;
@@ -61,6 +64,7 @@ export type PendingDirectEnvelopeItem = {
   conversationId: string;
   senderId: string;
   sourceDeviceId?: string | null;
+  sourceSignalDeviceId?: number | null;
   messageType: number;
   encryptedPayload: string;
   nonce: string;

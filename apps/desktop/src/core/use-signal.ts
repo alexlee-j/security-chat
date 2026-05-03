@@ -42,8 +42,8 @@ export type SignalState = {
 export type SignalActions = {
   initialize: (userId?: string) => Promise<void>;
   uploadPrekeys: () => Promise<void>;
-  encryptMessage: (recipientUserId: string, recipientDeviceId: string, plaintext: string) => Promise<string>;
-  decryptMessage: (senderUserId: string, senderDeviceId: string, encryptedMessage: string) => Promise<string>;
+  encryptMessage: (recipientUserId: string, recipientDeviceId: string, recipientSignalDeviceId: number, plaintext: string) => Promise<string>;
+  decryptMessage: (senderUserId: string, senderDeviceId: string, senderSignalDeviceId: number, encryptedMessage: string) => Promise<string>;
   syncGroupMembers: (groupId: string, memberUserIds: string[]) => Promise<void>;
   encryptGroupMessage: (groupId: string, plaintext: string) => Promise<string>;
   decryptGroupMessage: (groupId: string, encryptedMessage: string) => Promise<string>;
@@ -181,7 +181,7 @@ export function useSignal(): { state: SignalState; actions: SignalActions } {
    * 加密消息
    * 如果预密钥不足，会自动补充
    */
-  const encryptMessage = async (recipientUserId: string, recipientDeviceId: string, plaintext: string): Promise<string> => {
+  const encryptMessage = async (recipientUserId: string, recipientDeviceId: string, recipientSignalDeviceId: number, plaintext: string): Promise<string> => {
     try {
       if (!state.initialized) {
         await initialize();
@@ -193,6 +193,7 @@ export function useSignal(): { state: SignalState; actions: SignalActions } {
       const encryptedMessage = await messageEncryptionService.encryptMessage(
         recipientUserId,
         recipientDeviceId,
+        recipientSignalDeviceId,
         plaintext
       );
 
@@ -212,7 +213,7 @@ export function useSignal(): { state: SignalState; actions: SignalActions } {
   /**
    * 解密消息
    */
-  const decryptMessage = async (senderUserId: string, senderDeviceId: string, encryptedMessage: string): Promise<string> => {
+  const decryptMessage = async (senderUserId: string, senderDeviceId: string, senderSignalDeviceId: number, encryptedMessage: string): Promise<string> => {
     try {
       if (!state.initialized) {
         await initialize();
@@ -237,6 +238,7 @@ export function useSignal(): { state: SignalState; actions: SignalActions } {
       const plaintext = await messageEncryptionService.decryptMessage(
         senderUserId,
         senderDeviceId,
+        senderSignalDeviceId,
         encryptedMessageObj
       );
 

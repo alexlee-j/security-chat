@@ -70,6 +70,7 @@ async function main(): Promise<void> {
   conversationId: 'conversation-1',
   senderId: 'user-2',
   sourceDeviceId: 'device-2',
+  sourceSignalDeviceId: 11,
   messageType: 1,
   encryptedPayload: 'ciphertext',
   nonce: 'nonce-pending',
@@ -85,6 +86,7 @@ async function main(): Promise<void> {
   const pendingItem = pendingEnvelopeToMessageItem(pending);
   assert.equal(pendingItem.id, 'message-pending');
   assert.equal(pendingItem.sourceDeviceId, 'device-2');
+  assert.equal(pendingItem.sourceSignalDeviceId, 11);
   assert.equal(pendingItem.encryptedPayload, 'ciphertext');
   assert.equal(pendingItem.messageIndex, '13');
   assert.equal(pendingItem.localDeliveryState, 'replayed');
@@ -93,8 +95,8 @@ async function main(): Promise<void> {
   const processed = await processPendingDirectEnvelopes({
   pendingRows: [pending],
   afterIndex: 12,
-  decodePayload: async () => {
-    operations.push('decode');
+  decodePayload: async (_payload, _senderId, sourceDeviceId, _conversationId, sourceSignalDeviceId) => {
+    operations.push(`decode:${sourceDeviceId}:${sourceSignalDeviceId}`);
     return 'decrypted text';
   },
   ensureLocalConversation: async () => {
@@ -109,7 +111,7 @@ async function main(): Promise<void> {
   now: () => Date.parse('2026-04-28T00:00:03.000Z'),
   });
   assert.deepEqual(operations, [
-  'decode',
+  'decode:device-2:11',
   'ensure',
   'save:message-pending:decrypted text',
   'ack:message-pending:13',
@@ -164,24 +166,24 @@ async function main(): Promise<void> {
       {
         userId: 'bob',
         devices: [
-          { deviceId: 'bob-phone' },
-          { deviceId: 'bob-desktop' },
+          { deviceId: 'bob-phone', signalDeviceId: 2 },
+          { deviceId: 'bob-desktop', signalDeviceId: 3 },
         ],
       },
       {
         userId: 'alice',
         devices: [
-          { deviceId: 'alice-phone' },
-          { deviceId: 'alice-desktop' },
+          { deviceId: 'alice-phone', signalDeviceId: 4 },
+          { deviceId: 'alice-desktop', signalDeviceId: 5 },
         ],
       },
     ],
   });
   assert.deepEqual(targets, [
-    { targetUserId: 'bob', targetDeviceId: 'bob-phone' },
-    { targetUserId: 'bob', targetDeviceId: 'bob-desktop' },
-    { targetUserId: 'alice', targetDeviceId: 'alice-phone' },
-    { targetUserId: 'alice', targetDeviceId: 'alice-desktop' },
+    { targetUserId: 'bob', targetDeviceId: 'bob-phone', targetSignalDeviceId: 2 },
+    { targetUserId: 'bob', targetDeviceId: 'bob-desktop', targetSignalDeviceId: 3 },
+    { targetUserId: 'alice', targetDeviceId: 'alice-phone', targetSignalDeviceId: 4 },
+    { targetUserId: 'alice', targetDeviceId: 'alice-desktop', targetSignalDeviceId: 5 },
   ]);
 
   const serverDirectConversation: ConversationListItem = {

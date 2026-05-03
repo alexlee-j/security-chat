@@ -14,13 +14,14 @@ export type DirectEnvelopeTargetInput = {
   currentUserId?: string | null;
   deviceInfoList: Array<{
     userId: string;
-    devices: Array<{ deviceId: string }>;
+    devices: Array<{ deviceId: string; signalDeviceId: number }>;
   }>;
 };
 
 export type DirectEnvelopeTarget = {
   targetUserId: string;
   targetDeviceId: string;
+  targetSignalDeviceId: number;
 };
 
 export function buildDirectEnvelopeTargets(input: DirectEnvelopeTargetInput): DirectEnvelopeTarget[] {
@@ -30,6 +31,7 @@ export function buildDirectEnvelopeTargets(input: DirectEnvelopeTargetInput): Di
     targets.push({
       targetUserId: input.recipientUserId,
       targetDeviceId: recipientDevice.deviceId,
+      targetSignalDeviceId: recipientDevice.signalDeviceId,
     });
   }
 
@@ -39,6 +41,7 @@ export function buildDirectEnvelopeTargets(input: DirectEnvelopeTargetInput): Di
       targets.push({
         targetUserId: input.currentUserId,
         targetDeviceId: selfDevice.deviceId,
+        targetSignalDeviceId: selfDevice.signalDeviceId,
       });
     }
   }
@@ -72,6 +75,7 @@ export function pendingEnvelopeToMessageItem(row: PendingDirectEnvelopeItem): Me
     conversationId: row.conversationId,
     senderId: row.senderId,
     sourceDeviceId: row.sourceDeviceId ?? undefined,
+    sourceSignalDeviceId: row.sourceSignalDeviceId ?? undefined,
     messageType: row.messageType,
     encryptedPayload: row.encryptedPayload,
     nonce: row.nonce,
@@ -190,6 +194,7 @@ type DecodePendingPayload = (
   senderId: string,
   sourceDeviceId: string | undefined,
   conversationId: string,
+  sourceSignalDeviceId: number | undefined,
 ) => Promise<string | null>;
 
 type SaveLocalMessage = (row: LocalMessage) => Promise<void>;
@@ -226,6 +231,7 @@ export async function processPendingDirectEnvelopes(
         row.senderId,
         row.sourceDeviceId,
         row.conversationId,
+        row.sourceSignalDeviceId,
       );
       if (!decrypted) {
         continue;

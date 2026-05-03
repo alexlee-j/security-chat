@@ -45,9 +45,9 @@ const AUTH_TOKEN_UPDATED_EVENT = 'security-chat:auth-token-updated';
 const AUTH_SESSION_EXPIRED_EVENT = 'security-chat:auth-session-expired';
 const REFRESH_EXPIRES_MS = 7 * 24 * 60 * 60 * 1000;
 
-let refreshAccessTokenPromise: Promise<{ accessToken: string; refreshToken: string; userId: string; deviceId: string } | null> | null = null;
+let refreshAccessTokenPromise: Promise<AuthResult | null> | null = null;
 
-function notifyAuthTokenUpdated(payload: { accessToken: string; userId: string; deviceId: string }): void {
+function notifyAuthTokenUpdated(payload: AuthResult): void {
   if (typeof window === 'undefined') {
     return;
   }
@@ -61,7 +61,7 @@ function notifyAuthSessionExpired(): void {
   window.dispatchEvent(new Event(AUTH_SESSION_EXPIRED_EVENT));
 }
 
-async function refreshAuthToken(): Promise<{ accessToken: string; refreshToken: string; userId: string; deviceId: string } | null> {
+async function refreshAuthToken(): Promise<AuthResult | null> {
   if (!refreshAccessTokenPromise) {
     refreshAccessTokenPromise = (async () => {
       const autoLogin = await getAutoLogin().catch(() => null);
@@ -619,7 +619,9 @@ export interface SignalInfo {
 }
 
 export interface PrekeyBundle {
+  deviceId: string;
   registrationId: number;
+  signalDeviceId: number;
   identityKey: string;
   signedPrekey: {
     keyId: number;
@@ -639,7 +641,9 @@ export interface PrekeyBundle {
 }
 
 export interface PrekeyBundlePeek {
+  deviceId: string;
   registrationId: number;
+  signalDeviceId: number;
   identityKey: string;
   signedPrekey: {
     keyId: number;
@@ -659,6 +663,7 @@ export interface PrekeyStats {
 
 export interface DeviceInfo {
   deviceId: string;
+  signalDeviceId: number;
   identityPublicKey: string;
   signedPreKey: string;
   signedPreKeySignature: string;
@@ -753,8 +758,8 @@ export interface LinkDeviceData {
   registrationId?: number;
 }
 
-export async function confirmLinkDevice(temporaryToken: string, deviceData: LinkDeviceData): Promise<{ deviceId: string; success: boolean }> {
-  const res = await http.post<ApiEnvelope<{ deviceId: string; success: boolean }>>('/user/device/linking/confirm', { temporaryToken, ...deviceData });
+export async function confirmLinkDevice(temporaryToken: string, deviceData: LinkDeviceData): Promise<{ deviceId: string; signalDeviceId: number; success: boolean }> {
+  const res = await http.post<ApiEnvelope<{ deviceId: string; signalDeviceId: number; success: boolean }>>('/user/device/linking/confirm', { temporaryToken, ...deviceData });
   return res.data.data;
 }
 
@@ -783,6 +788,7 @@ export async function getDevices(): Promise<Array<{
   signedPreKey: string;
   signedPreKeySignature: string;
   registrationId: number | null;
+  signalDeviceId: number;
   createdAt: string;
   lastActiveAt: string | null;
 }>> {
@@ -794,6 +800,7 @@ export async function getDevices(): Promise<Array<{
     signedPreKey: string;
     signedPreKeySignature: string;
     registrationId: number | null;
+    signalDeviceId: number;
     createdAt: string;
     lastActiveAt: string | null;
   }>>>('/user/device/list');

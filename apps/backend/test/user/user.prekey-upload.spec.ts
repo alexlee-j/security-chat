@@ -108,3 +108,70 @@ describe('UserService.uploadOneTimePrekeys idempotency', () => {
   });
 });
 
+describe('UserService device signal ids', () => {
+  const userId = '7f0cb20d-2a58-43f1-a6fc-0870d02f0f01';
+
+  let service: UserService;
+  let deviceRepository: {
+    find: jest.Mock;
+    create: jest.Mock;
+    save: jest.Mock;
+    findOne: jest.Mock;
+  };
+
+  beforeEach(() => {
+    deviceRepository = {
+      find: jest.fn().mockResolvedValue([{ signalDeviceId: 1 }, { signalDeviceId: 3 }]),
+      create: jest.fn((input) => input),
+      save: jest.fn(async (input) => ({ id: 'device-new', ...input })),
+      findOne: jest.fn(),
+    };
+
+    service = new UserService(
+      {} as any,
+      deviceRepository as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+    );
+  });
+
+  it('assigns the smallest available per-user signalDeviceId when registering a device', async () => {
+    const result = await service.registerDevice(userId, {
+      deviceName: 'Mac',
+      deviceType: 'mac',
+      identityPublicKey: 'identity',
+      signedPreKey: 'signed',
+      signedPreKeySignature: 'signature',
+      registrationId: 31337,
+    });
+
+    expect(deviceRepository.create).toHaveBeenCalledWith(expect.objectContaining({ signalDeviceId: 2 }));
+    expect(result).toEqual({ deviceId: 'device-new', signalDeviceId: 2 });
+  });
+
+  it('returns signalDeviceId in prekey bundles without deriving it from registrationId', async () => {
+    deviceRepository.findOne.mockResolvedValueOnce({
+      id: 'device-remote',
+      userId: 'peer-user',
+      identityPublicKey: 'identity',
+      signedPreKey: 'signed',
+      signedPreKeySignature: 'signature',
+      registrationId: 31337,
+      signalDeviceId: 7,
+    });
+    (service as any).getAndConsumeNextPrekey = jest.fn().mockResolvedValue(null);
+    (service as any).kyberPrekeyRepository = {
+      findOne: jest.fn().mockResolvedValue(null),
+    };
+
+    const bundle = await service.getPrekeyBundle('peer-user', 'device-remote');
+
+    expect(bundle).toEqual(expect.objectContaining({
+      deviceId: 'device-remote',
+      registrationId: 31337,
+      signalDeviceId: 7,
+    }));
+  });
+});

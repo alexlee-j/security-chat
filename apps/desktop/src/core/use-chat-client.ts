@@ -362,6 +362,7 @@ export function useChatClient(): {
   const payloadCacheRef = useRef<Map<string, string>>(new Map());
   // 群聊会话同步缓存：Map<conversationId, sortedMemberIdsSignature>
   const groupSyncSignatureRef = useRef<Map<string, string>>(new Map());
+  const signalDeviceIdCacheRef = useRef<Map<string, number>>(new Map());
   // 失败消息重试缓存：Map<localMessageId, pendingRequest>
   const retryRequestRef = useRef<Record<string, PendingRetryRequest>>({});
   // Toast 定时器引用，用于清理
@@ -427,11 +428,34 @@ export function useChatClient(): {
     groupSyncSignatureRef.current.set(conversationId, signature);
   }
 
+  async function resolveSignalDeviceId(userId: string, deviceId: string): Promise<number> {
+    const cacheKey = `${userId}:${deviceId}`;
+    const cached = signalDeviceIdCacheRef.current.get(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
+    const deviceInfoList = await getDevicesByUserIds([userId]);
+    const device = deviceInfoList
+      .find((info) => info.userId === userId)
+      ?.devices.find((item) => item.deviceId === deviceId);
+    if (!device?.signalDeviceId) {
+      throw new Error('signalDeviceId is required for Signal decryption');
+    }
+    signalDeviceIdCacheRef.current.set(cacheKey, device.signalDeviceId);
+    return device.signalDeviceId;
+  }
+
+  function canStartDirectConversationWith(userId: string): boolean {
+    return friends.some((friend) => friend.userId === userId);
+  }
+
   /**
    * 解密消息 payload
    * @param payload - 加密的 payload 字符串
    * @param senderId - 发送者ID（用于Signal协议解密）
    * @param sourceDeviceId - 发送设备ID（用于Signal协议解密）
+   * @param sourceSignalDeviceId - 发送设备的 Signal DeviceId；旧数据缺失时才回查当前设备列表
    * @returns 解密后的字符串
    * @description 使用缓存机制避免重复解密，提升性能
    */
@@ -440,6 +464,7 @@ export function useChatClient(): {
     senderId?: string,
     sourceDeviceId?: string,
     conversationId?: string,
+    sourceSignalDeviceId?: number | null,
   ): Promise<string> => {
     if (payloadCacheRef.current.has(payload)) {
       return payloadCacheRef.current.get(payload)!;
@@ -462,7 +487,9 @@ export function useChatClient(): {
           if (!sourceDeviceId) {
             throw new Error('sourceDeviceId is required for Signal decryption in Rust-only mode');
           }
-          decrypted = await signalActions.decryptMessage(senderId, sourceDeviceId, payload);
+          const resolvedSourceSignalDeviceId =
+            sourceSignalDeviceId ?? (await resolveSignalDeviceId(senderId, sourceDeviceId));
+          decrypted = await signalActions.decryptMessage(senderId, sourceDeviceId, resolvedSourceSignalDeviceId, payload);
         }
       } else {
         // 使用默认解密
@@ -504,7 +531,7 @@ export function useChatClient(): {
         if (!payloadCacheRef.current.has(payload)) {
             const message = messagesRef.current.find(m => m.encryptedPayload === payload);
             if (message) {
-            void decodePayload(payload, message.senderId, message.sourceDeviceId, message.conversationId);
+            void decodePayload(payload, message.senderId, message.sourceDeviceId, message.conversationId, message.sourceSignalDeviceId);
           }
         }
       }, 0);
@@ -724,7 +751,8 @@ export function useChatClient(): {
     const dedupedRows = rows.filter(
       (row, index, array) => array.findIndex((item) => item.conversationId === row.conversationId) === index,
     );
-    const localPreviewRows = await applyLocalDirectPreviews(dedupedRows);
+    const visibleRows = dedupedRows.filter((row) => !row.hidden);
+    const localPreviewRows = await applyLocalDirectPreviews(visibleRows);
 
     // 更新会话类型同步数据源，供 WebSocket handler 同步查询
     for (const row of localPreviewRows) {
@@ -895,7 +923,7 @@ export function useChatClient(): {
       for (const row of rows) {
         if (!payloadCacheRef.current.has(row.encryptedPayload)) {
           try {
-            const decrypted = await decodePayload(row.encryptedPayload, row.senderId, row.sourceDeviceId, row.conversationId);
+            const decrypted = await decodePayload(row.encryptedPayload, row.senderId, row.sourceDeviceId, row.conversationId, row.sourceSignalDeviceId);
             payloadCacheRef.current.set(row.encryptedPayload, decrypted);
             // 同时按消息ID缓存，支持通过ID查找明文（如转发场景）
             payloadCacheRef.current.set(`msg:${row.id}`, decrypted);
@@ -962,7 +990,7 @@ export function useChatClient(): {
         for (const row of rows) {
           if (!payloadCacheRef.current.has(row.encryptedPayload)) {
             try {
-              const decrypted = await decodePayload(row.encryptedPayload, row.senderId, row.sourceDeviceId, row.conversationId);
+              const decrypted = await decodePayload(row.encryptedPayload, row.senderId, row.sourceDeviceId, row.conversationId, row.sourceSignalDeviceId);
               payloadCacheRef.current.set(row.encryptedPayload, decrypted);
               // 同时按消息ID缓存，支持通过ID查找明文（如转发场景）
               payloadCacheRef.current.set(`msg:${row.id}`, decrypted);
@@ -1017,7 +1045,7 @@ export function useChatClient(): {
       for (const row of rows) {
         if (!payloadCacheRef.current.has(row.encryptedPayload)) {
           try {
-            const decrypted = await decodePayload(row.encryptedPayload, row.senderId, row.sourceDeviceId, row.conversationId);
+            const decrypted = await decodePayload(row.encryptedPayload, row.senderId, row.sourceDeviceId, row.conversationId, row.sourceSignalDeviceId);
             payloadCacheRef.current.set(row.encryptedPayload, decrypted);
             // 同时按消息ID缓存，支持通过ID查找明文（如转发场景）
             payloadCacheRef.current.set(`msg:${row.id}`, decrypted);
@@ -1093,7 +1121,7 @@ export function useChatClient(): {
       for (const row of olderRows) {
         if (!payloadCacheRef.current.has(row.encryptedPayload)) {
           try {
-            const decrypted = await decodePayload(row.encryptedPayload, row.senderId, row.sourceDeviceId, row.conversationId);
+            const decrypted = await decodePayload(row.encryptedPayload, row.senderId, row.sourceDeviceId, row.conversationId, row.sourceSignalDeviceId);
             payloadCacheRef.current.set(row.encryptedPayload, decrypted);
             // 同时按消息ID缓存，支持通过ID查找明文（如转发场景）
             payloadCacheRef.current.set(`msg:${row.id}`, decrypted);
@@ -1214,6 +1242,7 @@ export function useChatClient(): {
               : null) || devices[0];
             // 使用 Signal actions 设置设备ID
             await signalActions.setDeviceId(selectedDevice.deviceId);
+            localStorage.setItem('security-chat-signal-device-id', String(selectedDevice.signalDeviceId));
             await setDeviceIdForAccount(accountToUse, selectedDevice.deviceId);
           }
         } catch (deviceError) {
@@ -1310,6 +1339,7 @@ export function useChatClient(): {
               ? devices.find((device) => device.deviceId === result.deviceId)
               : null) || devices[0];
             await signalActions.setDeviceId(selectedDevice.deviceId);
+            localStorage.setItem('security-chat-signal-device-id', String(selectedDevice.signalDeviceId));
             await setDeviceIdForAccount(accountToUse, selectedDevice.deviceId);
           }
         } catch (deviceError) {
@@ -1430,6 +1460,7 @@ export function useChatClient(): {
           
           // 更新本地存储中的设备ID
           await keyManager['secureStorage'].set('currentDeviceId', primaryDevice.deviceId);
+          localStorage.setItem('security-chat-signal-device-id', String(primaryDevice.signalDeviceId));
           await setDeviceIdForAccount(trimmedUsername, primaryDevice.deviceId);
           await setDeviceIdForAccount(trimmedEmail, primaryDevice.deviceId);
         }
@@ -1859,6 +1890,7 @@ export function useChatClient(): {
           const encryptedPayload = await signalActions.encryptMessage(
             targetDevice.targetUserId,
             targetDevice.targetDeviceId,
+            targetDevice.targetSignalDeviceId,
             serializedMessage,
           );
           envelopes.push({
@@ -2152,6 +2184,7 @@ export function useChatClient(): {
         message.senderId,
         message.sourceDeviceId,
         message.conversationId,
+        message.sourceSignalDeviceId,
       );
       const blob = await resolvePreviewMediaBlob({
         downloadedBlob,
@@ -2238,6 +2271,12 @@ export function useChatClient(): {
           targetUserId = searchResults[0].userId;
         }
       }
+
+      if (!canStartDirectConversationWith(targetUserId)) {
+        setError('只能向好友发起单聊。');
+        setCreatingDirect(false);
+        return;
+      }
       
       const result = await createDirectConversation(targetUserId);
       setPeerUserId('');
@@ -2264,6 +2303,10 @@ export function useChatClient(): {
     }
     setCreatingDirect(true);
     try {
+      if (!canStartDirectConversationWith(userId)) {
+        setError('只能向好友发起单聊。');
+        return;
+      }
       const result = await createDirectConversation(userId);
       setError('');
       // 先更新 ref，避免 loadConversations 中的自动选中逻辑覆盖
@@ -2408,6 +2451,7 @@ export function useChatClient(): {
         const encryptedPayload = await signalActions.encryptMessage(
           recipientUserId,
           recipientDevice.deviceId,
+          recipientDevice.signalDeviceId,
           messageText,
         );
         envelopes.push({
@@ -2425,6 +2469,7 @@ export function useChatClient(): {
           const encryptedPayload = await signalActions.encryptMessage(
             currentUserId,
             selfDevice.deviceId,
+            selfDevice.signalDeviceId,
             messageText,
           );
           envelopes.push({
@@ -2529,7 +2574,7 @@ export function useChatClient(): {
   async function onBlockUser(targetUserId: string): Promise<void> {
     try {
       await blockUser(targetUserId);
-      await Promise.all([loadFriendData(), refreshSearchResult()]);
+      await Promise.all([loadFriendData(), refreshSearchResult(), loadConversations()]);
       setError('');
     } catch {
       setError('拉黑失败。');
@@ -2584,7 +2629,7 @@ export function useChatClient(): {
         }
         if (!payloadCacheRef.current.has(row.encryptedPayload)) {
           try {
-            const decrypted = await decodePayload(row.encryptedPayload, row.senderId, row.sourceDeviceId, row.conversationId);
+            const decrypted = await decodePayload(row.encryptedPayload, row.senderId, row.sourceDeviceId, row.conversationId, row.sourceSignalDeviceId);
             payloadCacheRef.current.set(row.encryptedPayload, decrypted);
             // 同时按消息ID缓存，支持通过ID查找明文（如转发场景）
             payloadCacheRef.current.set(`msg:${row.id}`, decrypted);

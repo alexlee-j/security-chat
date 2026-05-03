@@ -13,7 +13,9 @@ export type RustGroupEncryptedMessage = {
 };
 
 export type RustPrekeyBundle = {
+  deviceId: string;
   registrationId: number;
+  signalDeviceId: number;
   identityKey: string;
   signedPrekey: {
     keyId: number;
@@ -114,13 +116,16 @@ export class RustSignalRuntime {
   async establishSession(
     recipientId: string,
     recipientDeviceId: string,
+    recipientSignalDeviceId: number,
     prekeyBundle: RustPrekeyBundle,
   ): Promise<boolean> {
     return await invoke('establish_session_command', {
       recipientId,
       recipientDeviceId,
+      recipientSignalDeviceId,
       prekeyBundle: {
         registration_id: prekeyBundle.registrationId,
+        signal_device_id: prekeyBundle.signalDeviceId,
         identity_key: prekeyBundle.identityKey,
         signed_prekey: {
           key_id: prekeyBundle.signedPrekey.keyId,
@@ -147,11 +152,13 @@ export class RustSignalRuntime {
   async encryptMessage(
     recipientId: string,
     recipientDeviceId: string,
+    recipientSignalDeviceId: number,
     plaintext: string,
   ): Promise<RustEncryptedMessage> {
     return await invoke('encrypt_message_command', {
       recipientId,
       recipientDeviceId,
+      recipientSignalDeviceId,
       plaintext,
     });
   }
@@ -159,11 +166,13 @@ export class RustSignalRuntime {
   async decryptMessage(
     senderId: string,
     senderDeviceId: string,
+    senderSignalDeviceId: number,
     encrypted: RustEncryptedMessage,
   ): Promise<string> {
     return await invoke('decrypt_message_command', {
       senderId,
       senderDeviceId,
+      senderSignalDeviceId,
       encrypted,
     });
   }

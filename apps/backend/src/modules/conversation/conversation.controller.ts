@@ -37,6 +37,7 @@ export class ConversationController {
       unreadCount: number;
       isPinned: boolean;
       isMuted: boolean;
+      hidden: boolean;
       isOnline?: boolean;
       peerUser: { userId: string; username: string; avatarUrl: string | null } | null;
       groupInfo: { name: string; memberCount: number } | null;

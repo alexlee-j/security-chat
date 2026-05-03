@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import Redis from 'ioredis';
-import { In, Repository } from 'typeorm';
+import { DataSource, In, Repository } from 'typeorm';
 import { REDIS_CLIENT } from '../../infra/redis/redis.module';
 import { User } from '../user/entities/user.entity';
 import { Friendship } from './entities/friendship.entity';
@@ -26,6 +26,7 @@ export class FriendService {
     private readonly userRepository: Repository<User>,
     @Inject(REDIS_CLIENT)
     private readonly redis: Redis,
+    private readonly dataSource: DataSource,
   ) {}
 
   async sendRequest(
@@ -333,7 +334,28 @@ export class FriendService {
       );
     }
 
+    await this.hideDirectConversationForUsers(userId, dto.targetUserId);
+
     return { blocked: true, targetUserId: dto.targetUserId };
+  }
+
+  private async hideDirectConversationForUsers(userId: string, targetUserId: string): Promise<void> {
+    await this.dataSource.query(
+      `
+      UPDATE conversation_members cm
+      SET hidden = true
+      WHERE cm.user_id IN ($1, $2)
+        AND EXISTS (
+          SELECT 1
+          FROM conversations c
+          INNER JOIN conversation_members a ON a.conversation_id = c.id AND a.user_id = $1
+          INNER JOIN conversation_members b ON b.conversation_id = c.id AND b.user_id = $2
+          WHERE c.type = 1
+            AND c.id = cm.conversation_id
+        );
+      `,
+      [userId, targetUserId],
+    );
   }
 
   async unblockUser(
