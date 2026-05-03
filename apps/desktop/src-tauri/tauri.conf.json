@@ -26,7 +26,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' ipc://localhost http://localhost:* http://127.0.0.1:* https://www.silencelee.cn wss://www.silencelee.cn blob:; img-src 'self' data: blob:; media-src 'self' blob:; frame-src 'self'"
+      "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' ipc://localhost http://ipc.localhost http://localhost:* http://127.0.0.1:* https://www.silencelee.cn wss://www.silencelee.cn blob:; img-src 'self' data: blob:; media-src 'self' blob:; frame-src 'self'"
     }
   },
   "bundle": {
