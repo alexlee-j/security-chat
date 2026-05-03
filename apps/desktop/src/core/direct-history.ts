@@ -75,6 +75,22 @@ export type RealtimeConversationSyncPlan = {
   localFirstDirect: boolean;
 };
 
+export type PayloadDecodeRouteInput = {
+  payload: string;
+  isGroupConversation: boolean;
+  hasSenderId: boolean;
+};
+
+export type PayloadDecodeRoute = 'group-signal' | 'direct-signal' | 'legacy';
+
+export function resolvePayloadDecodeRoute(input: PayloadDecodeRouteInput): PayloadDecodeRoute {
+  const isSignalEnvelopePayload = input.payload.trim().startsWith('{');
+  if (!isSignalEnvelopePayload || !input.hasSenderId) {
+    return 'legacy';
+  }
+  return input.isGroupConversation ? 'group-signal' : 'direct-signal';
+}
+
 export function resolveRealtimeConversationSyncPlan(
   input: RealtimeConversationSyncPlanInput,
 ): RealtimeConversationSyncPlan | null {
@@ -257,11 +273,25 @@ export type ProcessPendingDirectEnvelopesResult = {
   maxIndex: number;
 };
 
+function isDuplicateOrStaleSignalEnvelopeError(error: unknown): boolean {
+  const message =
+    error instanceof Error
+      ? error.message.toLowerCase()
+      : String(error ?? '').toLowerCase();
+  return (
+    message.includes('old counter')
+    || message.includes('message with old counter')
+    || message.includes('duplicate')
+    || message.includes('already processed')
+  );
+}
+
 export async function processPendingDirectEnvelopes(
   input: ProcessPendingDirectEnvelopesInput,
 ): Promise<ProcessPendingDirectEnvelopesResult> {
   const persistedRows: MessageItem[] = [];
   const ackedMessageIds: string[] = [];
+  let ackConversationId: string | null = null;
   let maxIndex = input.afterIndex;
 
   for (const pending of input.pendingRows) {
@@ -300,17 +330,28 @@ export async function processPendingDirectEnvelopes(
       input.onPersisted?.(row, decrypted);
       persistedRows.push(row);
       ackedMessageIds.push(row.id);
+      ackConversationId = row.conversationId;
       const rowIndex = Number(row.messageIndex);
       if (Number.isFinite(rowIndex)) {
         maxIndex = Math.max(maxIndex, rowIndex);
       }
     } catch (error) {
+      if (isDuplicateOrStaleSignalEnvelopeError(error)) {
+        // Envelope may already be decrypted on this device; ack it to stop replay noise.
+        ackedMessageIds.push(row.id);
+        ackConversationId = row.conversationId;
+        const rowIndex = Number(row.messageIndex);
+        if (Number.isFinite(rowIndex)) {
+          maxIndex = Math.max(maxIndex, rowIndex);
+        }
+        continue;
+      }
       console.error('Direct pending envelope processing failed:', error);
     }
   }
 
-  if (ackedMessageIds.length > 0) {
-    await input.ackPersisted?.(persistedRows[0].conversationId, ackedMessageIds, maxIndex);
+  if (ackedMessageIds.length > 0 && ackConversationId) {
+    await input.ackPersisted?.(ackConversationId, ackedMessageIds, maxIndex);
   }
 
   return { persistedRows, ackedMessageIds, maxIndex };

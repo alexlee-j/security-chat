@@ -79,6 +79,7 @@ import {
   loadDirectConversationLocalFirst,
   localMessageToMessageItem,
   processPendingDirectEnvelopes,
+  resolvePayloadDecodeRoute,
   resolveRealtimeConversationSyncPlan,
   retryTransportKind,
 } from './direct-history';
@@ -480,25 +481,24 @@ export function useChatClient(): {
     try {
       let decrypted: string;
       const isGroupConversation = conversations.find((c) => c.conversationId === conversationId)?.type === 2;
-      const isSignalEnvelopePayload = payload.trim().startsWith('{');
+      const decodeRoute = resolvePayloadDecodeRoute({
+        payload,
+        isGroupConversation,
+        hasSenderId: Boolean(senderId),
+      });
 
       // 群聊：优先走 Rust Sender Key 解密路径
-      if (isGroupConversation && signalState.initialized && senderId && conversationId) {
+      if (decodeRoute === 'group-signal' && senderId && conversationId) {
         await ensureGroupSessionSynced(conversationId);
         decrypted = await signalActions.decryptGroupMessage(conversationId, payload);
-      } else if (signalState.initialized && senderId) {
-        // 旧版自己发送消息仍可能是 Base64 payload；v2 self-envelope 必须走 Rust 解密。
-        if (senderId === authRef.current?.userId && !isSignalEnvelopePayload) {
-          decrypted = decodePayloadApi(payload);
-        } else {
-          // Rust-only 模式：sourceDeviceId 是必填的，不再接受 '1' 作为回退
-          if (!sourceDeviceId) {
-            throw new Error('sourceDeviceId is required for Signal decryption in Rust-only mode');
-          }
-          const resolvedSourceSignalDeviceId =
-            sourceSignalDeviceId ?? (await resolveSignalDeviceId(senderId, sourceDeviceId));
-          decrypted = await signalActions.decryptMessage(senderId, sourceDeviceId, resolvedSourceSignalDeviceId, payload);
+      } else if (decodeRoute === 'direct-signal' && senderId) {
+        // Rust-only 模式：sourceDeviceId 是必填的，不再接受 '1' 作为回退
+        if (!sourceDeviceId) {
+          throw new Error('sourceDeviceId is required for Signal decryption in Rust-only mode');
         }
+        const resolvedSourceSignalDeviceId =
+          sourceSignalDeviceId ?? (await resolveSignalDeviceId(senderId, sourceDeviceId));
+        decrypted = await signalActions.decryptMessage(senderId, sourceDeviceId, resolvedSourceSignalDeviceId, payload);
       } else {
         // 使用默认解密
         decrypted = decodePayloadApi(payload);
@@ -507,7 +507,11 @@ export function useChatClient(): {
       payloadCacheRef.current.set(payload, decrypted);
       return decrypted;
     } catch (error) {
-      console.error('Decryption failed:', error);
+      const detail = error instanceof Error ? error.message : String(error ?? '');
+      const isExpectedOldCounter = detail.toLowerCase().includes('old counter');
+      if (!isExpectedOldCounter) {
+        console.error('Decryption failed:', error);
+      }
       if (payload.trim().startsWith('{')) {
         throw error instanceof Error ? error : new Error('Signal payload decryption failed');
       }
@@ -599,6 +603,74 @@ export function useChatClient(): {
       }, 0),
     [conversations, mutedConversationIds],
   );
+
+  function applyConversationOnlineState(userId: string, isOnline: boolean): void {
+    if (!userId) {
+      return;
+    }
+    setConversations((prev) =>
+      prev.map((row) => {
+        if (row.type !== 1 || row.peerUser?.userId !== userId) {
+          return row;
+        }
+        return {
+          ...row,
+          peerUser: row.peerUser
+            ? {
+                ...row.peerUser,
+                isOnline,
+              }
+            : row.peerUser,
+        };
+      }),
+    );
+    setFriends((prev) =>
+      prev.map((row) => (row.userId === userId ? { ...row, online: isOnline } : row)),
+    );
+  }
+
+  function applyConversationReadProgress(
+    conversationId: string,
+    options: { markAllRead?: boolean; decrementBy?: number } = {},
+  ): void {
+    if (!conversationId) {
+      return;
+    }
+    const decrementBy = Math.max(0, Number(options.decrementBy ?? 0));
+    setConversations((prev) =>
+      prev.map((row) => {
+        if (row.conversationId !== conversationId) {
+          return row;
+        }
+        const currentUnread = Number(row.unreadCount ?? 0);
+        const nextUnread = options.markAllRead
+          ? 0
+          : Math.max(0, currentUnread - decrementBy);
+        if (nextUnread === currentUnread) {
+          return row;
+        }
+        return {
+          ...row,
+          unreadCount: nextUnread,
+        };
+      }),
+    );
+  }
+
+  async function ackConversationReadUpTo(conversationId: string, maxIndex: number): Promise<void> {
+    if (!conversationId || !Number.isFinite(maxIndex) || maxIndex <= 0) {
+      return;
+    }
+    try {
+      await Promise.all([ackDelivered(conversationId, maxIndex), ackRead(conversationId, maxIndex)]);
+      if (authRef.current) {
+        applyReadAckToActiveMessages(conversationId, maxIndex, authRef.current.userId, new Date().toISOString());
+      }
+      applyConversationReadProgress(conversationId, { markAllRead: true });
+    } catch {
+      // keep UI responsive
+    }
+  }
 
   const isBurnExpired = (row: MessageItem, nowMs = Date.now()): boolean => {
     return isBurnExpiredMessage(row, nowMs);
@@ -763,7 +835,25 @@ export function useChatClient(): {
     const dedupedRows = rows.filter(
       (row, index, array) => array.findIndex((item) => item.conversationId === row.conversationId) === index,
     );
-    const visibleRows = dedupedRows.filter((row) => !row.hidden);
+    const normalizedRows = dedupedRows.map((row) => {
+      if (row.type !== 1 || !row.peerUser) {
+        return row;
+      }
+      const serverOnline = (row as ConversationListItem & { isOnline?: boolean }).isOnline;
+      return {
+        ...row,
+        peerUser: {
+          ...row.peerUser,
+          isOnline:
+            typeof row.peerUser.isOnline === 'boolean'
+              ? row.peerUser.isOnline
+              : typeof serverOnline === 'boolean'
+                ? serverOnline
+                : false,
+        },
+      };
+    });
+    const visibleRows = normalizedRows.filter((row) => !row.hidden);
     const localPreviewRows = await applyLocalDirectPreviews(visibleRows);
 
     // 更新会话类型同步数据源，供 WebSocket handler 同步查询
@@ -907,6 +997,7 @@ export function useChatClient(): {
       if (applyToActive && activeConversationIdRef.current === conversationId && persistedRows.length > 0) {
         const nowMs = Date.now();
         setMessages((prev) => mergeMessages(prev, persistedRows).filter((row) => !isBurnExpired(row, nowMs)));
+        void ackConversationReadUpTo(conversationId, maxIndex);
       }
     } catch (error) {
       console.error('同步待投递单聊消息失败:', error);
@@ -917,6 +1008,8 @@ export function useChatClient(): {
     if (shouldUseLocalFirstDirectHistory(conversationId)) {
       try {
         await loadDirectMessagesFromLocal(conversationId);
+        const latestMax = messageCursorRef.current[conversationId] ?? 0;
+        void ackConversationReadUpTo(conversationId, latestMax);
         setError('');
       } catch (error) {
         console.error('加载本地单聊消息失败:', error);
@@ -958,13 +1051,7 @@ export function useChatClient(): {
       const maxIndex = rows.reduce((max, row) => Math.max(max, Number(row.messageIndex)), 0);
       updateConversationCursor(conversationId, maxIndex);
       if (maxIndex > 0) {
-        await Promise.all([ackDelivered(conversationId, maxIndex), ackRead(conversationId, maxIndex)])
-          .then(() => {
-            if (authRef.current) {
-              applyReadAckToActiveMessages(conversationId, maxIndex, authRef.current.userId, new Date().toISOString());
-            }
-          })
-          .catch(() => {});
+        await ackConversationReadUpTo(conversationId, maxIndex);
       }
     } catch (error) {
       console.error('加载消息失败:', error);
@@ -1020,13 +1107,7 @@ export function useChatClient(): {
       const latestMax = [...currentRows, ...rows].reduce((max, row) => Math.max(max, Number(row.messageIndex)), 0);
       updateConversationCursor(conversationId, latestMax);
       if (latestMax > 0) {
-        await Promise.all([ackDelivered(conversationId, latestMax), ackRead(conversationId, latestMax)])
-          .then(() => {
-            if (authRef.current) {
-              applyReadAckToActiveMessages(conversationId, latestMax, authRef.current.userId, new Date().toISOString());
-            }
-          })
-          .catch(() => {});
+        await ackConversationReadUpTo(conversationId, latestMax);
       }
     } catch (error) {
       console.error('同步消息失败:', error);
@@ -1075,13 +1156,7 @@ export function useChatClient(): {
         const replayedRows = rows.map((row) => ({ ...row, localDeliveryState: 'replayed' as const }));
         setMessages((prev) => mergeMessages(prev, replayedRows).filter((row) => !isBurnExpired(row, nowMs)));
         void persistMessagesToLocal(replayedRows);
-        await Promise.all([ackDelivered(conversationId, maxIndex), ackRead(conversationId, maxIndex)])
-          .then(() => {
-            if (authRef.current) {
-              applyReadAckToActiveMessages(conversationId, maxIndex, authRef.current.userId, new Date().toISOString());
-            }
-          })
-          .catch(() => {});
+        await ackConversationReadUpTo(conversationId, maxIndex);
       }
     } catch (error) {
       console.error('同步会话游标失败:', error);
@@ -2229,6 +2304,12 @@ export function useChatClient(): {
           ),
         );
       }
+      applyConversationReadProgress(message.conversationId, { decrementBy: 1 });
+      if (shouldUseLocalFirstDirectHistory(message.conversationId)) {
+        void localDb.markMessageRead(message.id).catch((error) => {
+          console.warn('[LocalDb] Failed to mark direct message read locally:', error);
+        });
+      }
     } catch {
       // Keep UI responsive even if read-ack fails transiently.
     }
@@ -3016,6 +3097,9 @@ export function useChatClient(): {
         payload.ackAt ?? new Date().toISOString(),
       );
       void markDirectMessagesReadLocally(payload.conversationId, payload.maxMessageIndex, payload.ackByUserId);
+      if (payload.ackByUserId === authRef.current?.userId) {
+        applyConversationReadProgress(payload.conversationId, { markAllRead: true });
+      }
       onConversationEvent(payload);
     };
 
@@ -3078,6 +3162,12 @@ export function useChatClient(): {
     client.on('message.revoked', onMessageRevoked);
     client.on('burn.triggered', onBurnTriggered);
     client.on('conversation.updated', onConversationEvent);
+    client.on('user.status.updated', (payload: { userId?: string; isOnline?: boolean }) => {
+      if (!payload.userId || typeof payload.isOnline !== 'boolean') {
+        return;
+      }
+      applyConversationOnlineState(payload.userId, payload.isOnline);
+    });
     client.on('conversation.typing', (payload: { conversationId?: string; userId?: string; isTyping?: boolean }) => {
       if (!payload.conversationId || payload.conversationId !== activeConversationIdRef.current) {
         return;

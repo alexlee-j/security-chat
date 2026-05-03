@@ -5,5 +5,5 @@
 pub mod media;
 pub mod secure_key_provider;
 
-#[cfg(all(target_os = "macos", not(test)))]
+#[cfg(target_os = "macos")]
 pub mod mac_keychain;

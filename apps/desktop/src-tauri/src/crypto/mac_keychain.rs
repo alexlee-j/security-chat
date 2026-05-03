@@ -23,6 +23,14 @@ const SERVICE_NAME: &str = "com.security-chat.app";
 /// macOS Keychain 底层操作
 pub struct MacKeychain;
 
+fn is_not_found_error_message(error_message: &str) -> bool {
+    let normalized = error_message.to_ascii_lowercase();
+    normalized.contains("itemnotfound")
+        || normalized.contains("errsecitemnotfound")
+        || normalized.contains("could not be found")
+        || normalized.contains("not found")
+}
+
 impl MacKeychain {
     /// 存储密钥到 Keychain
     ///
@@ -47,12 +55,26 @@ impl MacKeychain {
             Ok(data) => Ok(data),
             Err(e) => {
                 let err_str = e.to_string();
-                if err_str.contains("ItemNotFound") || err_str.contains("not found") {
+                if is_not_found_error_message(&err_str) {
                     Err(KeychainError::NotFound(key_type.to_string()))
                 } else {
                     Err(KeychainError::SecurityFramework(err_str))
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_not_found_error_message;
+
+    #[test]
+    fn detects_not_found_message_variants() {
+        assert!(is_not_found_error_message(
+            "The specified item could not be found in the keychain."
+        ));
+        assert!(is_not_found_error_message("ItemNotFound"));
+        assert!(is_not_found_error_message("errSecItemNotFound"));
     }
 }

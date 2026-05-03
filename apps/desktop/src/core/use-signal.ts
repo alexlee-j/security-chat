@@ -78,6 +78,12 @@ export function useSignal(): { state: SignalState; actions: SignalActions } {
   const initializedRef = useRef(false);
   const rustSignalRef = useRef<RustSignalRuntime | null>(null);
 
+  const isExpectedOldCounterError = (error: unknown): boolean => {
+    const message = error instanceof Error ? error.message : String(error ?? '');
+    const normalized = message.toLowerCase();
+    return normalized.includes('old counter') || normalized.includes('message with old counter');
+  };
+
   /**
    * 检查预密钥状态
    */
@@ -244,8 +250,11 @@ export function useSignal(): { state: SignalState; actions: SignalActions } {
 
       return plaintext;
     } catch (error) {
-      console.error('[Signal] Failed to decrypt message:', error);
-      throw new Error('解密消息失败');
+      if (!isExpectedOldCounterError(error)) {
+        console.error('[Signal] Failed to decrypt message:', error);
+      }
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new Error(`解密消息失败: ${detail}`);
     }
   };
 

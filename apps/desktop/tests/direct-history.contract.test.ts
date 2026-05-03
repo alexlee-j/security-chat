@@ -8,6 +8,7 @@ import {
   localMessageToMessageItem,
   pendingEnvelopeToMessageItem,
   processPendingDirectEnvelopes,
+  resolvePayloadDecodeRoute,
   resolveRealtimeConversationSyncPlan,
   retryTransportKind,
 } from '../src/core/direct-history';
@@ -159,6 +160,27 @@ async function main(): Promise<void> {
   assert.deepEqual(envelopeResult.ackedMessageIds, []);
   assert.equal(envelopeResult.maxIndex, 12);
 
+  const duplicateAckOperations: string[] = [];
+  const duplicateAck = await processPendingDirectEnvelopes({
+  pendingRows: [pending],
+  afterIndex: 12,
+  decodePayload: async () => {
+    throw new Error('message with old counter 2 / 1');
+  },
+  ensureLocalConversation: async () => {
+    duplicateAckOperations.push('ensure');
+  },
+  saveMessage: async () => {
+    duplicateAckOperations.push('save');
+  },
+  ackPersisted: async (_conversationId, messageIds, maxIndex) => {
+    duplicateAckOperations.push(`ack:${messageIds.join(',')}:${maxIndex}`);
+  },
+  });
+  assert.deepEqual(duplicateAckOperations, ['ack:message-pending:13']);
+  assert.deepEqual(duplicateAck.ackedMessageIds, ['message-pending']);
+  assert.equal(duplicateAck.maxIndex, 13);
+
   const realtimePlan = resolveRealtimeConversationSyncPlan({
     conversationId: 'conversation-1',
     activeConversationId: 'conversation-1',
@@ -170,6 +192,22 @@ async function main(): Promise<void> {
     applyToActive: true,
     localFirstDirect: true,
   });
+  assert.equal(
+    resolvePayloadDecodeRoute({
+      payload: JSON.stringify({ v: 1, impl: 'rust', mt: 1, body: 'ciphertext' }),
+      isGroupConversation: false,
+      hasSenderId: true,
+    }),
+    'direct-signal',
+  );
+  assert.equal(
+    resolvePayloadDecodeRoute({
+      payload: JSON.stringify({ v: 1, impl: 'rust-group', gid: 'group-1', body: 'ciphertext' }),
+      isGroupConversation: true,
+      hasSenderId: true,
+    }),
+    'group-signal',
+  );
 
   assert.equal(retryTransportKind({ kind: 'direct_v2' }), 'send-v2');
   assert.equal(retryTransportKind({ kind: 'group_v1' }), 'send-v1');

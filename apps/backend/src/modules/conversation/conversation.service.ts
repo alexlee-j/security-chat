@@ -637,7 +637,7 @@ export class ConversationService {
       isMuted: boolean;
       hidden: boolean;
       isOnline?: boolean;
-      peerUser: { userId: string; username: string; avatarUrl: string | null } | null;
+      peerUser: { userId: string; username: string; avatarUrl: string | null; isOnline?: boolean } | null;
       groupInfo: { name: string; memberCount: number } | null;
       lastMessage: {
         messageId: string;
@@ -770,6 +770,7 @@ export class ConversationService {
               userId: row.peer_user_id,
               username: row.peer_username ?? '',
               avatarUrl: row.peer_avatar_url,
+              isOnline: onlineStatusMap.get(row.peer_user_id) ?? false,
             }
           : null,
         groupInfo: row.type === 2
