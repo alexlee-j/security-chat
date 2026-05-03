@@ -82,6 +82,7 @@ describe('CallService', () => {
         const values: Record<string, string> = {
           CALL_RING_TIMEOUT_SECONDS: '30',
           CALL_CONNECT_TIMEOUT_SECONDS: '45',
+          CALL_ACTIVE_TTL_SECONDS: '86400',
           CALL_CREATE_OFFLINE_HISTORY: 'true',
         };
         return values[key] ?? fallback;
@@ -162,6 +163,23 @@ describe('CallService', () => {
 
     expect(callerRelay.targetUserId).toBe(calleeUserId);
     expect(callerRelay.targetDeviceId).toBe(calleeDeviceA);
+  });
+
+  it('keeps connected call sessions beyond the connection timeout', async () => {
+    await service.registerOnlineDevice(calleeUserId, calleeDeviceA);
+    const invite = await service.invite({ userId: callerUserId, deviceId: callerDeviceId }, { conversationId });
+    const callId = invite.session?.callId as string;
+    await service.accept({ userId: calleeUserId, deviceId: calleeDeviceA }, { callId });
+    redis.set.mockClear();
+
+    await service.markConnected({ userId: callerUserId, deviceId: callerDeviceId }, { callId });
+
+    expect(redis.set).toHaveBeenCalledWith(
+      `call:session:${callId}`,
+      expect.any(String),
+      'EX',
+      '86400',
+    );
   });
 
   it('records missed outcome and clears ringing session on timeout', async () => {

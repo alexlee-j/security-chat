@@ -12,6 +12,7 @@ import { ConfigService } from '@nestjs/config';
 import { Server, Socket } from 'socket.io';
 import { CallService } from './call.service';
 import { WsAuthService } from '../auth/ws-auth.service';
+import type { RelayTarget } from './types/call.types';
 
 type CallSocket = Socket & {
   data: {
@@ -133,6 +134,7 @@ export class CallGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
       return;
     }
     const session = await this.callService.markConnected(this.actor(client), { callId: payload.callId });
+    this.clearTimeoutTimer(session.callId);
     this.emitToParticipants(session, 'call.connected', this.publicSession(session));
   }
 
@@ -143,7 +145,17 @@ export class CallGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
 
   @SubscribeMessage('call.answer')
   async answer(@ConnectedSocket() client: CallSocket, @MessageBody() payload: { callId?: string; sdp?: string }): Promise<void> {
-    await this.relay(client, 'call.answer', payload);
+    const relayTarget = await this.relay(client, 'call.answer', payload);
+    if (!payload?.callId || !relayTarget) {
+      return;
+    }
+    try {
+      const session = await this.callService.markConnected(this.actor(client), { callId: payload.callId });
+      this.clearTimeoutTimer(session.callId);
+      this.emitToParticipants(session, 'call.connected', this.publicSession(session));
+    } catch (error) {
+      this.emitError(client, error);
+    }
   }
 
   @SubscribeMessage('call.ice-candidate')
@@ -151,10 +163,10 @@ export class CallGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
     await this.relay(client, 'call.ice-candidate', payload);
   }
 
-  private async relay(client: CallSocket, event: string, payload: { callId?: string; sdp?: string; candidate?: unknown }): Promise<void> {
+  private async relay(client: CallSocket, event: string, payload: { callId?: string; sdp?: string; candidate?: unknown }): Promise<RelayTarget | null> {
     if (!payload?.callId) {
       client.emit('call.error', { code: 'INVALID_REQUEST', message: 'callId is required' });
-      return;
+      return null;
     }
     try {
       const target = await this.callService.assertRelayAllowed(this.actor(client), payload.callId);
@@ -166,8 +178,10 @@ export class CallGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
         sdp: payload.sdp,
         candidate: payload.candidate,
       });
+      return target;
     } catch (error) {
       this.emitError(client, error);
+      return null;
     }
   }
 

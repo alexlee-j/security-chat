@@ -8,6 +8,7 @@ import {
   localMessageToMessageItem,
   pendingEnvelopeToMessageItem,
   processPendingDirectEnvelopes,
+  resolveRealtimeConversationSyncPlan,
   retryTransportKind,
 } from '../src/core/direct-history';
 import type { LocalMessage } from '../src/core/use-local-db';
@@ -137,6 +138,38 @@ async function main(): Promise<void> {
   assert.deepEqual(failedOperations, []);
   assert.deepEqual(failed.ackedMessageIds, []);
   assert.equal(failed.maxIndex, 12);
+
+  const envelopeOperations: string[] = [];
+  const encryptedEnvelope = JSON.stringify({ v: 1, impl: 'rust', mt: 1, body: 'ciphertext' });
+  const envelopeResult = await processPendingDirectEnvelopes({
+  pendingRows: [{ ...pending, encryptedPayload: encryptedEnvelope }],
+  afterIndex: 12,
+  decodePayload: async () => encryptedEnvelope,
+  ensureLocalConversation: async () => {
+    envelopeOperations.push('ensure');
+  },
+  saveMessage: async () => {
+    envelopeOperations.push('save');
+  },
+  ackPersisted: async () => {
+    envelopeOperations.push('ack');
+  },
+  });
+  assert.deepEqual(envelopeOperations, []);
+  assert.deepEqual(envelopeResult.ackedMessageIds, []);
+  assert.equal(envelopeResult.maxIndex, 12);
+
+  const realtimePlan = resolveRealtimeConversationSyncPlan({
+    conversationId: 'conversation-1',
+    activeConversationId: 'conversation-1',
+    conversations: [{ conversationId: 'conversation-1', type: 1 }],
+    localFirstDirectEnabled: true,
+  });
+  assert.deepEqual(realtimePlan, {
+    conversationId: 'conversation-1',
+    applyToActive: true,
+    localFirstDirect: true,
+  });
 
   assert.equal(retryTransportKind({ kind: 'direct_v2' }), 'send-v2');
   assert.equal(retryTransportKind({ kind: 'group_v1' }), 'send-v1');

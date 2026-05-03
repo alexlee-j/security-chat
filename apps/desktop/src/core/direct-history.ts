@@ -9,6 +9,18 @@ function toIso(timestamp: number): string {
   return new Date(timestamp).toISOString();
 }
 
+function isUndecryptedTransportEnvelope(value: string): boolean {
+  try {
+    const parsed = JSON.parse(value) as Record<string, unknown>;
+    if (!parsed || typeof parsed !== 'object') {
+      return false;
+    }
+    return parsed.impl === 'rust' && typeof parsed.body === 'string' && typeof parsed.mt === 'number';
+  } catch {
+    return false;
+  }
+}
+
 export type DirectEnvelopeTargetInput = {
   recipientUserId: string;
   currentUserId?: string | null;
@@ -47,6 +59,35 @@ export function buildDirectEnvelopeTargets(input: DirectEnvelopeTargetInput): Di
   }
 
   return targets;
+}
+
+export type RealtimeConversationSyncPlanInput = {
+  conversationId?: string | null;
+  activeConversationId?: string | null;
+  conversations: Array<{ conversationId: string; type: number }>;
+  knownType?: number | null;
+  localFirstDirectEnabled: boolean;
+};
+
+export type RealtimeConversationSyncPlan = {
+  conversationId: string;
+  applyToActive: boolean;
+  localFirstDirect: boolean;
+};
+
+export function resolveRealtimeConversationSyncPlan(
+  input: RealtimeConversationSyncPlanInput,
+): RealtimeConversationSyncPlan | null {
+  const conversationId = input.conversationId?.trim();
+  if (!conversationId) {
+    return null;
+  }
+  const latestType = input.knownType ?? input.conversations.find((row) => row.conversationId === conversationId)?.type ?? null;
+  return {
+    conversationId,
+    applyToActive: conversationId === input.activeConversationId,
+    localFirstDirect: input.localFirstDirectEnabled && latestType === 1,
+  };
 }
 
 export function localMessageToMessageItem(row: LocalMessage): MessageItem {
@@ -234,6 +275,9 @@ export async function processPendingDirectEnvelopes(
         row.sourceSignalDeviceId,
       );
       if (!decrypted) {
+        continue;
+      }
+      if (isUndecryptedTransportEnvelope(decrypted)) {
         continue;
       }
 

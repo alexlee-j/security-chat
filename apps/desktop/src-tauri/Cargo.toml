@@ -13,7 +13,7 @@ tauri-build = { version = "2.5.6", features = [] }
 
 [dependencies]
 # Tauri 2.x 核心
-tauri = { version = "2.10.3", features = ["tray-icon", "image-ico", "image-png", "devtools"] }
+tauri = { version = "2.10.3", features = ["tray-icon", "image-ico", "image-png"] }
 tauri-plugin-log = "2"
 tauri-plugin-shell = "2"
 tauri-plugin-dialog = "2"
@@ -60,9 +60,17 @@ sha2 = "0.10"
 [target.'cfg(target_os = "macos")'.dependencies]
 security-framework = "2.11"
 
+# Windows/Linux secure storage for production local encryption keys.
+[target.'cfg(target_os = "windows")'.dependencies]
+keyring = { version = "3.6.3", default-features = false, features = ["windows-native"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "3.6.3", default-features = false, features = ["linux-native-sync-persistent"] }
+
 [features]
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
+desktop-devtools = ["tauri/devtools"]
 
 [profile.release]
 panic = "abort"

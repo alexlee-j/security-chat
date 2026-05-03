@@ -2,6 +2,9 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 import { writeFileSync, readFileSync, existsSync, readdirSync } from 'fs';
+import { fileURLToPath } from 'url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   plugins: [
@@ -50,5 +53,10 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
+    // Tauri loads assets from the local bundle, so the main app chunk can be
+    // larger than Vite's web-default 500 kB budget without affecting network
+    // startup. Keep the warning budget explicit so real chunk regressions still
+    // stand out in release output.
+    chunkSizeWarningLimit: 1300,
   },
 });

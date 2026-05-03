@@ -9,14 +9,13 @@ use tauri::State;
 /// 应用数据库状态
 pub struct AppDbState {
     pub store: DbStore,
-    pub db_path: PathBuf,
 }
 
 impl AppDbState {
     /// 创建新的数据库状态
     pub fn new(db_path: PathBuf) -> Result<Self, String> {
         let store = crate::db::local_store::create_db_store(&db_path)?;
-        Ok(Self { store, db_path })
+        Ok(Self { store })
     }
 }
 

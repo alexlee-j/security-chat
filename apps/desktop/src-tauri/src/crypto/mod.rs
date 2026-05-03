@@ -2,8 +2,8 @@
 //!
 //! Week 11: macOS Keychain 集成和加密存储方案
 
-pub mod keychain;
 pub mod media;
+pub mod secure_key_provider;
 
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", not(test)))]
 pub mod mac_keychain;

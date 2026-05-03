@@ -107,7 +107,7 @@ impl GroupSession {
     /// Create a new group session
     pub fn new(_group_id: &str, creator_id: &str) -> Self {
         let mut group_key = [0u8; 32];
-        rand::thread_rng().fill(&mut group_key);
+        rand::rng().fill(&mut group_key);
 
         let mut session = Self {
             group_key,
@@ -125,8 +125,8 @@ impl GroupSession {
     pub fn generate_sender_key(&mut self, user_id: &str) {
         let mut sender_key = [0u8; 32];
         let mut chain_key = [0u8; 32];
-        rand::thread_rng().fill(&mut sender_key);
-        rand::thread_rng().fill(&mut chain_key);
+        rand::rng().fill(&mut sender_key);
+        rand::rng().fill(&mut chain_key);
 
         self.sender_keys.insert(
             user_id.to_string(),
@@ -151,7 +151,7 @@ impl GroupSession {
             .map_err(|e| SenderKeyError::EncryptionFailed(e.to_string()))?;
 
         let mut nonce_bytes = [0u8; 12];
-        rand::thread_rng().fill(&mut nonce_bytes);
+        rand::rng().fill(&mut nonce_bytes);
         let nonce = Nonce::from_slice(&nonce_bytes);
 
         let ciphertext = cipher
@@ -192,7 +192,7 @@ impl GroupSession {
         })?;
 
         let mut chain_key = [0u8; 32];
-        rand::thread_rng().fill(&mut chain_key);
+        rand::rng().fill(&mut chain_key);
 
         self.sender_keys.insert(
             user_id.to_string(),
@@ -313,7 +313,7 @@ impl GroupSession {
 
         // Generate random 12-byte nonce
         let mut nonce_bytes = [0u8; 12];
-        rand::thread_rng().fill(&mut nonce_bytes);
+        rand::rng().fill(&mut nonce_bytes);
         let nonce = Nonce::from_slice(&nonce_bytes);
 
         // Encrypt (ciphertext includes auth tag)

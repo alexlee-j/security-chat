@@ -149,7 +149,7 @@ export class CallService {
       status: 'connected',
       connectedAt: session.connectedAt ?? new Date().toISOString(),
     };
-    await this.saveSession(next, this.connectTimeoutSeconds());
+    await this.saveSession(next, this.activeCallTtlSeconds());
     return next;
   }
 
@@ -259,5 +259,9 @@ export class CallService {
 
   private connectTimeoutSeconds(): number {
     return Number(this.configService.get<string>('CALL_CONNECT_TIMEOUT_SECONDS', '45'));
+  }
+
+  private activeCallTtlSeconds(): number {
+    return Number(this.configService.get<string>('CALL_ACTIVE_TTL_SECONDS', '86400'));
   }
 }

@@ -17,6 +17,7 @@ import {
   ackDelivered,
   ackRead,
   blockUser,
+  copyMediaAsset,
   createDirectConversation,
   deleteConversation,
   downloadMedia,
@@ -28,9 +29,11 @@ import {
   getConversationMembers,
   getBlockedUsers,
   getConversations,
+  getDevices,
   getDevicesByUserIds,
   getFriends,
   getIncomingRequests,
+  getMessageById,
   getMessages,
   getPendingDirectEnvelopes,
   login,
@@ -39,6 +42,7 @@ import {
   requestFriend,
   register,
   respondFriend,
+  forwardMessage,
   removeFriend,
   searchUsers,
   sendMessage,
@@ -75,6 +79,7 @@ import {
   loadDirectConversationLocalFirst,
   localMessageToMessageItem,
   processPendingDirectEnvelopes,
+  resolveRealtimeConversationSyncPlan,
   retryTransportKind,
 } from './direct-history';
 import { LocalConversation, LocalMessage, useLocalDb } from './use-local-db';
@@ -89,7 +94,10 @@ import {
   WsConversationEvent,
 } from './types';
 import { useSignal } from './use-signal';
+import { KeyManager } from './signal/key-management';
 import { isSignalProtocolError, isExpectedSignalError } from './signal/errors';
+import { messageEncryptionService } from './signal/message-encryption';
+import { RustSignalRuntime } from './signal/rust-signal';
 import {
   storeCredentials,
   getStoredCredentials,
@@ -500,6 +508,9 @@ export function useChatClient(): {
       return decrypted;
     } catch (error) {
       console.error('Decryption failed:', error);
+      if (payload.trim().startsWith('{')) {
+        throw error instanceof Error ? error : new Error('Signal payload decryption failed');
+      }
       return payload;
     }
   };
@@ -531,7 +542,8 @@ export function useChatClient(): {
         if (!payloadCacheRef.current.has(payload)) {
             const message = messagesRef.current.find(m => m.encryptedPayload === payload);
             if (message) {
-            void decodePayload(payload, message.senderId, message.sourceDeviceId, message.conversationId, message.sourceSignalDeviceId);
+            void decodePayload(payload, message.senderId, message.sourceDeviceId, message.conversationId, message.sourceSignalDeviceId)
+              .catch((error) => console.error('Async decryption failed:', error));
           }
         }
       }, 0);
@@ -1235,7 +1247,7 @@ export function useChatClient(): {
 
         // 登录后获取设备列表并更新本地设备ID（在 initialize 之后）
         try {
-          const devices = await import('./api').then((api) => api.getDevices());
+          const devices = await getDevices();
           if (devices && devices.length > 0) {
             const selectedDevice = (result.deviceId
               ? devices.find((device) => device.deviceId === result.deviceId)
@@ -1333,7 +1345,7 @@ export function useChatClient(): {
 
         // 登录后获取设备列表并更新本地设备ID（在 initialize 之后）
         try {
-          const devices = await import('./api').then((api) => api.getDevices());
+          const devices = await getDevices();
           if (devices && devices.length > 0) {
             const selectedDevice = (result.deviceId
               ? devices.find((device) => device.deviceId === result.deviceId)
@@ -1419,8 +1431,7 @@ export function useChatClient(): {
     }
 
     try {
-      const keyManager = new (await import('./signal/key-management')).KeyManager();
-      const { RustSignalRuntime } = await import('./signal/rust-signal');
+      const keyManager = new KeyManager();
       const rustSignal = new RustSignalRuntime();
       await rustSignal.initializeIdentity();
       const registrationKeys = await rustSignal.getRegistrationKeys();
@@ -1454,7 +1465,7 @@ export function useChatClient(): {
         await new Promise(resolve => setTimeout(resolve, 500));
         
         // 获取设备列表
-        const devices = await import('./api').then((api) => api.getDevices());
+        const devices = await getDevices();
         if (devices && devices.length > 0) {
           const primaryDevice = devices[0]; // 假设第一个设备是主要设备
           
@@ -1470,7 +1481,6 @@ export function useChatClient(): {
 
       // 上传 Rust 侧预密钥
       try {
-        const { messageEncryptionService } = await import('./signal/message-encryption');
         // 使用在注册流程中创建的 keyManager，确保上传正确的预密钥
         await messageEncryptionService.uploadPrekeysWithKeyManager(keyManager);
       } catch (uploadError) {
@@ -2342,7 +2352,6 @@ export function useChatClient(): {
     // 查找原消息（优先从本地缓存查找，找不到则通过 API 获取）
     let originalMessage: MessageItem | undefined | null = messagesRef.current.find((m) => m.id === originalMessageId);
     if (!originalMessage) {
-      const { getMessageById } = await import('./api');
       originalMessage = await getMessageById(originalMessageId);
     }
     if (!originalMessage) {
@@ -2418,7 +2427,6 @@ export function useChatClient(): {
       let forwardedMediaAssetId: string | undefined;
       let forwardedMediaPayload: EncryptedMediaPayload | undefined;
       if (messageType !== 1 && originalMessage.mediaAssetId) {
-        const { copyMediaAsset } = await import('./api');
         const copied = await copyMediaAsset(originalMessage.mediaAssetId, targetConversationId);
         forwardedMediaAssetId = copied.mediaAssetId;
         if (isEncryptedMediaPayload(originalPayload.media)) {
@@ -2486,7 +2494,6 @@ export function useChatClient(): {
       }
 
       // 调用 send-v2 接口
-      const { sendMessageV2 } = await import('./api');
       const result = await sendMessageV2(buildSendV2TransportPayload({
         conversationId: targetConversationId,
         messageType,
@@ -2506,7 +2513,6 @@ export function useChatClient(): {
       return result;
     } else {
       // 旧版消息调用后端转发接口
-      const { forwardMessage } = await import('./api');
       return await forwardMessage(originalMessageId, targetConversationId);
     }
   }
@@ -2965,13 +2971,33 @@ export function useChatClient(): {
       console.error('WebSocket error:', error);
     });
 
-    const onConversationEvent = (payload: WsConversationEvent): void => {
-      if (payload.conversationId && payload.conversationId === activeConversationIdRef.current) {
-        void syncMessagesDelta(payload.conversationId);
-      } else if (payload.conversationId) {
-        void syncConversationCursor(payload.conversationId, false);
+    const syncConversationAfterRealtimeEvent = async (payload: WsConversationEvent): Promise<void> => {
+      const latestConversations = await loadConversations();
+      const plan = resolveRealtimeConversationSyncPlan({
+        conversationId: payload.conversationId,
+        activeConversationId: activeConversationIdRef.current,
+        conversations: latestConversations,
+        knownType: payload.conversationId ? conversationTypeRef.current.get(payload.conversationId) : null,
+        localFirstDirectEnabled: DIRECT_LOCAL_FIRST_HISTORY_ENABLED,
+      });
+      if (!plan) {
+        return;
       }
-      void loadConversations();
+      if (plan.localFirstDirect) {
+        await syncDirectPendingEnvelopes(plan.conversationId, plan.applyToActive);
+        return;
+      }
+      if (plan.applyToActive) {
+        await syncMessagesDelta(plan.conversationId);
+        return;
+      }
+      await syncConversationCursor(plan.conversationId, false);
+    };
+
+    const onConversationEvent = (payload: WsConversationEvent): void => {
+      void syncConversationAfterRealtimeEvent(payload).catch((error) => {
+        console.error('实时同步会话失败:', error);
+      });
     };
 
     const onMessageRead = (payload: {

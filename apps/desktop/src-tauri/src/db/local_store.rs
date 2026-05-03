@@ -15,39 +15,8 @@ use rusqlite::{Connection, Result as SqliteResult, params};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use thiserror::Error;
 
 const LOCAL_MESSAGE_CONTENT_PREFIX: &str = "v1:";
-const LOCAL_MESSAGE_STORE_KEY_NAME: &str = "local_message_store_key";
-
-/// 数据库错误类型
-#[derive(Error, Debug)]
-pub enum DbError {
-    #[error("SQLite error: {0}")]
-    Sqlite(#[from] rusqlite::Error),
-    #[error("数据库未初始化")]
-    NotInitialized,
-    #[error("数据不存在: {0}")]
-    NotFound(String),
-}
-
-/// 对话类型
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[repr(i32)]
-pub enum ConversationType {
-    Single = 1, // 单聊
-    Group = 2,  // 群聊
-}
-
-/// 消息类型
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[repr(i32)]
-pub enum MessageType {
-    Text = 1,
-    Image = 2,
-    Voice = 3,
-    File = 4,
-}
 
 /// 对话结构
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -445,29 +414,12 @@ impl SqliteStore {
         Ok([0x42; 32])
     }
 
-    #[cfg(all(target_os = "macos", not(test)))]
+    #[cfg(not(test))]
     fn local_message_store_key() -> SqliteResult<[u8; 32]> {
-        match crate::crypto::mac_keychain::MacKeychain::retrieve(LOCAL_MESSAGE_STORE_KEY_NAME) {
-            Ok(existing) if existing.len() == 32 => {
-                let mut key = [0u8; 32];
-                key.copy_from_slice(&existing);
-                Ok(key)
-            }
-            Ok(_) | Err(_) => {
-                let key = rand::random::<[u8; 32]>();
-                crate::crypto::mac_keychain::MacKeychain::store(LOCAL_MESSAGE_STORE_KEY_NAME, &key)
-                    .map_err(|error| {
-                        Self::crypto_error(format!("keychain store failed: {error}"))
-                    })?;
-                Ok(key)
-            }
-        }
-    }
-
-    #[cfg(all(not(target_os = "macos"), not(test)))]
-    fn local_message_store_key() -> SqliteResult<[u8; 32]> {
-        // Development fallback for non-macOS builds; production secure storage is macOS Keychain.
-        Ok([0x24; 32])
+        crate::crypto::secure_key_provider::load_or_create_key(
+            crate::crypto::secure_key_provider::SecureKeySlot::LocalMessageStore,
+        )
+        .map_err(|error| Self::crypto_error(format!("secure key provider failed: {error}")))
     }
 
     fn crypto_error(message: String) -> rusqlite::Error {

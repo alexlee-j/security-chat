@@ -3,9 +3,7 @@
 //! 使用 security_framework 库实现 macOS Keychain 存储
 //! Week 11: 密钥安全存储
 
-use security_framework::passwords::{
-    delete_generic_password, get_generic_password, set_generic_password,
-};
+use security_framework::passwords::{get_generic_password, set_generic_password};
 use thiserror::Error;
 
 /// Keychain 错误类型
@@ -56,32 +54,5 @@ impl MacKeychain {
                 }
             }
         }
-    }
-
-    /// 从 Keychain 删除密钥
-    ///
-    /// # Arguments
-    /// * `key_type` - 密钥类型标识
-    pub fn delete(key_type: &str) -> Result<(), KeychainError> {
-        match delete_generic_password(SERVICE_NAME, key_type) {
-            Ok(_) => Ok(()),
-            Err(e) => {
-                let err_str = e.to_string();
-                // ItemNotFound 错误认为删除成功
-                if err_str.contains("ItemNotFound") || err_str.contains("not found") {
-                    Ok(())
-                } else {
-                    Err(KeychainError::SecurityFramework(err_str))
-                }
-            }
-        }
-    }
-
-    /// 检查密钥是否存在
-    ///
-    /// # Arguments
-    /// * `key_type` - 密钥类型标识
-    pub fn exists(key_type: &str) -> bool {
-        matches!(get_generic_password(SERVICE_NAME, key_type), Ok(_))
     }
 }

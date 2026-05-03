@@ -7,9 +7,9 @@ use base64::{Engine, engine::general_purpose};
 use libsignal_protocol::{
     CiphertextMessage, DeviceId, GenericSignedPreKey, IdentityKey, IdentityKeyPair,
     IdentityKeyStore, KeyPair, KyberPreKeyId, KyberPreKeyRecord, KyberPreKeyStore, PreKeyBundle,
-    PreKeyId, PreKeyRecord, PreKeyStore, ProtocolAddress, PublicKey, SignalProtocolError,
-    SignedPreKeyId, SignedPreKeyRecord, SignedPreKeyStore, Timestamp, message_decrypt,
-    message_encrypt, process_prekey_bundle,
+    PreKeyId, PreKeyRecord, PreKeyStore, ProtocolAddress, PublicKey, SessionStore,
+    SignalProtocolError, SignedPreKeyId, SignedPreKeyRecord, SignedPreKeyStore, Timestamp,
+    message_decrypt, message_encrypt, process_prekey_bundle,
 };
 use rand::Rng as _;
 use rand::TryRngCore as _;
@@ -103,29 +103,7 @@ pub async fn establish_session_command(
                 device_id_from_signal_device_id(recipient_signal_device_id)?,
             );
             let bundle = convert_remote_prekey_bundle(prekey_bundle)?;
-            let mut rng = OsRng.unwrap_err();
-            let ptr = store as *mut SQLiteStore;
-            unsafe {
-                // Accept latest remote identity for this address before processing
-                // the prekey bundle. In current desktop flow we don't expose manual
-                // trust decisions yet, so we follow TOFU update to avoid hard send
-                // failure when remote prekeys rotate.
-                let remote_identity = *bundle.identity_key().map_err(|e| e.to_string())?;
-                IdentityKeyStore::save_identity(&mut *ptr, &address, &remote_identity)
-                    .await
-                    .map_err(|e| e.to_string())?;
-
-                process_prekey_bundle(
-                    &address,
-                    &mut *ptr,
-                    &mut *ptr,
-                    &bundle,
-                    SystemTime::now(),
-                    &mut rng,
-                )
-                .await
-                .map_err(|e| e.to_string())?;
-            }
+            establish_session_with_persistent_store(store, &address, &bundle).await?;
 
             Ok(true)
         })
@@ -207,7 +185,7 @@ where
 }
 
 async fn initialize_persistent_signal_store(store: &mut SQLiteStore) -> Result<(), String> {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     if store.get_identity_key_pair().await.is_err() {
         let identity_key_pair = IdentityKeyPair::generate(&mut rng);
         let registration_id: u32 = rng.random_range(1..65536);
@@ -302,12 +280,51 @@ async fn initialize_persistent_signal_store(store: &mut SQLiteStore) -> Result<(
     Ok(())
 }
 
+async fn establish_session_with_persistent_store(
+    store: &mut SQLiteStore,
+    address: &ProtocolAddress,
+    bundle: &PreKeyBundle,
+) -> Result<(), String> {
+    if SessionStore::load_session(store, address)
+        .await
+        .map_err(|e| e.to_string())?
+        .is_some()
+    {
+        return Ok(());
+    }
+
+    let mut rng = OsRng.unwrap_err();
+    let ptr = store as *mut SQLiteStore;
+    unsafe {
+        // Accept latest remote identity for this address before processing the
+        // first prekey bundle. Once a session exists, the ratchet state must not
+        // be reset before every send.
+        let remote_identity = *bundle.identity_key().map_err(|e| e.to_string())?;
+        IdentityKeyStore::save_identity(&mut *ptr, address, &remote_identity)
+            .await
+            .map_err(|e| e.to_string())?;
+
+        process_prekey_bundle(
+            address,
+            &mut *ptr,
+            &mut *ptr,
+            bundle,
+            SystemTime::now(),
+            &mut rng,
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    }
+
+    Ok(())
+}
+
 async fn encrypt_with_persistent_store(
     store: &mut SQLiteStore,
     address: &ProtocolAddress,
     plaintext: &[u8],
 ) -> Result<EncryptedMessage, String> {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     let ptr = store as *mut SQLiteStore;
     let ciphertext = unsafe {
         message_encrypt(
@@ -370,7 +387,7 @@ async fn decrypt_with_persistent_store(
         }
     };
 
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     let ptr = store as *mut SQLiteStore;
     unsafe {
         message_decrypt(
@@ -723,6 +740,98 @@ mod tests {
             .expect("decrypt");
 
         assert_eq!(decrypted, b"hello-rust-signal");
+    }
+
+    #[tokio::test]
+    async fn repeated_session_establish_before_send_keeps_existing_ratchet_session() {
+        let mut alice_store = SQLiteStore::new("sqlite::memory:")
+            .await
+            .expect("create alice store");
+        let mut bob_store = SQLiteStore::new("sqlite::memory:")
+            .await
+            .expect("create bob store");
+        initialize_persistent_signal_store(&mut alice_store)
+            .await
+            .expect("init alice");
+        initialize_persistent_signal_store(&mut bob_store)
+            .await
+            .expect("init bob");
+
+        let bob_bundle = get_local_prekey_upload_impl(&bob_store, 1)
+            .await
+            .expect("export bob bundle");
+        let remote_bundle = RemotePrekeyBundleDto {
+            registration_id: bob_bundle.registration_id,
+            signal_device_id: 7,
+            identity_key: bob_bundle.identity_public_key,
+            signed_prekey: bob_bundle.signed_prekey.clone(),
+            one_time_prekey: bob_bundle.one_time_prekeys.first().cloned(),
+            kyber_prekey: bob_bundle.kyber_prekey.clone(),
+        };
+        let converted = convert_remote_prekey_bundle(remote_bundle).expect("convert remote bundle");
+        let bob_addr = ProtocolAddress::new("bob#device".to_string(), DeviceId::new(7).unwrap());
+
+        for plaintext in [b"first".as_slice(), b"second".as_slice()] {
+            establish_session_with_persistent_store(&mut alice_store, &bob_addr, &converted)
+                .await
+                .expect("establish session");
+
+            let encrypted = encrypt_with_persistent_store(&mut alice_store, &bob_addr, plaintext)
+                .await
+                .expect("encrypt");
+            let decrypted = decrypt_with_persistent_store(&mut bob_store, &bob_addr, &encrypted)
+                .await
+                .expect("decrypt");
+
+            assert_eq!(decrypted, plaintext);
+        }
+    }
+
+    #[tokio::test]
+    async fn direct_messages_decrypt_with_sender_address_after_multiple_sends() {
+        let mut alice_store = SQLiteStore::new("sqlite::memory:")
+            .await
+            .expect("create alice store");
+        let mut bob_store = SQLiteStore::new("sqlite::memory:")
+            .await
+            .expect("create bob store");
+        initialize_persistent_signal_store(&mut alice_store)
+            .await
+            .expect("init alice");
+        initialize_persistent_signal_store(&mut bob_store)
+            .await
+            .expect("init bob");
+
+        let bob_bundle = get_local_prekey_upload_impl(&bob_store, 1)
+            .await
+            .expect("export bob bundle");
+        let remote_bundle = RemotePrekeyBundleDto {
+            registration_id: bob_bundle.registration_id,
+            signal_device_id: 7,
+            identity_key: bob_bundle.identity_public_key,
+            signed_prekey: bob_bundle.signed_prekey.clone(),
+            one_time_prekey: bob_bundle.one_time_prekeys.first().cloned(),
+            kyber_prekey: bob_bundle.kyber_prekey.clone(),
+        };
+        let converted = convert_remote_prekey_bundle(remote_bundle).expect("convert remote bundle");
+        let bob_addr = ProtocolAddress::new("bob#device".to_string(), DeviceId::new(7).unwrap());
+        let alice_addr =
+            ProtocolAddress::new("alice#device".to_string(), DeviceId::new(3).unwrap());
+
+        establish_session_with_persistent_store(&mut alice_store, &bob_addr, &converted)
+            .await
+            .expect("establish session");
+
+        for plaintext in [b"first".as_slice(), b"second".as_slice()] {
+            let encrypted = encrypt_with_persistent_store(&mut alice_store, &bob_addr, plaintext)
+                .await
+                .expect("encrypt");
+            let decrypted = decrypt_with_persistent_store(&mut bob_store, &alice_addr, &encrypted)
+                .await
+                .expect("decrypt");
+
+            assert_eq!(decrypted, plaintext);
+        }
     }
 
     #[tokio::test]

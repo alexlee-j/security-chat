@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "description": "Security Chat - 端到端加密的安全聊天应用",
   "author": "Security Chat Team",
+  "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",

@@ -481,7 +481,8 @@ export function useVoiceCallClient(input: UseVoiceCallClientInput): UseVoiceCall
         conversationId: payload.conversationId,
         sdp: answer.sdp,
       });
-      dispatch({ type: 'connecting', callId: payload.callId, conversationId: payload.conversationId, direction: 'incoming' });
+      dispatch({ type: 'connected', callId: payload.callId, conversationId: payload.conversationId });
+      startElapsedTimer();
     };
 
     const handleAnswer = async (payload: CallRelayPayload): Promise<void> => {

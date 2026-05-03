@@ -45,6 +45,7 @@ import {
   type VoiceRecorderDraft,
 } from './voice-recorder';
 import type { VoiceCallHistoryEntry } from '../../core/voice-call-engine';
+import { getConversations, revokeMessage } from '../../core/api';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { AppAvatar } from '@/components/app-avatar';
@@ -176,6 +177,10 @@ function parsePayload(raw: string): PayloadData {
   try {
     const parsed = JSON.parse(raw) as PayloadData;
     if (typeof parsed === 'object' && parsed) {
+      const envelope = parsed as PayloadData & { impl?: unknown; body?: unknown; mt?: unknown };
+      if (envelope.impl === 'rust' && typeof envelope.body === 'string' && typeof envelope.mt === 'number') {
+        return { text: '[消息解密失败]' };
+      }
       return parsed;
     }
     return { text: raw };
@@ -1319,7 +1324,6 @@ export function ChatPanel(props: Props): JSX.Element {
 
   async function loadForwardConversations(): Promise<void> {
     try {
-      const { getConversations } = await import('../../core/api');
       const conversations = await getConversations();
       setForwardConversations(conversations);
     } catch (error) {
@@ -1577,7 +1581,7 @@ export function ChatPanel(props: Props): JSX.Element {
       return;
     }
     try {
-      await import('../../core/api').then(({ revokeMessage }) => revokeMessage(confirmDialog.messageId));
+      await revokeMessage(confirmDialog.messageId);
       showToast('消息已撤回', 'success');
       // 刷新会话以更新消息列表，确保用户能立即看到删除效果
       await props.onRefreshConversation();

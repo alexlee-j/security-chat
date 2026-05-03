@@ -13,14 +13,8 @@ use libsignal_protocol::{
 use sqlx::SqlitePool;
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use std::str::FromStr;
-use std::sync::Arc;
 
-#[cfg(all(target_os = "macos", not(test)))]
-const SIGNAL_STORE_KEY_NAME: &str = "signal_protocol_store_key";
 const ENCRYPTED_PREFIX: &[u8] = b"v1:";
-
-/// SQLite 连接池类型
-pub type DbPool = SqlitePool;
 
 /// SQLite Signal Protocol Store
 ///
@@ -44,12 +38,8 @@ impl SQLiteStore {
         Ok(store)
     }
 
-    /// 从现有连接池创建
-    pub fn from_pool(pool: SqlitePool) -> Self {
-        Self { pool }
-    }
-
     /// 获取连接池引用（用于 get_prekey_bundle 等函数）
+    #[cfg(test)]
     pub fn pool(&self) -> &SqlitePool {
         &self.pool
     }
@@ -362,28 +352,12 @@ impl SQLiteStore {
         Ok([0x51; 32])
     }
 
-    #[cfg(all(target_os = "macos", not(test)))]
+    #[cfg(not(test))]
     fn signal_store_key() -> Result<[u8; 32], sqlx::Error> {
-        match crate::crypto::mac_keychain::MacKeychain::retrieve(SIGNAL_STORE_KEY_NAME) {
-            Ok(existing) if existing.len() == 32 => {
-                let mut key = [0u8; 32];
-                key.copy_from_slice(&existing);
-                Ok(key)
-            }
-            Ok(_) | Err(_) => {
-                let key = rand::random::<[u8; 32]>();
-                crate::crypto::mac_keychain::MacKeychain::store(SIGNAL_STORE_KEY_NAME, &key)
-                    .map_err(|error| {
-                        sqlx::Error::Protocol(format!("keychain store failed: {error}"))
-                    })?;
-                Ok(key)
-            }
-        }
-    }
-
-    #[cfg(all(not(target_os = "macos"), not(test)))]
-    fn signal_store_key() -> Result<[u8; 32], sqlx::Error> {
-        Ok([0x25; 32])
+        crate::crypto::secure_key_provider::load_or_create_key(
+            crate::crypto::secure_key_provider::SecureKeySlot::SignalStore,
+        )
+        .map_err(|error| sqlx::Error::Protocol(format!("secure key provider failed: {error}")))
     }
 }
 
@@ -677,13 +651,6 @@ impl SessionStore for SQLiteStore {
     }
 }
 
-/// 创建 SQLite Store 用于测试
-pub async fn create_test_store() -> Result<Arc<SQLiteStore>, sqlx::Error> {
-    // 使用内存数据库进行测试
-    let store = SQLiteStore::new("sqlite::memory:").await?;
-    Ok(Arc::new(store))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -692,7 +659,7 @@ mod tests {
         let store = SQLiteStore::new("sqlite::memory:")
             .await
             .expect("create store");
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         let identity_key_pair = IdentityKeyPair::generate(&mut rng);
         store
             .init_identity(&identity_key_pair, 31337)
@@ -789,7 +756,7 @@ mod tests {
         let store = SQLiteStore::new(database_url)
             .await
             .expect("create file store");
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         let identity_key_pair = IdentityKeyPair::generate(&mut rng);
         store
             .init_identity(&identity_key_pair, 31337)
