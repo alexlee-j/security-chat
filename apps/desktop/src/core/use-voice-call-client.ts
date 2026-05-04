@@ -385,11 +385,13 @@ export function useVoiceCallClient(input: UseVoiceCallClientInput): UseVoiceCall
         return;
       }
       elapsedTimerRef.current = setInterval(() => {
-        if (stateRef.current.startedAt) {
-          const startedAtMs = Date.parse(stateRef.current.connectedAt ?? stateRef.current.startedAt ?? '');
-          if (Number.isFinite(startedAtMs)) {
-            dispatch({ type: 'elapsed', seconds: (Date.now() - startedAtMs) / 1000 });
-          }
+        const baseTime = stateRef.current.connectedAt ?? stateRef.current.startedAt;
+        if (!baseTime) {
+          return;
+        }
+        const baseTimeMs = Date.parse(baseTime);
+        if (Number.isFinite(baseTimeMs)) {
+          dispatch({ type: 'elapsed', seconds: (Date.now() - baseTimeMs) / 1000 });
         }
       }, 1000);
       cleanupTimersRef.current.push(elapsedTimerRef.current);

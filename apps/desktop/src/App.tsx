@@ -26,6 +26,7 @@ import { useVoiceCallClient } from './core/use-voice-call-client';
 import { useTheme } from './core/use-theme';
 import { getStoredCredentials, getRememberPassword, canAutoLogin } from './core/auth-storage';
 import { getUserProfile } from './core/api';
+import { isTerminalVoiceCallStatus } from './core/voice-call-engine';
 import {
   Sheet,
   SheetContent,
@@ -300,7 +301,7 @@ export function App(): JSX.Element {
     <main className="workspace-shell">
       {/* 全局错误提示 */}
       {state.error ? <div className="error">{state.error}</div> : null}
-      {voiceCall.state.status !== 'idle' ? (
+      {voiceCall.state.status !== 'idle' && !isTerminalVoiceCallStatus(voiceCall.state.status) ? (
         <section className={`voice-call-banner voice-call-status-${voiceCall.state.status}`}>
           <div className="voice-call-banner-main">
             <span className="material-symbols-rounded voice-call-banner-icon">

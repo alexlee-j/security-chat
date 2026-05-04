@@ -196,6 +196,7 @@ export function reduceVoiceCallState(state: VoiceCallState, event: VoiceCallStat
         direction: 'incoming',
         incomingFromUserId: event.fromUserId,
         incomingFromDeviceId: event.fromDeviceId ?? null,
+        startedAt: state.startedAt ?? new Date().toISOString(),
         error: null,
       };
     case 'accepted':
@@ -224,6 +225,7 @@ export function reduceVoiceCallState(state: VoiceCallState, event: VoiceCallStat
         callId: event.callId,
         conversationId: event.conversationId,
         connectedAt: state.connectedAt ?? new Date().toISOString(),
+        startedAt: state.startedAt ?? state.connectedAt ?? new Date().toISOString(),
         error: null,
         localStreamActive: true,
       };
