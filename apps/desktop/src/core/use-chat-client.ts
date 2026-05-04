@@ -3178,6 +3178,26 @@ export function useChatClient(): {
       setTypingHint(payload.isTyping ? '对方正在输入...' : '');
     });
 
+    client.on('friend.request.received', () => {
+      void (async () => {
+        try {
+          await loadFriendData();
+        } catch (err) {
+          console.error('[WS] Failed to refresh friend data on friend.request.received:', err);
+        }
+      })();
+    });
+
+    client.on('friend.request.responded', () => {
+      void (async () => {
+        try {
+          await loadFriendData();
+        } catch (err) {
+          console.error('[WS] Failed to refresh friend data on friend.request.responded:', err);
+        }
+      })();
+    });
+
     setSocket(client);
     return () => {
       stopFallbackPolling();

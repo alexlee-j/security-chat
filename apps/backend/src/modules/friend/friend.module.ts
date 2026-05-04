@@ -5,9 +5,10 @@ import { User } from '../user/entities/user.entity';
 import { Friendship } from './entities/friendship.entity';
 import { FriendController } from './friend.controller';
 import { FriendService } from './friend.service';
+import { MessageModule } from '../message/message.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Friendship, User]), RedisModule],
+  imports: [TypeOrmModule.forFeature([Friendship, User]), RedisModule, MessageModule],
   controllers: [FriendController],
   providers: [FriendService],
   exports: [FriendService],

@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -16,9 +17,12 @@ import { RespondFriendRequestDto } from './dto/respond-friend-request.dto';
 import { SearchUsersDto } from './dto/search-users.dto';
 import { SendFriendRequestDto } from './dto/send-friend-request.dto';
 import { UnblockUserDto } from './dto/unblock-user.dto';
+import { MessageGateway } from '../message/gateways/message.gateway';
 
 @Injectable()
 export class FriendService {
+  private readonly logger = new Logger(FriendService.name);
+
   constructor(
     @InjectRepository(Friendship)
     private readonly friendshipRepository: Repository<Friendship>,
@@ -27,6 +31,7 @@ export class FriendService {
     @Inject(REDIS_CLIENT)
     private readonly redis: Redis,
     private readonly dataSource: DataSource,
+    private readonly messageGateway: MessageGateway,
   ) {}
 
   async sendRequest(
@@ -112,6 +117,23 @@ export class FriendService {
       }),
     );
 
+    const requester = await this.userRepository.findOne({
+      where: { id: userId },
+      select: ['username', 'avatarUrl'],
+    });
+
+    try {
+      this.messageGateway.emitFriendRequestReceived(dto.targetUserId, {
+        requesterUserId: userId,
+        requesterUsername: requester?.username ?? '',
+        requesterAvatarUrl: requester?.avatarUrl ?? null,
+        remark: dto.remark?.trim() || null,
+        createdAt: new Date().toISOString(),
+      });
+    } catch (err) {
+      this.logger.error(`Failed to emit friend request received to ${dto.targetUserId}`, err);
+    }
+
     return { requested: true, targetUserId: dto.targetUserId };
   }
 
@@ -127,8 +149,26 @@ export class FriendService {
       throw new NotFoundException('Pending friend request not found');
     }
 
+    const responder = await this.userRepository.findOne({
+      where: { id: userId },
+      select: ['username', 'avatarUrl'],
+    });
+
     if (!dto.accept) {
       await this.friendshipRepository.remove(pending);
+
+      try {
+        this.messageGateway.emitFriendRequestResponded(dto.requesterUserId, {
+          targetUserId: userId,
+          targetUsername: responder?.username ?? '',
+          targetAvatarUrl: responder?.avatarUrl ?? null,
+          accepted: false,
+          respondedAt: new Date().toISOString(),
+        });
+      } catch (err) {
+        this.logger.error(`Failed to emit friend request responded to ${dto.requesterUserId}`, err);
+      }
+
       return { accepted: false, requesterUserId: dto.requesterUserId };
     }
 
@@ -151,6 +191,18 @@ export class FriendService {
           remark: null,
         }),
       );
+    }
+
+    try {
+      this.messageGateway.emitFriendRequestResponded(dto.requesterUserId, {
+        targetUserId: userId,
+        targetUsername: responder?.username ?? '',
+        targetAvatarUrl: responder?.avatarUrl ?? null,
+        accepted: true,
+        respondedAt: new Date().toISOString(),
+      });
+    } catch (err) {
+      this.logger.error(`Failed to emit friend request responded to ${dto.requesterUserId}`, err);
     }
 
     return { accepted: true, requesterUserId: dto.requesterUserId };

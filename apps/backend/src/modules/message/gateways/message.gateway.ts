@@ -291,6 +291,22 @@ export class MessageGateway implements OnGatewayInit, OnGatewayConnection, OnGat
     }
   }
 
+  emitFriendRequestReceived(
+    targetUserId: string,
+    payload: { requesterUserId: string; requesterUsername: string; requesterAvatarUrl: string | null; remark: string | null; createdAt: string },
+  ): void {
+    const room = this.userRoom(targetUserId);
+    this.server.to(room).emit('friend.request.received', payload);
+  }
+
+  emitFriendRequestResponded(
+    requesterUserId: string,
+    payload: { targetUserId: string; targetUsername: string; targetAvatarUrl: string | null; accepted: boolean; respondedAt: string },
+  ): void {
+    const room = this.userRoom(requesterUserId);
+    this.server.to(room).emit('friend.request.responded', payload);
+  }
+
   private conversationRoom(conversationId: string): string {
     return `conversation:${conversationId}`;
   }

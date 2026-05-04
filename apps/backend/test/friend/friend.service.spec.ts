@@ -10,6 +10,7 @@ describe('FriendService remove-friend contract', () => {
   let userRepository: jest.Mocked<Repository<User>>;
   let redis: jest.Mocked<Redis>;
   let dataSource: { query: jest.Mock };
+  let messageGateway: { emitFriendRequestReceived: jest.Mock; emitFriendRequestResponded: jest.Mock };
   let service: FriendService;
 
   beforeEach(() => {
@@ -28,8 +29,12 @@ describe('FriendService remove-friend contract', () => {
     dataSource = {
       query: jest.fn().mockResolvedValue([]),
     };
+    messageGateway = {
+      emitFriendRequestReceived: jest.fn(),
+      emitFriendRequestResponded: jest.fn(),
+    };
 
-    service = new FriendService(friendshipRepository, userRepository, redis, dataSource as any);
+    service = new FriendService(friendshipRepository, userRepository, redis, dataSource as any, messageGateway as any);
   });
 
   it('removes both directions of an accepted friendship and preserves chat history', async () => {
@@ -121,5 +126,108 @@ describe('FriendService remove-friend contract', () => {
       expect.stringContaining('UPDATE conversation_members'),
       ['user-a', 'user-b'],
     );
+  });
+
+  describe('sendRequest', () => {
+    it('emits friend.request.received when creating a new pending request', async () => {
+      userRepository.findOne.mockResolvedValueOnce({ id: 'user-b' } as User);
+      friendshipRepository.findOne
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(null);
+      friendshipRepository.save.mockResolvedValue({} as Friendship);
+      userRepository.findOne.mockResolvedValueOnce({ id: 'user-a', username: 'Alice', avatarUrl: 'https://example.com/a.png' } as User);
+
+      await service.sendRequest('user-a', { targetUserId: 'user-b', remark: 'Hey there' } as never);
+
+      expect(messageGateway.emitFriendRequestReceived).toHaveBeenCalledTimes(1);
+      expect(messageGateway.emitFriendRequestReceived).toHaveBeenCalledWith('user-b', {
+        requesterUserId: 'user-a',
+        requesterUsername: 'Alice',
+        requesterAvatarUrl: 'https://example.com/a.png',
+        remark: 'Hey there',
+        createdAt: expect.any(String),
+      });
+    });
+
+    it('does not emit when target already sent a request (mutual acceptance)', async () => {
+      userRepository.findOne.mockResolvedValueOnce({ id: 'user-b' } as User);
+      friendshipRepository.findOne
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({ id: 'fs-1', userId: 'user-b', friendId: 'user-a', status: 0 } as Friendship);
+      friendshipRepository.save.mockResolvedValue({} as Friendship);
+
+      await service.sendRequest('user-a', { targetUserId: 'user-b' } as never);
+
+      expect(messageGateway.emitFriendRequestReceived).not.toHaveBeenCalled();
+    });
+
+    it('does not emit when outgoing request already exists', async () => {
+      userRepository.findOne.mockResolvedValueOnce({ id: 'user-b' } as User);
+      friendshipRepository.findOne
+        .mockResolvedValueOnce({ id: 'fs-1', userId: 'user-a', friendId: 'user-b', status: 0 } as Friendship)
+        .mockResolvedValueOnce(null);
+
+      await service.sendRequest('user-a', { targetUserId: 'user-b' } as never);
+
+      expect(messageGateway.emitFriendRequestReceived).not.toHaveBeenCalled();
+    });
+
+    it('does not emit when already friends', async () => {
+      userRepository.findOne.mockResolvedValueOnce({ id: 'user-b' } as User);
+      friendshipRepository.findOne
+        .mockResolvedValueOnce({ id: 'fs-1', userId: 'user-a', friendId: 'user-b', status: 1 } as Friendship)
+        .mockResolvedValueOnce(null);
+
+      await expect(service.sendRequest('user-a', { targetUserId: 'user-b' } as never)).rejects.toEqual(
+        new BadRequestException('Already friends'),
+      );
+      expect(messageGateway.emitFriendRequestReceived).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('respondRequest', () => {
+    it('emits friend.request.responded with accepted=true when accepting', async () => {
+      friendshipRepository.findOne
+        .mockResolvedValueOnce({ id: 'fs-1', userId: 'user-a', friendId: 'user-b', status: 0 } as Friendship)
+        .mockResolvedValueOnce(null);
+      friendshipRepository.save.mockResolvedValue({} as Friendship);
+      userRepository.findOne.mockResolvedValue({ id: 'user-b', username: 'Bob', avatarUrl: null } as User);
+
+      await service.respondRequest('user-b', { requesterUserId: 'user-a', accept: true } as never);
+
+      expect(messageGateway.emitFriendRequestResponded).toHaveBeenCalledTimes(1);
+      expect(messageGateway.emitFriendRequestResponded).toHaveBeenCalledWith('user-a', {
+        targetUserId: 'user-b',
+        targetUsername: 'Bob',
+        targetAvatarUrl: null,
+        accepted: true,
+        respondedAt: expect.any(String),
+      });
+    });
+
+    it('emits friend.request.responded with accepted=false when rejecting', async () => {
+      friendshipRepository.findOne.mockResolvedValueOnce({ id: 'fs-1', userId: 'user-a', friendId: 'user-b', status: 0 } as Friendship);
+      userRepository.findOne.mockResolvedValue({ id: 'user-b', username: 'Bob', avatarUrl: null } as User);
+
+      await service.respondRequest('user-b', { requesterUserId: 'user-a', accept: false } as never);
+
+      expect(messageGateway.emitFriendRequestResponded).toHaveBeenCalledTimes(1);
+      expect(messageGateway.emitFriendRequestResponded).toHaveBeenCalledWith('user-a', {
+        targetUserId: 'user-b',
+        targetUsername: 'Bob',
+        targetAvatarUrl: null,
+        accepted: false,
+        respondedAt: expect.any(String),
+      });
+    });
+
+    it('does not emit when pending request is not found', async () => {
+      friendshipRepository.findOne.mockResolvedValueOnce(null);
+
+      await expect(service.respondRequest('user-b', { requesterUserId: 'user-a', accept: true } as never)).rejects.toEqual(
+        new NotFoundException('Pending friend request not found'),
+      );
+      expect(messageGateway.emitFriendRequestResponded).not.toHaveBeenCalled();
+    });
   });
 });
