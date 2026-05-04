@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from '../auth/auth.module';
 import { ConversationModule } from '../conversation/conversation.module';
@@ -16,7 +16,7 @@ import { MediaAsset } from '../media/entities/media-asset.entity';
   imports: [
     TypeOrmModule.forFeature([Message, MessageDeviceEnvelope, DraftMessage, RevokeEvent, MediaAsset]),
     ConversationModule,
-    AuthModule,
+    forwardRef(() => AuthModule),
     NotificationModule,
   ],
   controllers: [MessageController],
